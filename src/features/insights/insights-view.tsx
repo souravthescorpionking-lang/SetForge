@@ -23,9 +23,9 @@ import {
   Trophy,
 } from "lucide-react";
 import { useApp } from "@/lib/client/store";
-import { recordsApi, statsApi } from "@/lib/client/api";
+import { recordsApi, statsApi, workoutsApi } from "@/lib/client/api";
 import { qk } from "@/lib/client/query";
-import { formatDayLabel, formatSec, round1, round2 } from "@/lib/client/format";
+import { dayKeyOf, formatDayLabel, formatSec, round1, round2 } from "@/lib/client/format";
 import { KpiCard } from "./kpi-card";
 import { ActivityGrid } from "./activity-grid";
 import { VolumeByExercise } from "./volume-chart";
@@ -38,6 +38,13 @@ const PERIODS: Array<{ value: "week" | "month" | "year" | "all"; label: string }
   { value: "year", label: "1y" },
   { value: "all", label: "All" },
 ];
+
+/** Compact display for big numbers: 427669 → 427.7k, 1322136 → 1.32M */
+function compact(n: number): string {
+  if (n >= 1_000_000) return `${round2(n / 1_000_000)}M`;
+  if (n >= 100_000) return `${round1(n / 1000)}k`;
+  return round1(n);
+}
 
 export function InsightsView() {
   const navigate = useApp((s) => s.navigate);
@@ -54,6 +61,15 @@ export function InsightsView() {
     queryKey: qk.records,
     queryFn: () => recordsApi.all(),
   });
+  // workout summaries feed the activity-grid intensity buckets (volume per day)
+  const workoutsQuery = useQuery({
+    queryKey: qk.workoutList(),
+    queryFn: () => workoutsApi.list(),
+  });
+  const volumeByDate = useMemo(
+    () => new Map((workoutsQuery.data?.workouts ?? []).map((w) => [dayKeyOf(w.date), w.volume] as const)),
+    [workoutsQuery.data],
+  );
 
   const stats = statsQuery.data;
   const records = recordsQuery.data?.records ?? [];
@@ -112,7 +128,7 @@ export function InsightsView() {
             accent
           />
           <KpiCard icon={Layers} label="Sets" value={String(stats.setCount)} delay={0.05} />
-          <KpiCard icon={Dumbbell} label="Volume" value={round1(stats.volume)} suffix="kg" delay={0.1} />
+          <KpiCard icon={Dumbbell} label="Volume" value={compact(stats.volume)} suffix="kg" delay={0.1} />
           <KpiCard icon={Repeat} label="Reps" value={String(stats.reps)} delay={0.15} />
           <KpiCard icon={Clock} label="Time" value={stats.durationSec > 0 ? formatSec(stats.durationSec) : "–"} delay={0.2} />
           <KpiCard icon={MapPin} label="Distance" value={stats.distance > 0 ? round2(stats.distance) : "–"} suffix={stats.distance > 0 ? "km" : undefined} delay={0.25} />
@@ -197,7 +213,7 @@ export function InsightsView() {
       )}
 
       {/* activity grid */}
-      {stats && <ActivityGrid dates={stats.workoutDates} />}
+      {stats && <ActivityGrid dates={stats.workoutDates} volumeByDate={volumeByDate} />}
 
       {/* charts + records */}
       <div className="grid gap-4 lg:grid-cols-2">

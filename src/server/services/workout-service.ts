@@ -80,7 +80,10 @@ export async function getWorkout(userId: string, id: string) {
   return mapWorkout(w);
 }
 
-export async function listWorkouts(userId: string, opts: { from?: string; to?: string; limit?: number }) {
+export async function listWorkouts(
+  userId: string,
+  opts: { from?: string; to?: string; limit?: number; search?: string },
+) {
   const where: Prisma.WorkoutWhereInput = { userId };
   if (opts.from || opts.to) {
     where.date = {
@@ -94,6 +97,23 @@ export async function listWorkouts(userId: string, opts: { from?: string; to?: s
     take: opts.limit ?? 500,
     include: workoutInclude,
   });
+  // Case-insensitive search across comment, exercise names and category names.
+  // Done in JS (not Prisma `contains`) so behaviour is identical on SQLite and
+  // Postgres (Prisma has no `mode: insensitive` on SQLite).
+  if (opts.search && opts.search.trim()) {
+    const q = opts.search.trim().toLowerCase();
+    return rows
+      .filter(
+        (w) =>
+          w.comment?.toLowerCase().includes(q) ||
+          w.exercises.some(
+            (we) =>
+              we.exercise.name.toLowerCase().includes(q) ||
+              we.exercise.category?.name.toLowerCase().includes(q),
+          ),
+      )
+      .map(mapWorkoutSummary);
+  }
   return rows.map(mapWorkoutSummary);
 }
 

@@ -3,7 +3,7 @@
 // WorkoutHistoryView — browsable timeline of every logged workout.
 // Month-grouped, searchable, category-filterable, expandable cards with
 // full set details, plus open-in-day / copy / delete actions.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Input } from "@/components/ui/input";
@@ -49,34 +49,34 @@ export function WorkoutHistoryView() {
   const categories = useCategories();
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [pendingDelete, setPendingDelete] = useState<WorkoutSummaryDTO | null>(null);
 
-  // all workouts (summaries, newest first from the API)
+  // debounce search → server-side query (matches comments, exercise + category names)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // all workouts (summaries, newest first; server-filtered when searching)
   const listQuery = useQuery({
-    queryKey: qk.workoutList(),
-    queryFn: () => workoutsApi.list(),
+    queryKey: qk.workoutList({ search: debouncedSearch || undefined }),
+    queryFn: () => workoutsApi.list({ search: debouncedSearch || undefined }),
   });
   const workouts = listQuery.data?.workouts ?? [];
 
   // ---------- filtering ----------
+  // Text search is already applied server-side; locally we apply the
+  // category chip filter + sort direction only.
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     let rows = workouts;
-    if (q) {
-      rows = rows.filter(
-        (w) =>
-          w.comment?.toLowerCase().includes(q) ||
-          w.categories.some((c) => c.name.toLowerCase().includes(q)) ||
-          formatDayLabel(dayKeyOf(w.date)).toLowerCase().includes(q),
-      );
-    }
     if (categoryFilter) {
       rows = rows.filter((w) => w.categories.some((c) => c.name === categoryFilter));
     }
     return sortDir === "desc" ? rows : [...rows].reverse();
-  }, [workouts, search, categoryFilter, sortDir]);
+  }, [workouts, categoryFilter, sortDir]);
 
   // ---------- month grouping ----------
   const monthGroups = useMemo(() => {
@@ -167,7 +167,7 @@ export function WorkoutHistoryView() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search comments, categories, dates…"
+            placeholder="Search exercises, comments, categories…"
             className="h-11 rounded-xl pl-9 pr-9"
             aria-label="Search workout history"
           />

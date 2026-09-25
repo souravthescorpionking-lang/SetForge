@@ -149,3 +149,32 @@ Stage Summary:
 - ALL 10 feature views are now fully implemented and browser-verified. No stubs remain.
 - Known minor items: history search does not match exercise names (summaries lack them; would need a dedicated search endpoint — candidate future enhancement); activity grid dots are small on low-contrast displays (acceptable); demo user has sparse data (1 workout) so charts look sparse — that's data, not a bug.
 - Recommended next: seed richer demo data OR have QA create workouts across dates to exercise calendar/history/insights more deeply; consider exercise-name search API; PWA polish (Serwist SW + manifest icons already present — verify installability); README + deployment docs per original spec; consider CI.
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: Demo-data seeding via public API, exercise-name search (backend + frontend), insights/dashboard + exercises styling polish
+
+Work Log:
+- Smoke QA: login + Today view fine, no regressions from round 5.
+- NEW `scripts/seed-demo-data.ts` (idempotent, retry-resilient fetch w/ cookie capture):
+  - Seeds 13 weeks of training via the PUBLIC API (full-stack validation incl. PR recompute): Mon Push (Bench/DB Press/Arnold Press/Pushdown), Wed Pull (Deadlift/Row/Pulldown/Curl), Fri Legs (Squat/Leg Press/Leg Curl/Calf Raise), alternate Sat cardio (Treadmill Run distance+time, Hanging Knee Raise).
+  - Linear progression + noise + deload every 5th week; 3-4 sets w/ rep patterns; startAt/endAt times; ~35% random comments.
+  - Weekly Body Weight (78.2→81.4kg) + Body Fat (18.4→16.2%) records; 3 goals (Bench 105 ONE_RM, Squat 140 MAX_WEIGHT, Deadlift 190 ONE_RM).
+  - Skips dates that already have exercises (safe to re-run). First run hit sandbox server death mid-way; retries + re-run completed: 47 workouts total, 545 sets, 1.32M kg volume, 26 measurement records, 3 goals.
+- Exercise-name search (real feature):
+  - `listWorkouts` service: new `search` opt — case-insensitive JS filter across comment/exercise name/category name (portable SQLite↔Postgres; no Prisma `contains` for case-insensitivity parity).
+  - GET /api/workouts?search=… route param; `workoutsApi.list({search})` client type.
+  - History view: 300ms-debounced server-side search (queryKey includes search); client now only applies category chips + sort on top (server owns text matching). Placeholder updated.
+  - Verified via API: "deadlift"→13, "ROW"→13 (case-insensitive), "zzzz"→0, none→47. Browser: deadlift→13 workouts/182 sets; treadmill→7.
+- Styling polish (VLM-guided):
+  - Exercises view: filter chips gap-1.5→gap-2, py-1→py-1.5 (better tap targets); exercise-row metadata contrast muted-foreground→foreground/70. VLM re-review: PASS "no obvious issues remain".
+  - Insights: Volume KPI compact formatting (427.7k / 1.32M — fixes truncation); ActivityGrid volume-quartile intensity buckets (feeds from workout summaries map) + Less→More legend + hover now shows day volume; month-label collision fixed (Map last-wins per column — JUNE was shadowed by MAY in shared column).
+- Round bugs/notes: dev server died twice mid-session (sandbox process reaper? memory OK at 1.1/4.1GB) — restart procedure: pkill + nohup bun run dev, health recovers in ~15s. Known cosmetic: routines view looks sparse (no routine seed data — candidate next round).
+- Verification: lint clean; browser-verified history search, insights (compact volume, varied heatmap intensity w/ legend, all month labels JUN/JUL/AUG/SEP), calendar (13 Sep workouts w/ dots on many days), exercises chips. VLM final QA: all 3 checkpoints PASS.
+- Screenshots: download/qa-history-rich.png, qa-calendar-rich.png, qa-calendar-final.png, qa-exercises.png, qa-exercises-v2.png, qa-routines.png, qa-body.png, qa-insights-rich.png, qa-insights-final.png, qa-insights-final2.png.
+
+Stage Summary:
+- App now shows a fully alive product experience: 47 workouts / 13 weeks across calendar, history (4 month groups), insights (KPIs, heatmap intensity, top-8 volume chart, 14-exercise records board, 3 goals w/ progress), body tracker trend data.
+- New capability: server-side workout search by exercise/comment/category names (case-insensitive, portable).
+- Next-round recommendations (priority order): (1) seed 1-2 routines via API to flesh out routines view; (2) PWA installability check (manifest + SW present, untested); (3) README + env reference + DB-switching docs per original spec; (4) exercise-overview spot-check with the new rich data (graphs/records tabs); (5) investigate dev-server random deaths (sandbox-level, monitor).

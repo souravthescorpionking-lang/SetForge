@@ -150,7 +150,7 @@ export const exercisesApi = {
 export const workoutsApi = {
   byDate: (dateKey: string) =>
     request<{ workout: WorkoutDTO | null }>(`/api/workouts${qs({ date: dateKey })}`),
-  list: (params?: { from?: string; to?: string }) =>
+  list: (params?: { from?: string; to?: string; search?: string }) =>
     request<{ workouts: WorkoutSummaryDTO[] }>(`/api/workouts${qs(params ?? {})}`),
   get: (id: string) => request<WorkoutDTO>(`/api/workouts/${id}`),
   createOrGet: (date: string) =>

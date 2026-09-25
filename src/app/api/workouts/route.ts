@@ -13,11 +13,12 @@ export const GET = handler(async (req: NextRequest) => {
   const date = url.searchParams.get("date");
   const from = url.searchParams.get("from") ?? undefined;
   const to = url.searchParams.get("to") ?? undefined;
+  const search = url.searchParams.get("search") ?? undefined;
   if (date) {
     const w = await getWorkoutByDate(user.id, date);
     return { workout: w };
   }
-  return { workouts: await listWorkouts(user.id, { from, to }) };
+  return { workouts: await listWorkouts(user.id, { from, to, search }) };
 });
 
 export const POST = handler(async (req: NextRequest) => {

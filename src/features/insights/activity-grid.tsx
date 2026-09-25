@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { addDaysKey, dayKeyOf, formatDayShort, parseDayKey, todayKey } from "@/lib/client/format";
+import { addDaysKey, formatDayShort, parseDayKey, round1, todayKey } from "@/lib/client/format";
 
 const WEEKS = 17;
 const LEVEL_CLASSES = [
@@ -19,11 +19,27 @@ const LEVEL_CLASSES = [
 
 type Props = {
   dates: string[]; // yyyy-mm-dd keys (any period)
+  volumeByDate?: Map<string, number>; // day → volume kg, drives intensity
   className?: string;
 };
 
-export function ActivityGrid({ dates, className }: Props) {
+export function ActivityGrid({ dates, volumeByDate, className }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
+
+  // intensity level 1–4 per logged day, bucketed by volume quartiles
+  const levels = useMemo(() => {
+    const m = new Map<string, number>();
+    if (!volumeByDate || volumeByDate.size === 0) return m;
+    const vols = [...volumeByDate.values()].sort((a, b) => a - b);
+    const at = (p: number) => vols[Math.min(vols.length - 1, Math.floor(p * (vols.length - 1)))];
+    const t1 = at(0.25);
+    const t2 = at(0.5);
+    const t3 = at(0.75);
+    for (const [k, v] of volumeByDate) {
+      m.set(k, v <= t1 ? 1 : v <= t2 ? 2 : v <= t3 ? 3 : 4);
+    }
+    return m;
+  }, [volumeByDate]);
 
   const { weeks, monthLabels } = useMemo(() => {
     // Build grid columns (weeks) aligned so the last column is the current week.
@@ -36,7 +52,7 @@ export function ActivityGrid({ dates, className }: Props) {
 
     const daySet = new Set(dates);
     const cols: Array<Array<{ key: string; inFuture: boolean; logged: boolean }>> = [];
-    const months: Array<{ index: number; label: string }> = [];
+    const months = new Map<number, string>(); // column → latest month label in that column
     let prevMonth = -1;
     for (let w = 0; w < WEEKS; w++) {
       const col: Array<{ key: string; inFuture: boolean; logged: boolean }> = [];
@@ -45,16 +61,15 @@ export function ActivityGrid({ dates, className }: Props) {
         col.push({ key, inFuture: key > today, logged: daySet.has(key) });
         const m = parseDayKey(key).getUTCMonth();
         if (m !== prevMonth && key <= today) {
-          months.push({
-            index: w,
-            label: parseDayKey(key).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }),
-          });
+          // a month can start mid-column; last write wins so the label
+          // reflects the month the column mostly covers
+          months.set(w, parseDayKey(key).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }));
           prevMonth = m;
         }
       }
       cols.push(col);
     }
-    return { weeks: cols, monthLabels: months.slice(-WEEKS) };
+    return { weeks: cols, monthLabels: months };
   }, [dates]);
 
   const activeDays = dates.length;
@@ -73,14 +88,11 @@ export function ActivityGrid({ dates, className }: Props) {
         <div className="min-w-max">
           {/* month labels */}
           <div className="mb-1 flex gap-[3px] pl-6">
-            {weeks.map((_, w) => {
-              const label = monthLabels.find((m) => m.index === w);
-              return (
-                <div key={w} className="w-3 text-[9px] font-semibold uppercase text-muted-foreground">
-                  {label && <span className="whitespace-nowrap">{label.label}</span>}
-                </div>
-              );
-            })}
+            {weeks.map((_, w) => (
+              <div key={w} className="w-3 text-[9px] font-semibold uppercase text-muted-foreground">
+                {monthLabels.get(w) && <span className="whitespace-nowrap">{monthLabels.get(w)}</span>}
+              </div>
+            ))}
           </div>
           {/* day rows: Mon / Wed / Fri labels */}
           <div className="flex gap-[3px]">
@@ -109,7 +121,7 @@ export function ActivityGrid({ dates, className }: Props) {
                       cell.inFuture
                         ? "bg-muted/25"
                         : cell.logged
-                          ? LEVEL_CLASSES[3]
+                          ? LEVEL_CLASSES[levels.get(cell.key) ?? 3]
                           : "bg-muted/60",
                     )}
                     title={
@@ -127,9 +139,23 @@ export function ActivityGrid({ dates, className }: Props) {
 
       {hovered && (
         <p className="mt-2 text-xs font-medium text-muted-foreground">
-          {formatDayShort(hovered)} · {dates.includes(hovered) ? "workout logged" : "rest day"}
+          {formatDayShort(hovered)} ·{" "}
+          {volumeByDate?.get(hovered) != null
+            ? `${round1(volumeByDate.get(hovered)!)} kg volume`
+            : dates.includes(hovered)
+              ? "workout logged"
+              : "rest day"}
         </p>
       )}
+
+      {/* intensity legend */}
+      <div className="mt-2 flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
+        <span className="mr-1">Less</span>
+        {LEVEL_CLASSES.map((c) => (
+          <span key={c} className={cn("h-2.5 w-2.5 rounded-[2px]", c)} aria-hidden />
+        ))}
+        <span className="ml-1">More</span>
+      </div>
     </div>
   );
 }

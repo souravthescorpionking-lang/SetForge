@@ -138,11 +138,11 @@ export function ExercisesView() {
           </div>
 
           {/* filter chips */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge
               variant={favoritesOnly ? "default" : "outline"}
               aria-pressed={favoritesOnly}
-              className="cursor-pointer select-none gap-1 px-2.5 py-1"
+              className="cursor-pointer select-none gap-1 px-2.5 py-1.5"
               onClick={() => setFavoritesOnly((v) => !v)}
             >
               <Star className={cn("h-3 w-3", favoritesOnly && "fill-current")} /> Favorites
@@ -152,7 +152,7 @@ export function ExercisesView() {
                 key={c.id}
                 variant={categoryFilter === c.id ? "default" : "outline"}
                 aria-pressed={categoryFilter === c.id}
-                className="cursor-pointer select-none gap-1.5 px-2.5 py-1"
+                className="cursor-pointer select-none gap-1.5 px-2.5 py-1.5"
                 onClick={() => setCategoryFilter(categoryFilter === c.id ? null : c.id)}
               >
                 <CategoryDot colour={c.colour} size={7} ring={false} />

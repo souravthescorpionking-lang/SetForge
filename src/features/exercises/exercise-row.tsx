@@ -64,7 +64,7 @@ export function ExerciseRow({ exercise: e, onEdit, onDelete }: Props) {
               {typeLabel(e.type)}
             </Badge>
           </div>
-          <p className="mt-1 flex items-center gap-x-1.5 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
+          <p className="mt-1 flex items-center gap-x-1.5 gap-y-0.5 flex-wrap text-xs text-foreground/70">
             <span className="inline-flex items-center gap-1 truncate">
               <CategoryDot colour={e.category?.colour} size={6} ring={false} />
               {e.category?.name ?? "No category"}
