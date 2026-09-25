@@ -15,6 +15,7 @@ import { fieldsForType } from "@/lib/constants";
 import type { SetDTO, SettingsDTO, WorkoutDTO, WorkoutExerciseDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { EMPTY_SET_VALUES, SetInputRow, type SetValues } from "./set-input-row";
+import { PlateHint } from "./plate-hint";
 import { WarmupPopover } from "./warmup-popover";
 import { SetsList } from "./sets-list";
 import { useRestTimer } from "./rest-timer";
@@ -331,6 +332,9 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
           }}
           weightStep={ex.weightIncrement ?? settings.defaultWeightIncrement}
         />
+        {fields.includes("weight") && (values.weight ?? 0) > 0 && (
+          <PlateHint weight={values.weight!} unitSystem={settings.unitSystem} />
+        )}
         <div className="flex gap-2">
           <Button
             size="lg"

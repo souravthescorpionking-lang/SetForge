@@ -203,7 +203,7 @@ function NavChip({
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: we.exercise.category?.colour ?? "var(--muted-foreground)" }}
         />
-        <span className="max-w-36 truncate sm:max-w-44" title={we.exercise.name}>{we.exercise.name}</span>
+        <span className="max-w-40 truncate sm:max-w-44" title={we.exercise.name}>{we.exercise.name}</span>
         <span className="numeric shrink-0 rounded-md bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground">
           {we.sets.length}
         </span>

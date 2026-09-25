@@ -110,11 +110,11 @@ export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5">
               <Dumbbell className="h-3.5 w-3.5" />
               <span className="numeric">{workout.exerciseCount}</span> ex
             </span>
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1.5">
               <Layers className="h-3.5 w-3.5" />
               <span className="numeric">{workout.setCount}</span> sets
             </span>
@@ -127,13 +127,13 @@ export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
               </span>
             )}
             {hasDuration && (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
                 {formatSec(workout.durationSec)}
               </span>
             )}
             {hasDistance && (
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1.5">
                 {formatDistance(workout.distance)}
               </span>
             )}

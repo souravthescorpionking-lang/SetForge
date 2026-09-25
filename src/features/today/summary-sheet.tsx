@@ -22,6 +22,7 @@ import {
   Flame,
   Layers,
   Route,
+  Share2,
   Timer,
   TrendingUp,
   Trophy,
@@ -221,8 +222,19 @@ export function SummarySheet({
       for (const p of prRows) lines.push(`  🏆 ${p.name}: ${p.todayWeight}kg × ${p.todayReps} (was ${p.priorWeight}kg × ${p.priorReps})`);
     }
     if (streak && streak > 0) lines.push(`🔥 ${streak}-day streak`);
+    const text = lines.join("\n");
+    // Web Share API when available (native share sheet), clipboard fallback.
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: "SetForge workout", text });
+        return;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return; // user dismissed
+        // other failures fall through to clipboard
+      }
+    }
     try {
-      await navigator.clipboard.writeText(lines.join("\n"));
+      await navigator.clipboard.writeText(text);
       toast.success("Summary copied to clipboard");
     } catch {
       toast.error("Could not access the clipboard");
@@ -379,7 +391,15 @@ export function SummarySheet({
 
         <div className="sticky bottom-0 mt-auto flex gap-2 border-t bg-background/95 p-4 backdrop-blur-md">
           <Button variant="secondary" className="h-12 flex-1 rounded-xl border font-semibold" onClick={() => void copySummary()}>
-            <ClipboardCopy className="h-4.5 w-4.5" /> Copy summary
+            {typeof navigator.share === "function" ? (
+              <>
+                <Share2 className="h-4.5 w-4.5" /> Share summary
+              </>
+            ) : (
+              <>
+                <ClipboardCopy className="h-4.5 w-4.5" /> Copy summary
+              </>
+            )}
           </Button>
           <Button className="h-12 flex-1 rounded-xl text-base font-bold shadow-lg shadow-primary/25" onClick={() => onOpenChange(false)}>
             Done

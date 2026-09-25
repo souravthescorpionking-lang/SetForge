@@ -246,3 +246,45 @@ Stage Summary:
 - One critical live-UI bug found & fixed (cache invalidation key-family mismatch) that had been silently degrading every Today mutation since the shell round.
 - App is stable: 9 views, 0 errors, lint clean, mobile-verified.
 - Next-round recommendations (priority): (1) PWA installability + Serwist SW verification (manifest exists, still untested — original spec deliverable); (2) README + env reference + zero-code DB-switching docs (original spec deliverable, still missing); (3) Web Share API for the summary sheet on mobile (currently clipboard-only); (4) optional: exercise-level warm-up defaults or per-exercise "always show warmup ramp" toggle; (5) dev-server OOM watchdog automation (cron) if random deaths recur.
+
+---
+Task ID: 9
+Agent: main (Z.ai Code)
+Task: QA round → PWA service worker (full implementation + offline verification) → Web Share API → plate-loading hint in training screen → VLM styling polish → SW manifest caching fix
+
+Work Log:
+- Environment recovered cleanly at session start (echo OK; prior session ended with Errno-11 resource exhaustion). Dev server was alive; health green.
+- QA tour (agent-browser session setforge-qa-r11): login demo@setforge.app → all 9 views render, 0 console errors, 0 page errors. Exercise editing, empty-day actions, clipboard copy all confirmed present. Tools view already contains 1RM/Sets/Plates calculators.
+- CRITICAL GAP FOUND — PWA was non-functional: NO service worker existed at all (Serwist never installed despite plan; /sw.js → 404; navigator.serviceWorker.getRegistrations() → []). Manifest + icons were fine. This was the top untested original-spec deliverable.
+- Implemented PWA from scratch (custom SW, chosen over Serwist because sandbox runs dev-only — Serwist is typically disabled in dev, making it unverifiable here):
+  - public/sw.js (v1.0.1): precaches shell (/, /offline.html, manifest, icons, logo) on install; activate cleans old caches + clients.claim(). Fetch: navigations network-first → cached shell → offline.html; /_next/static + icons + logo cache-first (content-hashed); API GETs network-first with per-SESSION cache fallback (cache key embeds sf_session cookie value → zero cross-user leakage; 80-entry trim; /api/health always live); mutations/websockets/HMR never intercepted. Messages: SKIP_WAITING, CLEAR_CACHES.
+  - public/offline.html: self-contained branded offline page (inline CSS, forge orange, auto-retry on 'online' event).
+  - src/components/shared/pwa.tsx: PwaBridge (registers /sw.js on load, updatefound → SKIP_WAITING, one-shot controllerchange reload), useInstallPrompt() (beforeinstallprompt capture + appinstalled toast + isStandalone detection), clearSwCaches().
+  - Wiring: PwaBridge mounted in AppRoot; useLogout now calls clearSwCaches() (session cache isolation on account switch); account dropdown gains "Install app" item; mobile More sheet gains orange "Install SetForge · Offline-ready" CTA (only when canInstall); Settings gains "App" section (4th tab on mobile / stacked section on desktop): install row (button/Installed pill + helper fallback text), offline status row (Online/Offline pill), offline-cache Clear row (postMessage CLEAR_CACHES + window.caches wipe + success toast).
+  - Manifest: added id:"/" + 2 app shortcuts (Log today's workout → /#/today, Insights → /#/insights).
+- VERIFIED OFFLINE END-TO-END: SW registered+activated (scope /); caches populated (shell: 8 entries incl. "/" HTML; assets: chunks/fonts); agent-browser `set offline on` + reload → app renders COMPLETE UI with real data (Today view w/ squat 110kg×8 sets from per-session API cache); offline badge visible; VLM confirmed "complete UI with real data, no broken layout"; restored online cleanly.
+- BUG FOUND & FIXED — SW manifest staleness: manifest.webmanifest was cache-first → my manifest update (id/shortcuts) didn't propagate (browser kept serving old cached copy). Fixed: manifest + offline.html now network-first with cache fallback (handleVolatile); SW version bumped to v1.0.1; verified fresh manifest served ({id:"/", shortcuts:2}).
+- NEW FEATURE — Web Share API in summary sheet: copySummary → shareSummary; uses navigator.share (native mobile share sheet) when available, falls back to clipboard; AbortError (user dismissed) silently ignored; button label/icon adapts (Share2 "Share summary" vs ClipboardCopy "Copy summary").
+- NEW FEATURE — Plate-loading hint (src/features/today/plate-hint.tsx): below weight/reps inputs in the training screen, shows "PER SIDE" chip row computed from the user's plate inventory (platesApi, staleTime 5min) via plateGreedy: colored dot + weight chips (25 ×2 10 5 2.5 style), "+ 20kg bar" suffix, amber "loads 62.5kg" note when exact load impossible (nearest shown), "Not loadable" state. AnimatePresence height animation. VERIFIED: 110kg → red 25 + blue 20 per side (45×2+20=110 ✓ per VLM + math).
+- Styling polish (VLM-guided, 2 review batches over 9 view screenshots + mobile):
+  - Training screen header: nav buttons gap-1.5 → gap-2 (X was cramped against next-exercise arrow).
+  - Insights KPI labels: font-semibold → font-bold (stronger hierarchy under big numbers).
+  - History card metadata rows: icon-text gap-1 → gap-1.5 (4 metric spans).
+  - Today nav chips: max-w-36 → max-w-40 on mobile (fewer truncations).
+  - Triage rejected as false positives (verified in code or via eval): button height mismatch (all h-13), 1RM table alignment (already text-right), calendar dot alignment (uniform grid), body spacing (space-y-4 consistent), "Leg F" chip truncation (scroll position, no actual clipping — eval scrollWidth check returned []).
+- Ops: dev server died once mid-tour (known sandbox OOM issue — ps showed no next-server, log ended mid-200s). Restarted per runbook (pkill + nohup bun run dev, ~12s to healthy). Full tour re-run after restart: clean.
+- Verification: `bun run lint` clean ×2; full 9-view tour ×2 with 0 console/page errors; offline test passed; mobile 390×844 (bottom nav 5 tabs intact, More sheet + install CTA, settings App tab); VLM final review: PASS on both checkpoints. Screenshots: download/qa-r11-*.png (calendar, history, exercises, routines, body, insights, tools, plates, settings, offline, offline-today, plate-hint, style-*, mobile-*, final-*, settings-app*).
+
+Stage Summary:
+- PWA is REAL now: installable (SW + manifest + icons + id + shortcuts), fully offline-capable (shell + per-session data cache, verified by emulation), with install CTAs in 3 places (dropdown, More sheet, Settings App tab) and cache management UI.
+- Two new user-facing features: native share for workout summaries, and a live plate-loading hint that turns the plate inventory into actionable guidance mid-set.
+- One architectural SW bug caught & fixed during verification (volatile-file caching).
+- App remains stable: 9 views, 0 errors, lint clean, mobile-verified.
+
+Next-round recommendations (priority):
+1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing — needs explicit user request per doc policy).
+2. Real-device PWA install test (headless can't fire beforeinstallprompt; Chrome/Android + iOS Safari Add-to-Home-Screen).
+3. Consider a version-bump + auto-update toast flow polish (currently silent SKIP_WAITING + reload).
+4. API cache could grow stale if user stays online long (network-first means fresh wins — only offline uses cache; acceptable).
+5. Exercise-level warm-up defaults / "always show warmup ramp" toggle (round-8 leftover nice-to-have).
+6. Dev-server OOM watchdog automation if random deaths recur (died once this round).

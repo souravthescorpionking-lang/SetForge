@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useApp } from "@/lib/client/store";
 import { QueryProvider } from "@/lib/client/query";
 import { flushOutbox, isOnline, outboxCount } from "@/lib/client/offline";
+import { PwaBridge } from "@/components/shared/pwa";
 import { AuthView } from "@/features/auth/auth-view";
 import { TopBar, Sidebar, BottomNav } from "@/components/nav-shell";
 import { Flame } from "lucide-react";
@@ -129,6 +130,7 @@ export function AppRoot({ initialSession }: { initialSession: SessionDTO | null 
   return (
     <QueryProvider>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <PwaBridge />
         <AppInner initialSession={initialSession} />
       </ThemeProvider>
     </QueryProvider>

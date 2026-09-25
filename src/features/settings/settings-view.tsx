@@ -7,10 +7,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApp } from "@/lib/client/store";
 import { motion } from "framer-motion";
-import { Database, Settings as SettingsIcon, UserRound } from "lucide-react";
+import { Database, MonitorSmartphone, Settings as SettingsIcon, UserRound } from "lucide-react";
 import { PreferencesSection } from "./preferences-section";
 import { DataSection } from "./data-section";
 import { AccountSection } from "./account-section";
+import { AppSection } from "./app-section";
 import { useWakeLock } from "./use-wake-lock";
 
 function useIsDesktop(): boolean | null {
@@ -51,12 +52,15 @@ export function SettingsView() {
 
       {isDesktop === false && (
         <Tabs defaultValue="preferences">
-          <TabsList className="grid h-auto w-full grid-cols-3">
+          <TabsList className="grid h-auto w-full grid-cols-4">
             <TabsTrigger value="preferences" className="py-2">
               Preferences
             </TabsTrigger>
             <TabsTrigger value="data" className="py-2">
               Data
+            </TabsTrigger>
+            <TabsTrigger value="app" className="py-2">
+              App
             </TabsTrigger>
             <TabsTrigger value="account" className="py-2">
               Account
@@ -67,6 +71,9 @@ export function SettingsView() {
           </TabsContent>
           <TabsContent value="data" className="mt-3">
             <DataSection />
+          </TabsContent>
+          <TabsContent value="app" className="mt-3">
+            <AppSection />
           </TabsContent>
           <TabsContent value="account" className="mt-3 space-y-5">
             <AccountSection />
@@ -92,6 +99,12 @@ export function SettingsView() {
               <Database className="h-3.5 w-3.5" /> Data
             </h2>
             <DataSection />
+          </section>
+          <section aria-label="App">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <MonitorSmartphone className="h-3.5 w-3.5" /> App
+            </h2>
+            <AppSection />
           </section>
           <section aria-label="Account">
             <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">

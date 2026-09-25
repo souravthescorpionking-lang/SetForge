@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "SetForge — Workout Tracker",
   "short_name": "SetForge",
   "description": "Log sets, chase PRs, build routines, track body measurements, and analyse every rep — online or offline.",
@@ -8,6 +9,20 @@
   "background_color": "#141210",
   "theme_color": "#f97316",
   "categories": ["health", "fitness", "sports"],
+  "shortcuts": [
+    {
+      "name": "Log today's workout",
+      "short_name": "Today",
+      "url": "/#/today",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Insights & records",
+      "short_name": "Insights",
+      "url": "/#/insights",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon.svg",

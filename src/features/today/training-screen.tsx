@@ -86,7 +86,7 @@ export function TrainingScreen({ open, onOpenChange, workout, weId, onChangeWeId
       >
         {/* header */}
         <div className="shrink-0 px-3 pt-3 pb-3 sm:px-5 sm:pt-4">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"

@@ -14,6 +14,7 @@ import {
   Calculator,
   WifiOff,
   Trophy,
+  MonitorSmartphone,
 } from "lucide-react";
 
 export {
@@ -31,4 +32,5 @@ export {
   Calculator,
   WifiOff,
   Trophy,
+  MonitorSmartphone,
 };

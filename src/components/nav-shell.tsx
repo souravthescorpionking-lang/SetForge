@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useApp, type RouteView } from "@/lib/client/store";
 import { authApi } from "@/lib/client/api";
 import { wipeLocalData, outboxCount, isOnline } from "@/lib/client/offline";
+import { clearSwCaches, useInstallPrompt } from "@/components/shared/pwa";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Flame,
@@ -32,6 +33,7 @@ import {
   Calculator,
   WifiOff,
   Trophy,
+  MonitorSmartphone,
 } from "@/lib/nav-icons";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -62,6 +64,7 @@ export function useLogout() {
     try {
       await authApi.logout();
     } finally {
+      clearSwCaches();
       wipeLocalData();
       qc.clear();
       setSession(null);
@@ -76,6 +79,7 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
   const logout = useLogout();
   const online = isOnline();
   const pending = outboxCount();
+  const { canInstall, installed, promptInstall } = useInstallPrompt();
 
   if (!session) return null;
   const initials = (session.user.name ?? session.user.email)
@@ -134,6 +138,11 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
             <DropdownMenuItem onClick={() => navigate("/insights")}>
               <Trophy className="h-4 w-4" /> Records & stats
             </DropdownMenuItem>
+            {canInstall && !installed && (
+              <DropdownMenuItem onClick={() => void promptInstall()}>
+                <MonitorSmartphone className="h-4 w-4" /> Install app
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => void logout()}>
               <LogOut className="h-4 w-4" /> Sign out
@@ -210,6 +219,7 @@ export function BottomNav() {
   const primary = NAV.filter((n) => n.primary);
   const others = NAV.filter((n) => !n.primary);
   const moreActive = others.some((o) => o.view === route.view);
+  const { canInstall, installed, promptInstall } = useInstallPrompt();
 
   return (
     <nav
@@ -271,6 +281,19 @@ export function BottomNav() {
                 </button>
               ))}
             </div>
+            {canInstall && !installed && (
+              <button
+                onClick={() => {
+                  setMoreOpen(false);
+                  void promptInstall();
+                }}
+                className="mx-1 mt-3 flex w-[calc(100%-8px)] items-center gap-3 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-transform active:scale-[0.98]"
+              >
+                <MonitorSmartphone className="h-4.5 w-4.5" />
+                <span className="flex-1 text-left">Install SetForge</span>
+                <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">Offline-ready</span>
+              </button>
+            )}
           </SheetContent>
         </Sheet>
       </div>
