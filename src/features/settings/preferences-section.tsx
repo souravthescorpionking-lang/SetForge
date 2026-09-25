@@ -10,7 +10,7 @@ import { Stepper } from "@/components/shared/stepper";
 import { useApp } from "@/lib/client/store";
 import type { SettingsDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Monitor, Moon, Sun, SunMoon, Ruler, CalendarDays, ListOrdered, Layers3, Trophy, CheckCheck, MousePointerClick, MonitorSmartphone, Gauge, Palette, Tag, Target } from "lucide-react";
+import { Monitor, Moon, Sun, SunMoon, Ruler, CalendarDays, ListOrdered, Layers3, Trophy, CheckCheck, MousePointerClick, MonitorSmartphone, Gauge, Palette, Tag, Target, Table2, Timer, Bell, Sigma, Columns3, Type } from "lucide-react";
 import { SettingRow, Segmented, SectionHeading } from "./settings-controls";
 import { isWakeLockSupported, useWakeLock } from "./use-wake-lock";
 
@@ -58,6 +58,7 @@ export function PreferencesSection() {
   const unitLabel = settings.unitSystem === "imperial" ? "lb" : "kg";
 
   return (
+    <>
     <Card className="rounded-2xl border-border/60">
       <CardHeader className="pb-3">
         <SectionHeading
@@ -322,5 +323,122 @@ export function PreferencesSection() {
         />
       </CardContent>
     </Card>
+
+    {/* ---------- Part 2: set table ---------- */}
+    <Card className="rounded-2xl border-border/60">
+      <CardHeader className="pb-3">
+        <SectionHeading
+          icon={<Table2 className="h-4.5 w-4.5" />}
+          title="Set table"
+          description="Columns and behaviour of the set log in the training screen"
+        />
+      </CardHeader>
+      <CardContent className="divide-y divide-border/60 pt-0">
+        <div className="pt-1 pb-1">
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Columns3 className="h-3.5 w-3.5" /> Columns
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([
+              ["showSetType", "Set type", "N / W / D / F / A tag"],
+              ["showRpe", "RPE", "Effort 6–10"],
+              ["showTempo", "Tempo", "e.g. 3-1-1-0"],
+              ["showRest", "Rest", "Planned + live countdown"],
+            ] as const).map(([key, label, hint]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={settings[key]}
+                onClick={() => patch({ [key]: !settings[key] })}
+                className={cn(
+                  "flex min-h-[64px] flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition-all",
+                  settings[key]
+                    ? "border-primary/60 bg-primary/10"
+                    : "border-border/60 hover:border-border hover:bg-accent/60",
+                )}
+              >
+                <span className="flex w-full items-center justify-between">
+                  <span className={cn("text-sm font-semibold", settings[key] ? "text-primary" : "text-foreground")}>{label}</span>
+                  <Switch checked={settings[key]} aria-label={`Show ${label} column`} onCheckedChange={(v) => patch({ [key]: v })} />
+                </span>
+                <span className="text-[11px] leading-tight text-muted-foreground">{hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <SettingRow
+          icon={<Timer className="h-4 w-4" />}
+          label="Rest from row"
+          helper="Ticking a set ✓ starts the countdown from that row's planned rest (or the exercise default)."
+          control={
+            <Switch
+              aria-label="Rest from row"
+              checked={settings.autoRestFromRow}
+              onCheckedChange={(v) => patch({ autoRestFromRow: v })}
+            />
+          }
+        />
+
+        <SettingRow
+          stacked
+          icon={<Bell className="h-4 w-4" />}
+          label="When rest ends"
+          helper={
+            settings.restEndBehaviour === "NOTIFY_AND_FOCUS_NEXT"
+              ? "Notifies and focuses the next set entry so you can log straight away."
+              : "Just notifies — nothing is focused."
+          }
+          control={
+            <Segmented
+              ariaLabel="Rest end behaviour"
+              value={settings.restEndBehaviour}
+              onChange={(v) => patch({ restEndBehaviour: v })}
+              options={[
+                { value: "NOTIFY", label: "Notify" },
+                { value: "NOTIFY_AND_FOCUS_NEXT", label: "Notify + focus next" },
+              ]}
+            />
+          }
+        />
+
+        <SettingRow
+          stacked
+          icon={<Sigma className="h-4 w-4" />}
+          label="Estimated 1RM method"
+          helper={
+            settings.e1rmMethod === "RPE"
+              ? "RPE-adjusted (Tuchscherer): uses reps-in-reserve from the set's RPE when present."
+              : settings.e1rmMethod === "EPLEY"
+                ? "Epley: w × (1 + reps/30)."
+                : "Brzycki: w × 36 / (37 − reps)."
+          }
+          control={
+            <Segmented
+              ariaLabel="Estimated 1RM method"
+              value={settings.e1rmMethod}
+              onChange={(v) => patch({ e1rmMethod: v })}
+              options={[
+                { value: "BRZYCKI", label: "Brzycki" },
+                { value: "EPLEY", label: "Epley" },
+                { value: "RPE", label: "RPE" },
+              ]}
+            />
+          }
+        />
+
+        <SettingRow
+          icon={<Type className="h-4 w-4" />}
+          label="Set types in the row"
+          helper="Tap the type tag to cycle Normal → Warm-up → Drop → Failure → AMRAP. Hold for the full picker."
+          control={
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              <span className="tabular-nums font-bold">N W D F A</span>
+            </span>
+          }
+        />
+      </CardContent>
+    </Card>
+    </>
   );
 }

@@ -264,23 +264,83 @@ async function getWorkoutExerciseOwned(userId: string, workoutId: string, weId: 
   return we;
 }
 
+export type SetFieldsInput = {
+  weight?: number | null;
+  reps?: number | null;
+  distance?: number | null;
+  timeSec?: number | null;
+  comment?: string | null;
+  isComplete?: boolean;
+  isWarmup?: boolean;
+  // ---- Part 2 ----
+  setType?: string;
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
+  restActualSec?: number | null;
+  completedAt?: string | null;
+};
+
+/** setType ⟺ isWarmup single source of truth: WARMUP type mirrors the legacy flag. */
+function syncWarmup(input: SetFieldsInput): { setType?: string; isWarmup?: boolean } {
+  if (input.setType !== undefined) {
+    return { setType: input.setType, isWarmup: input.setType === "WARMUP" };
+  }
+  if (input.isWarmup !== undefined) {
+    return { isWarmup: input.isWarmup, ...(input.isWarmup ? { setType: "WARMUP" } : {}) };
+  }
+  return {};
+}
+
+/** When a set turns complete: stamp completedAt and derive restActualSec
+ *  from the most recent earlier completed set in the same exercise. */
+function completionTimestamps(
+  now: Date,
+  input: SetFieldsInput,
+  prevCompletedAt: Date | null,
+): { completedAt?: Date | null; restActualSec?: number | null } {
+  if (input.isComplete === true) {
+    const completedAt = input.completedAt ? new Date(input.completedAt) : now;
+    const restActualSec =
+      input.restActualSec != null
+        ? input.restActualSec
+        : prevCompletedAt
+          ? Math.max(0, Math.round((completedAt.getTime() - prevCompletedAt.getTime()) / 1000))
+          : null;
+    return { completedAt, ...(restActualSec != null ? { restActualSec } : {}) };
+  }
+  if (input.isComplete === false) return { completedAt: null, restActualSec: null };
+  return {};
+}
+
 export async function createSet(
   userId: string,
   workoutId: string,
   weId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean; isWarmup?: boolean },
+  input: SetFieldsInput,
 ) {
   const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
   const settings = await db.userSettings.findUnique({ where: { userId } });
   const trackPR = settings?.trackPR ?? true;
 
   const count = await db.trainingSet.count({ where: { workoutExerciseId: weId } });
+  const warmupSync = syncWarmup(input);
+  const effectiveType = warmupSync.setType ?? "NORMAL";
+  const effectiveWarmup = warmupSync.isWarmup ?? effectiveType === "WARMUP";
   const newPr =
     trackPR &&
-    !input.isWarmup &&
+    !effectiveWarmup &&
     input.weight != null &&
     input.reps != null &&
     (await isPRForReps(userId, we.exerciseId, input.reps, input.weight));
+
+  // previous completed set in this exercise (for restActualSec)
+  const prevCompleted = await db.trainingSet.findFirst({
+    where: { workoutExerciseId: weId, isComplete: true, completedAt: { not: null } },
+    orderBy: { completedAt: "desc" },
+    select: { completedAt: true },
+  });
+  const stamps = completionTimestamps(new Date(), input, prevCompleted?.completedAt ?? null);
 
   const created = await db.$transaction(async (tx) => {
     const set = await tx.trainingSet.create({
@@ -294,7 +354,13 @@ export async function createSet(
         timeSec: input.timeSec ?? null,
         comment: input.comment ?? null,
         isComplete: input.isComplete ?? false,
-        isWarmup: input.isWarmup ?? false,
+        isWarmup: effectiveWarmup,
+        setType: effectiveType,
+        rpe: input.rpe ?? null,
+        tempo: input.tempo ?? null,
+        restPlannedSec: input.restPlannedSec ?? null,
+        ...(stamps.completedAt !== undefined ? { completedAt: stamps.completedAt } : {}),
+        ...(stamps.restActualSec !== undefined ? { restActualSec: stamps.restActualSec } : {}),
         sortOrder: count,
       },
     });
@@ -309,11 +375,24 @@ export async function updateSet(
   workoutId: string,
   weId: string,
   setId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean; isWarmup?: boolean },
+  input: SetFieldsInput,
 ) {
   const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
   const existing = await db.trainingSet.findFirst({ where: { id: setId, workoutExerciseId: weId } });
   if (!existing) throw notFound("Set not found");
+
+  const warmupSync = syncWarmup(input);
+  // previous completed set BEFORE this one (sortOrder-based) for restActualSec
+  let prevCompletedAt: Date | null = null;
+  if (input.isComplete === true && !existing.completedAt) {
+    const prev = await db.trainingSet.findFirst({
+      where: { workoutExerciseId: weId, isComplete: true, completedAt: { not: null }, id: { not: setId } },
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    });
+    prevCompletedAt = prev?.completedAt ?? null;
+  }
+  const stamps = completionTimestamps(new Date(), input, prevCompletedAt);
 
   const updated = await db.$transaction(async (tx) => {
     const set = await tx.trainingSet.update({
@@ -326,6 +405,15 @@ export async function updateSet(
         ...(input.comment !== undefined ? { comment: input.comment } : {}),
         ...(input.isComplete !== undefined ? { isComplete: input.isComplete } : {}),
         ...(input.isWarmup !== undefined ? { isWarmup: input.isWarmup } : {}),
+        // ---- Part 2 ----
+        ...(warmupSync.setType !== undefined ? { setType: warmupSync.setType } : {}),
+        ...(warmupSync.isWarmup !== undefined ? { isWarmup: warmupSync.isWarmup } : {}),
+        ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
+        ...(input.tempo !== undefined ? { tempo: input.tempo } : {}),
+        ...(input.restPlannedSec !== undefined ? { restPlannedSec: input.restPlannedSec } : {}),
+        ...(input.restActualSec !== undefined ? { restActualSec: input.restActualSec } : {}),
+        ...(stamps.completedAt !== undefined ? { completedAt: stamps.completedAt } : {}),
+        ...(stamps.restActualSec !== undefined ? { restActualSec: stamps.restActualSec } : {}),
       },
     });
     await recomputePRs(tx, userId, we.exerciseId);

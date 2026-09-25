@@ -64,6 +64,13 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       keepScreenOn: settings.keepScreenOn,
       estOneRmRepLimit: settings.estOneRmRepLimit,
       weeklyWorkoutTarget: settings.weeklyWorkoutTarget,
+      showSetType: settings.showSetType,
+      showRpe: settings.showRpe,
+      showTempo: settings.showTempo,
+      showRest: settings.showRest,
+      autoRestFromRow: settings.autoRestFromRow,
+      restEndBehaviour: settings.restEndBehaviour,
+      e1rmMethod: settings.e1rmMethod,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({
@@ -79,6 +86,10 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       defaultGraph: e.defaultGraph,
       isFavorite: e.isFavorite,
       barWeight: e.barWeight,
+      autoWarmup: e.autoWarmup,
+      defaultSetType: e.defaultSetType ?? null,
+      defaultRpeTarget: e.defaultRpeTarget ?? null,
+      defaultTempo: e.defaultTempo ?? null,
     })),
     workouts: workouts.map((w) => {
       const groupById = new Map(w.groups.map((g) => [g.id, g.name]));
@@ -101,6 +112,13 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
             isComplete: s.isComplete,
             isWarmup: s.isWarmup,
             sortOrder: s.sortOrder,
+            // ---- Part 2 ----
+            setType: s.setType ?? "NORMAL",
+            rpe: s.rpe ?? null,
+            tempo: s.tempo ?? null,
+            restPlannedSec: s.restPlannedSec ?? null,
+            restActualSec: s.restActualSec ?? null,
+            completedAt: s.completedAt?.toISOString() ?? null,
           })),
         })),
       };
@@ -123,6 +141,11 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
             distance: s.distance ?? null,
             timeSec: s.timeSec ?? null,
             sortOrder: s.sortOrder,
+            // ---- Part 2 ----
+            setType: s.setType ?? null,
+            rpe: s.rpe ?? null,
+            tempo: s.tempo ?? null,
+            restPlannedSec: s.restPlannedSec ?? null,
           })),
         })),
       })),
@@ -187,6 +210,13 @@ const backupSchema = z.object({
               isComplete: z.boolean().optional(),
               isWarmup: z.boolean().optional(),
               sortOrder: z.number().optional(),
+              // ---- Part 2 (all optional: old backups import cleanly with nulls) ----
+              setType: z.string().nullable().optional(),
+              rpe: z.number().nullable().optional(),
+              tempo: z.string().nullable().optional(),
+              restPlannedSec: z.number().int().nullable().optional(),
+              restActualSec: z.number().int().nullable().optional(),
+              completedAt: z.string().nullable().optional(),
             }),
           ),
         }),
@@ -270,6 +300,7 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
         data: { id: uuid7(), userId, workoutId: workout.id, exerciseId: exercise.id, sortOrder: ex.sortOrder ?? 0, groupId },
       });
       for (const s of ex.sets) {
+        const setType = s.setType ?? (s.isWarmup ? "WARMUP" : "NORMAL");
         await db.trainingSet.create({
           data: {
             id: uuid7(),
@@ -282,6 +313,12 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
             comment: s.comment ?? null,
             isComplete: s.isComplete ?? false,
             isWarmup: s.isWarmup ?? false,
+            setType,
+            rpe: s.rpe ?? null,
+            tempo: s.tempo ?? null,
+            restPlannedSec: s.restPlannedSec ?? null,
+            restActualSec: s.restActualSec ?? null,
+            completedAt: s.completedAt ? new Date(s.completedAt) : null,
             sortOrder: s.sortOrder ?? 0,
           },
         });

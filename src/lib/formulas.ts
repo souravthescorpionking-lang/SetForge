@@ -8,6 +8,34 @@ export function estOneRm(weight: number, reps: number): number {
   return (weight * 36) / (37 - r);
 }
 
+/** Epley estimated 1RM: w * (1 + r/30). */
+export function estOneRmEpley(weight: number, reps: number): number {
+  if (!Number.isFinite(weight) || weight <= 0) return 0;
+  const r = Math.max(1, Math.round(reps));
+  return weight * (1 + r / 30);
+}
+
+/** RPE-adjusted e1RM (Tuchscherer-style approximation):
+ *  reps-in-reserve = 10 - RPE, so the set behaves like (reps + RIR) reps to
+ *  failure; Epley on that effective rep count. Falls back to Brzycki without RPE. */
+export function estOneRmRpe(weight: number, reps: number, rpe: number | null | undefined): number {
+  if (rpe == null || !Number.isFinite(rpe) || rpe < 6 || rpe > 10) return estOneRm(weight, reps);
+  const effective = Math.max(1, Math.round(reps) + Math.round(10 - rpe));
+  return estOneRmEpley(weight, effective);
+}
+
+/** e1RM by user-selected method. */
+export function estOneRmByMethod(
+  weight: number,
+  reps: number,
+  method: string,
+  rpe?: number | null,
+): number {
+  if (method === "EPLEY") return estOneRmEpley(weight, reps);
+  if (method === "RPE") return estOneRmRpe(weight, reps, rpe);
+  return estOneRm(weight, reps);
+}
+
 /** Estimated nRM from a known 1RM: oneRM * (37 - n) / 36. */
 export function estRm(oneRm: number, n: number): number {
   if (n <= 0 || n >= 37) return oneRm;

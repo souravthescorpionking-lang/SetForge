@@ -222,6 +222,13 @@ export async function buildPerUserSeed(userId: string) {
     keepScreenOn: false,
     estOneRmRepLimit: 10,
     weeklyWorkoutTarget: 0,
+    showSetType: true,
+    showRpe: true,
+    showTempo: true,
+    showRest: true,
+    autoRestFromRow: true,
+    restEndBehaviour: "NOTIFY_AND_FOCUS_NEXT",
+    e1rmMethod: "BRZYCKI",
   };
 
   const plates = [

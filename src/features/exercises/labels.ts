@@ -33,6 +33,7 @@ export const GRAPH_METRIC_LABELS: Record<string, string> = {
   MAX_TIME: "Max time",
   MAX_SPEED: "Max speed",
   MAX_PACE: "Best pace",
+  AVG_REST: "Avg rest",
 };
 
 export function graphMetricLabel(metric: string): string {
@@ -91,6 +92,7 @@ export function metricsForType(type: string): string[] {
     "MAX_TIME",
     "MAX_SPEED",
     "MAX_PACE",
+    "AVG_REST",
   ];
   const ok: Record<string, boolean> = {
     EST_1RM: hasW && hasR,
@@ -104,6 +106,7 @@ export function metricsForType(type: string): string[] {
     MAX_TIME: hasT,
     MAX_SPEED: hasD && hasT,
     MAX_PACE: hasD && hasT,
+    AVG_REST: true, // rest applies to any exercise with timed sets
   };
   return all.filter((m) => ok[m]);
 }
@@ -130,6 +133,8 @@ export function metricValueFormatter(metric: string, unit: WeightUnit): (v: numb
       return (v) => `${round2(v)} km`;
     case "MAX_SPEED":
       return (v) => `${round2(v)} km/h`;
+    case "AVG_REST":
+      return (v) => formatDuration(v);
     default:
       return (v) => `${round1(v)} ${unit}`;
   }

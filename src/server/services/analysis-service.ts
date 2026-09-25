@@ -1,14 +1,23 @@
 // Records (actual + estimated), graphs, stats, goals.
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
-import { estOneRm, estRm, totalVolume, totalReps, speed, paceSec } from "@/lib/formulas";
+import { estOneRm, estOneRmByMethod, estRm, totalVolume, totalReps, speed, paceSec } from "@/lib/formulas";
 import { toDayUtc, todayDayUtc, addDays, dayKey } from "@/lib/dates";
 import { mapRecords, mapGoal } from "../mappers";
 import { notFound, badRequest } from "../http";
 import { recomputePRs } from "./workout-service";
 import type { GraphPointDTO } from "@/lib/types";
 
-type SetLike = { weight: number | null; reps: number | null; distance: number | null; timeSec: number | null; date: Date };
+type SetLike = {
+  weight: number | null;
+  reps: number | null;
+  distance: number | null;
+  timeSec: number | null;
+  date: Date;
+  rpe: number | null;
+  setType: string | null;
+  restActualSec: number | null;
+};
 
 async function allSetsForExercise(userId: string, exerciseId: string): Promise<SetLike[]> {
   const wes = await db.workoutExercise.findMany({
@@ -18,10 +27,31 @@ async function allSetsForExercise(userId: string, exerciseId: string): Promise<S
   const out: SetLike[] = [];
   for (const we of wes) {
     for (const s of we.sets) {
-      out.push({ weight: s.weight, reps: s.reps, distance: s.distance, timeSec: s.timeSec, date: we.workout.date });
+      out.push({
+        weight: s.weight,
+        reps: s.reps,
+        distance: s.distance,
+        timeSec: s.timeSec,
+        date: we.workout.date,
+        rpe: s.rpe ?? null,
+        setType: s.setType ?? "NORMAL",
+        restActualSec: s.restActualSec ?? null,
+      });
     }
   }
   return out.sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+/** Best e1RM across a day's sets: FAILURE sets excluded; method + RPE honoured. */
+function dayBestE1Rm(daySets: SetLike[], repLimit: number, method: string): number {
+  let oneRm = 0;
+  for (const s of daySets) {
+    if (s.weight == null || s.reps == null || s.reps < 1 || s.reps > repLimit) continue;
+    if (s.setType === "FAILURE") continue; // failure sets are not reliable e1RM inputs
+    const e = estOneRmByMethod(s.weight, s.reps, method, s.rpe);
+    if (e > oneRm) oneRm = e;
+  }
+  return oneRm;
 }
 
 // ---------- records ----------
@@ -30,6 +60,7 @@ async function allSetsForExercise(userId: string, exerciseId: string): Promise<S
 export async function listAllRecords(userId: string) {
   const settings = await db.userSettings.findUnique({ where: { userId } });
   const repLimit = settings?.estOneRmRepLimit ?? 10;
+  const method = settings?.e1rmMethod ?? "BRZYCKI";
   const exercises = await db.exercise.findMany({ where: { userId }, include: { category: true }, orderBy: { name: "asc" } });
   const out = [];
   for (const ex of exercises) {
@@ -42,8 +73,8 @@ export async function listAllRecords(userId: string) {
     let volume = 0;
     for (const s of sets) {
       volume += (s.weight ?? 0) * (s.reps ?? 0);
-      if (s.weight != null && s.reps != null && s.reps <= repLimit && s.reps >= 1) {
-        const e = estOneRm(s.weight, s.reps);
+      if (s.weight != null && s.reps != null && s.reps <= repLimit && s.reps >= 1 && s.setType !== "FAILURE") {
+        const e = estOneRmByMethod(s.weight, s.reps, method, s.rpe);
         if (e > oneRm) oneRm = e;
       }
       if ((s.weight ?? 0) > bestWeight) {
@@ -74,6 +105,7 @@ export async function getRecords(userId: string, exerciseId: string) {
   ]);
   if (!ex) throw notFound("Exercise not found");
   const repLimit = settings?.estOneRmRepLimit ?? 10;
+  const method = settings?.e1rmMethod ?? "BRZYCKI";
   const prs = await db.personalRecord.findMany({ where: { exerciseId } });
   const sets = await allSetsForExercise(userId, exerciseId);
   return mapRecords(
@@ -81,6 +113,7 @@ export async function getRecords(userId: string, exerciseId: string) {
     prs,
     sets.map((s) => ({ ...s, createdAt: s.date })),
     repLimit,
+    method,
   );
 }
 
@@ -105,6 +138,7 @@ export async function getGraph(
   if (!ex) throw notFound("Exercise not found");
   const settings = await db.userSettings.findUnique({ where: { userId } });
   const repLimit = settings?.estOneRmRepLimit ?? 10;
+  const method = settings?.e1rmMethod ?? "BRZYCKI";
   let sets = await allSetsForExercise(userId, exerciseId);
   if (opts.from) sets = sets.filter((s) => s.date >= toDayUtc(opts.from!));
   if (opts.to) sets = sets.filter((s) => s.date <= toDayUtc(opts.to!));
@@ -122,7 +156,12 @@ export async function getGraph(
     let value: number | null = null;
     switch (opts.metric) {
       case "EST_1RM": {
-        value = Math.max(0, ...daySets.filter((s) => s.weight != null && s.reps != null && s.reps >= 1 && s.reps <= repLimit).map((s) => estOneRm(s.weight!, s.reps!)));
+        value = dayBestE1Rm(daySets, repLimit, method);
+        break;
+      }
+      case "AVG_REST": {
+        const rests = daySets.map((s) => s.restActualSec).filter((r): r is number => r != null && r > 0);
+        value = rests.length ? rests.reduce((a, b) => a + b, 0) / rests.length : 0;
         break;
       }
       case "MAX_WEIGHT":
@@ -150,7 +189,7 @@ export async function getGraph(
       }
       case "REP_MAXES": {
         const rm = opts.rm ?? 1;
-        const oneRm = Math.max(0, ...daySets.filter((s) => s.weight != null && s.reps != null && s.reps >= 1 && s.reps <= repLimit).map((s) => estOneRm(s.weight!, s.reps!)));
+        const oneRm = dayBestE1Rm(daySets, repLimit, method);
         value = oneRm > 0 ? estRm(oneRm, rm) : null;
         break;
       }

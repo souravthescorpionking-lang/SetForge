@@ -16,6 +16,14 @@ export type SettingsDTO = {
   keepScreenOn: boolean;
   estOneRmRepLimit: number;
   weeklyWorkoutTarget: number;
+  // ---- Part 2 ----
+  showSetType: boolean;
+  showRpe: boolean;
+  showTempo: boolean;
+  showRest: boolean;
+  autoRestFromRow: boolean;
+  restEndBehaviour: string; // NOTIFY | NOTIFY_AND_FOCUS_NEXT
+  e1rmMethod: string; // BRZYCKI | RPE | EPLEY
 };
 
 export type SessionDTO = { user: UserDTO; settings: SettingsDTO };
@@ -42,6 +50,10 @@ export type ExerciseDTO = {
   isFavorite: boolean;
   barWeight: number | null;
   autoWarmup: boolean;
+  // ---- Part 2: per-exercise set defaults ----
+  defaultSetType: string | null;
+  defaultRpeTarget: number | null;
+  defaultTempo: string | null;
   workoutCount?: number;
   lastPerformed?: string | null;
 };
@@ -70,6 +82,13 @@ export type SetDTO = {
   isWarmup?: boolean;
   sortOrder: number;
   newPr?: boolean;
+  // ---- Part 2 set fields ----
+  setType?: string; // NORMAL | WARMUP | DROP | FAILURE | AMRAP
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
+  restActualSec?: number | null;
+  completedAt?: string | null;
 };
 
 export type WorkoutGroupDTO = {
@@ -160,6 +179,11 @@ export type PredefinedSetDTO = {
   distance: number | null;
   timeSec: number | null;
   sortOrder: number;
+  // ---- Part 2 template fields ----
+  setType?: string | null;
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
 };
 
 export type RoutineExerciseDTO = {

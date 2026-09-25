@@ -31,6 +31,7 @@ const METRIC_LABELS: Record<GraphMetric, string> = {
   MAX_TIME: "Max time",
   MAX_SPEED: "Max speed",
   MAX_PACE: "Best pace",
+  AVG_REST: "Avg rest",
 };
 
 function fmtMetric(metric: string, v: number): string {

@@ -71,6 +71,14 @@ model UserSettings {
   keepScreenOn          Boolean @default(false)
   estOneRmRepLimit      Int     @default(10)
   weeklyWorkoutTarget   Int     @default(0) // workouts per week goal (0 = off)
+  // ---- set-table column visibility & behaviour (Part 2) ----
+  showSetType           Boolean @default(true)
+  showRpe               Boolean @default(true)
+  showTempo             Boolean @default(true)
+  showRest              Boolean @default(true)
+  autoRestFromRow       Boolean @default(true) // ✓ starts the row's planned rest
+  restEndBehaviour      String  @default("NOTIFY_AND_FOCUS_NEXT") // NOTIFY | NOTIFY_AND_FOCUS_NEXT
+  e1rmMethod            String  @default("BRZYCKI") // BRZYCKI | RPE | EPLEY
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -110,6 +118,10 @@ model Exercise {
   isFavorite      Boolean   @default(false)
   barWeight       Float? // per-exercise bar weight for plate calculator
   autoWarmup      Boolean   @default(false) // auto-open the warm-up ramp in the training screen
+  // ---- Part 2: per-exercise set defaults ----
+  defaultSetType  String? // NORMAL | WARMUP | DROP | FAILURE | AMRAP preset for new sets
+  defaultRpeTarget Float? // suggested RPE for new sets
+  defaultTempo    String? // suggested tempo, e.g. "3-1-1-0"
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
@@ -187,7 +199,14 @@ model TrainingSet {
   timeSec           Int?
   comment           String?
   isComplete        Boolean         @default(false)
-  isWarmup          Boolean         @default(false)
+  isWarmup          Boolean         @default(false) // mirrors setType == WARMUP (legacy flag, kept in sync)
+  // ---- Part 2 set fields (all nullable / defaulted - additive migration) ----
+  setType           String          @default("NORMAL") // SetType: NORMAL | WARMUP | DROP | FAILURE | AMRAP
+  rpe               Float? // 6.0-10.0, step 0.5
+  tempo             String? // "ecc-pause-con-pause", e.g. "3-1-1-0"
+  restPlannedSec    Int?
+  restActualSec     Int? // measured: previous completedAt -> this completedAt
+  completedAt       DateTime?
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -287,6 +306,11 @@ model PredefinedSet {
   reps              Int?
   distance          Float?
   timeSec           Int?
+  // ---- Part 2 template fields (null = copy previous / unset) ----
+  setType           String? // null = NORMAL
+  rpe               Float?
+  tempo             String?
+  restPlannedSec    Int?
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt

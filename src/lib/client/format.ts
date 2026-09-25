@@ -87,12 +87,14 @@ export function setSummary(s: {
   reps?: number | null;
   distance?: number | null;
   timeSec?: number | null;
+  rpe?: number | null;
 }): string {
   const parts: string[] = [];
   if (s.weight != null) parts.push(`${round1(s.weight)}kg`);
   if (s.reps != null) parts.push(`×${s.reps}`);
   if (s.distance != null) parts.push(`${round2(s.distance)}km`);
   if (s.timeSec != null) parts.push(formatDuration(s.timeSec));
+  if (s.rpe != null) parts.push(`@${s.rpe % 1 ? s.rpe.toFixed(1) : s.rpe}`);
   return parts.join(" ") || "—";
 }
 

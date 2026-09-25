@@ -17,7 +17,7 @@ import type {
   GoalDTO,
   RecordsDTO,
 } from "@/lib/types";
-import { estOneRm } from "@/lib/formulas";
+import { estOneRmByMethod } from "@/lib/formulas";
 import { dayKey } from "@/lib/dates";
 import type {
   Category,
@@ -62,6 +62,9 @@ export function mapExercise(
     isFavorite: e.isFavorite,
     barWeight: e.barWeight,
     autoWarmup: e.autoWarmup,
+    defaultSetType: e.defaultSetType ?? null,
+    defaultRpeTarget: e.defaultRpeTarget ?? null,
+    defaultTempo: e.defaultTempo ?? null,
     ...extras,
   };
 }
@@ -78,6 +81,12 @@ export function mapSet(s: TrainingSet, newPr?: boolean): SetDTO {
     isComplete: s.isComplete,
     isWarmup: s.isWarmup,
     sortOrder: s.sortOrder,
+    setType: s.setType ?? "NORMAL",
+    rpe: s.rpe ?? null,
+    tempo: s.tempo ?? null,
+    restPlannedSec: s.restPlannedSec ?? null,
+    restActualSec: s.restActualSec ?? null,
+    completedAt: s.completedAt?.toISOString() ?? null,
     ...(newPr !== undefined ? { newPr } : {}),
   };
 }
@@ -159,6 +168,10 @@ export function mapPredefinedSet(s: PredefinedSet): PredefinedSetDTO {
     distance: s.distance ?? null,
     timeSec: s.timeSec ?? null,
     sortOrder: s.sortOrder,
+    setType: s.setType ?? null,
+    rpe: s.rpe ?? null,
+    tempo: s.tempo ?? null,
+    restPlannedSec: s.restPlannedSec ?? null,
   };
 }
 
@@ -260,8 +273,9 @@ export function mapGoal(g: Goal & { exercise?: { id: string; name: string } | nu
 export function mapRecords(
   exerciseId: string,
   prs: Array<PersonalRecord & { set?: SetRow | null }>,
-  allSets: Array<{ reps: number | null; weight: number | null; createdAt: Date; workoutDate?: Date }>,
+  allSets: Array<{ reps: number | null; weight: number | null; createdAt: Date; workoutDate?: Date; rpe?: number | null; setType?: string | null }>,
   repLimit: number,
+  e1rmMethod: string = "BRZYCKI",
 ): RecordsDTO {
   const actual = prs
     .slice()
@@ -286,8 +300,9 @@ export function mapRecords(
 
   let oneRm = 0;
   for (const s of allSets) {
+    if (s.setType === "FAILURE") continue; // failure sets are not reliable e1RM inputs
     if (s.weight != null && s.reps != null && s.reps >= 1 && s.reps <= repLimit) {
-      oneRm = Math.max(oneRm, estOneRm(s.weight, s.reps));
+      oneRm = Math.max(oneRm, estOneRmByMethod(s.weight, s.reps, e1rmMethod, s.rpe));
     }
   }
   const estimated: Array<{ reps: number; weight: number }> = [];

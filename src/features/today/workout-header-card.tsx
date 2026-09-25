@@ -38,6 +38,7 @@ import {
   Timer,
   Trash2,
   Flame,
+  Trophy,
 } from "lucide-react";
 import { useApp } from "@/lib/client/store";
 import { workoutsApi } from "@/lib/client/api";
@@ -100,6 +101,7 @@ export function WorkoutHeaderCard({
   const sets = workout.exercises.flatMap((we) => we.sets);
   // performed work only — planned sets and warm-up ramps don't count toward tonnage
   const doneSets = sets.filter((s) => s.isComplete && !s.isWarmup);
+  const prCount = sets.filter((s) => s.newPr).length;
   const volume = totalVolume(doneSets);
   const distance = doneSets.reduce((sum, s) => sum + (s.distance ?? 0), 0);
   const durationSec =
@@ -260,6 +262,15 @@ export function WorkoutHeaderCard({
           <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1.5 text-xs font-semibold">
             <Route className="h-3.5 w-3.5 text-primary" />
             <span className="numeric">{round2(distance)}</span> km
+          </span>
+        )}
+        {prCount > 0 && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600 dark:text-amber-400"
+            title="Personal records set in this session"
+          >
+            <Trophy className="h-3.5 w-3.5" />
+            <span className="numeric">{prCount}</span> PR{prCount === 1 ? "" : "s"}
           </span>
         )}
         {(workout.startAt || workout.endAt) && (

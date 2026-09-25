@@ -128,6 +128,10 @@ export async function createExercise(
     defaultGraph?: string | null;
     barWeight?: number | null;
     autoWarmup?: boolean;
+    // ---- Part 2 ----
+    defaultSetType?: string | null;
+    defaultRpeTarget?: number | null;
+    defaultTempo?: string | null;
   },
 ) {
   const cat = await db.category.findFirst({ where: { id: input.categoryId, userId } });
@@ -149,6 +153,9 @@ export async function createExercise(
       defaultGraph: input.defaultGraph ?? null,
       barWeight: input.barWeight ?? null,
       autoWarmup: input.autoWarmup ?? false,
+      defaultSetType: input.defaultSetType ?? null,
+      defaultRpeTarget: input.defaultRpeTarget ?? null,
+      defaultTempo: input.defaultTempo ?? null,
     },
     include: { category: true },
   });
@@ -171,6 +178,10 @@ export async function updateExercise(
     autoWarmup?: boolean;
     isFavorite?: boolean;
     unitChangeMode?: "convert" | "change";
+    // ---- Part 2 ----
+    defaultSetType?: string | null;
+    defaultRpeTarget?: number | null;
+    defaultTempo?: string | null;
   },
 ) {
   const ex = await db.exercise.findFirst({ where: { id, userId, deletedAt: null } });
@@ -221,6 +232,9 @@ export async function updateExercise(
       ...(patch.barWeight !== undefined ? { barWeight: patch.barWeight } : {}),
       ...(patch.autoWarmup !== undefined ? { autoWarmup: patch.autoWarmup } : {}),
       ...(patch.isFavorite !== undefined ? { isFavorite: patch.isFavorite } : {}),
+      ...(patch.defaultSetType !== undefined ? { defaultSetType: patch.defaultSetType } : {}),
+      ...(patch.defaultRpeTarget !== undefined ? { defaultRpeTarget: patch.defaultRpeTarget } : {}),
+      ...(patch.defaultTempo !== undefined ? { defaultTempo: patch.defaultTempo } : {}),
     },
     include: { category: true },
   });

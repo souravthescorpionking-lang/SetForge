@@ -1,6 +1,6 @@
 // Zod request schemas — shared client + server. This is the validation contract.
 import { z } from "zod";
-import { EXERCISE_TYPES, GOAL_TYPES, GRAPH_METRICS, MEASUREMENT_GOAL_TYPES } from "./constants";
+import { EXERCISE_TYPES, GOAL_TYPES, GRAPH_METRICS, MEASUREMENT_GOAL_TYPES, REST_END_BEHAVIOURS, E1RM_METHODS, SET_TYPES, TEMPO_REGEX } from "./constants";
 
 export const emailField = z.email("Enter a valid email").transform((v) => v.trim().toLowerCase());
 export const passwordField = z.string().min(8, "At least 8 characters").max(128);
@@ -46,6 +46,14 @@ export const exerciseCreateSchema = z.object({
   defaultGraph: z.enum(GRAPH_METRICS).nullable().optional(),
   barWeight: z.number().min(0).max(1000).nullable().optional(),
   autoWarmup: z.boolean().optional(),
+  // ---- Part 2: per-exercise set defaults ----
+  defaultSetType: z.enum(SET_TYPES).nullable().optional(),
+  defaultRpeTarget: z.number().min(6).max(10).nullable().optional(),
+  defaultTempo: z
+    .string()
+    .regex(TEMPO_REGEX, "Tempo must look like 3-1-1-0")
+    .nullable()
+    .optional(),
 });
 export const exerciseUpdateSchema = exerciseCreateSchema.partial().extend({
   isFavorite: z.boolean().optional(),
@@ -91,6 +99,11 @@ export const orderSchema = reorderSchema;
 
 // ---------- sets ----------
 const nullableNum = (max: number) => z.number().min(0).max(max).nullable().optional();
+const tempoField = z
+  .string()
+  .regex(TEMPO_REGEX, "Tempo must look like 3-1-1-0")
+  .nullable()
+  .optional();
 export const setCreateSchema = z.object({
   weight: nullableNum(100000),
   reps: z.number().int().min(0).max(10000).nullable().optional(),
@@ -99,6 +112,17 @@ export const setCreateSchema = z.object({
   comment: z.string().max(500).nullable().optional(),
   isComplete: z.boolean().optional(),
   isWarmup: z.boolean().optional(),
+  // ---- Part 2 ----
+  setType: z.enum(SET_TYPES).optional(),
+  rpe: z.number().min(6).max(10).nullable().optional(),
+  tempo: tempoField,
+  restPlannedSec: z.number().int().min(0).max(3600).nullable().optional(),
+  restActualSec: z.number().int().min(0).max(3600).nullable().optional(),
+  completedAt: z
+    .string()
+    .refine((v) => !Number.isNaN(new Date(v).getTime()), "Invalid date")
+    .nullable()
+    .optional(),
 });
 export const setUpdateSchema = setCreateSchema;
 
@@ -157,6 +181,11 @@ export const predefinedSetCreateSchema = z.object({
   reps: z.number().int().min(0).max(10000).nullable().optional(),
   distance: nullableNum(100000),
   timeSec: z.number().int().min(0).max(900000).nullable().optional(),
+  // ---- Part 2 template fields ----
+  setType: z.enum(SET_TYPES).nullable().optional(),
+  rpe: z.number().min(6).max(10).nullable().optional(),
+  tempo: tempoField,
+  restPlannedSec: z.number().int().min(0).max(3600).nullable().optional(),
 });
 export const predefinedSetUpdateSchema = predefinedSetCreateSchema;
 export const routineLogSchema = z.object({ dayId: z.string().min(1), date: isoDate });
@@ -203,6 +232,14 @@ export const settingsUpdateSchema = z.object({
   keepScreenOn: z.boolean().optional(),
   estOneRmRepLimit: z.number().int().min(1).max(36).optional(),
   weeklyWorkoutTarget: z.number().int().min(0).max(14).optional(),
+  // ---- Part 2: set-table columns & behaviour ----
+  showSetType: z.boolean().optional(),
+  showRpe: z.boolean().optional(),
+  showTempo: z.boolean().optional(),
+  showRest: z.boolean().optional(),
+  autoRestFromRow: z.boolean().optional(),
+  restEndBehaviour: z.enum(REST_END_BEHAVIOURS).optional(),
+  e1rmMethod: z.enum(E1RM_METHODS).optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),

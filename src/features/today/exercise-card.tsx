@@ -8,7 +8,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Check, CheckCircle2, Circle, GripVertical, History, Trophy } from "lucide-react";
 import type { SetDTO, WorkoutExerciseDTO, WorkoutGroupDTO } from "@/lib/types";
-import { relativeFromNow, setSummary } from "@/lib/client/format";
+import { relativeFromNow, round1, setSummary } from "@/lib/client/format";
+import { estOneRm } from "@/lib/formulas";
 import { cn } from "@/lib/utils";
 import { WarmupBadge } from "@/components/shared/warmup-badge";
 
@@ -128,6 +129,35 @@ export function ExerciseCard({
               {sets.length} {sets.length === 1 ? "set" : "sets"}
             </span>
           </div>
+
+          {(() => {
+            // one-line block summary: volume · best e1RM · avg RPE (working sets only)
+            const done = sets.filter((x) => x.isComplete && !x.isWarmup);
+            if (done.length === 0) return null;
+            let vol = 0;
+            let best = 0;
+            let rpeSum = 0;
+            let rpeN = 0;
+            for (const x of done) {
+              vol += (x.weight ?? 0) * (x.reps ?? 0);
+              if (x.weight != null && x.reps != null && x.reps >= 1 && x.reps <= 10 && (x.setType ?? "NORMAL") !== "FAILURE") {
+                best = Math.max(best, estOneRm(x.weight, x.reps));
+              }
+              if (x.rpe != null) { rpeSum += x.rpe; rpeN++; }
+            }
+            const bits: string[] = [];
+            if (vol > 0) bits.push(`Vol ${vol >= 1000 ? `${round1(vol / 1000)}k` : round1(vol)} kg`);
+            if (best > 0) bits.push(`Best e1RM ${round1(best)}`);
+            if (rpeN > 0) bits.push(`Avg RPE ${round1(rpeSum / rpeN)}`);
+            if (bits.length === 0) return null;
+            return (
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] font-semibold tabular-nums text-muted-foreground">
+                {bits.map((b, i) => (
+                  <span key={i} className={i === 0 ? "text-foreground/80" : undefined}>{b}</span>
+                ))}
+              </p>
+            );
+          })()}
 
           {ex.lastPerformed && (
             <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">

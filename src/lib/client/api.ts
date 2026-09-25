@@ -104,6 +104,13 @@ export type SetInput = {
   comment?: string | null;
   isComplete?: boolean;
   isWarmup?: boolean;
+  // ---- Part 2 ----
+  setType?: string;
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
+  restActualSec?: number | null;
+  completedAt?: string | null;
 };
 
 export type ExerciseInput = {
@@ -119,6 +126,10 @@ export type ExerciseInput = {
   autoWarmup?: boolean;
   isFavorite?: boolean;
   unitChangeMode?: "convert" | "change";
+  // ---- Part 2 ----
+  defaultSetType?: string | null;
+  defaultRpeTarget?: number | null;
+  defaultTempo?: string | null;
 };
 
 export const exercisesApi = {
@@ -272,6 +283,11 @@ export type PredefinedSetInput = {
   reps?: number | null;
   distance?: number | null;
   timeSec?: number | null;
+  // ---- Part 2 ----
+  setType?: string | null;
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
 };
 
 export const routinesApi = {

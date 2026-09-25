@@ -26,6 +26,14 @@ export async function updateSettings(
     keepScreenOn: boolean;
     estOneRmRepLimit: number;
     weeklyWorkoutTarget: number;
+    // ---- Part 2: set-table columns & behaviour ----
+    showSetType: boolean;
+    showRpe: boolean;
+    showTempo: boolean;
+    showRest: boolean;
+    autoRestFromRow: boolean;
+    restEndBehaviour: string;
+    e1rmMethod: string;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });

@@ -182,7 +182,16 @@ export async function addPredefinedSet(
   routineId: string,
   dayId: string,
   reId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null },
+  input: {
+    weight?: number | null;
+    reps?: number | null;
+    distance?: number | null;
+    timeSec?: number | null;
+    setType?: string | null;
+    rpe?: number | null;
+    tempo?: string | null;
+    restPlannedSec?: number | null;
+  },
 ) {
   const re = await db.routineExercise.findFirst({ where: { id: reId, userId, dayId } });
   if (!re) throw notFound("Exercise not found in this day");
@@ -195,6 +204,10 @@ export async function addPredefinedSet(
       reps: input.reps ?? null,
       distance: input.distance ?? null,
       timeSec: input.timeSec ?? null,
+      setType: input.setType ?? null,
+      rpe: input.rpe ?? null,
+      tempo: input.tempo ?? null,
+      restPlannedSec: input.restPlannedSec ?? null,
       sortOrder: count,
     },
   });
@@ -207,7 +220,16 @@ export async function updatePredefinedSet(
   dayId: string,
   reId: string,
   setId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null },
+  input: {
+    weight?: number | null;
+    reps?: number | null;
+    distance?: number | null;
+    timeSec?: number | null;
+    setType?: string | null;
+    rpe?: number | null;
+    tempo?: string | null;
+    restPlannedSec?: number | null;
+  },
 ) {
   const s = await db.predefinedSet.findFirst({ where: { id: setId, routineExerciseId: reId } });
   if (!s) throw notFound("Set not found");
@@ -218,6 +240,10 @@ export async function updatePredefinedSet(
       ...(input.reps !== undefined ? { reps: input.reps } : {}),
       ...(input.distance !== undefined ? { distance: input.distance } : {}),
       ...(input.timeSec !== undefined ? { timeSec: input.timeSec } : {}),
+      ...(input.setType !== undefined ? { setType: input.setType } : {}),
+      ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
+      ...(input.tempo !== undefined ? { tempo: input.tempo } : {}),
+      ...(input.restPlannedSec !== undefined ? { restPlannedSec: input.restPlannedSec } : {}),
     },
   });
   return getRoutine(userId, routineId);
@@ -286,7 +312,16 @@ export async function logRoutineDay(userId: string, routineId: string, input: { 
     }
 
     const predefined = re.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder);
-    let setsToAdd: Array<{ weight: number | null; reps: number | null; distance: number | null; timeSec: number | null }>;
+    let setsToAdd: Array<{
+      weight: number | null;
+      reps: number | null;
+      distance: number | null;
+      timeSec: number | null;
+      setType: string | null;
+      rpe: number | null;
+      tempo: string | null;
+      restPlannedSec: number | null;
+    }>;
 
     const isBlank = predefined.length > 0 && predefined.every((s) => s.weight == null && s.reps == null && s.distance == null && s.timeSec == null);
     if (isBlank) {
@@ -297,10 +332,28 @@ export async function logRoutineDay(userId: string, routineId: string, input: { 
         orderBy: { workout: { date: "desc" } },
       });
       setsToAdd = prev
-        ? prev.sets.map((s) => ({ weight: s.weight, reps: s.reps, distance: s.distance, timeSec: s.timeSec }))
+        ? prev.sets.map((s) => ({
+            weight: s.weight,
+            reps: s.reps,
+            distance: s.distance,
+            timeSec: s.timeSec,
+            setType: s.setType ?? null,
+            rpe: s.rpe ?? null,
+            tempo: s.tempo ?? null,
+            restPlannedSec: s.restPlannedSec ?? null,
+          }))
         : [];
     } else {
-      setsToAdd = predefined.map((s) => ({ weight: s.weight, reps: s.reps, distance: s.distance, timeSec: s.timeSec }));
+      setsToAdd = predefined.map((s) => ({
+        weight: s.weight,
+        reps: s.reps,
+        distance: s.distance,
+        timeSec: s.timeSec,
+        setType: s.setType ?? null,
+        rpe: s.rpe ?? null,
+        tempo: s.tempo ?? null,
+        restPlannedSec: s.restPlannedSec ?? null,
+      }));
     }
 
     let setOrder = await db.trainingSet.count({ where: { workoutExerciseId: twe.id } });
@@ -314,6 +367,11 @@ export async function logRoutineDay(userId: string, routineId: string, input: { 
           reps: s.reps,
           distance: s.distance,
           timeSec: s.timeSec,
+          setType: s.setType ?? "NORMAL",
+          isWarmup: s.setType === "WARMUP",
+          rpe: s.rpe,
+          tempo: s.tempo,
+          restPlannedSec: s.restPlannedSec,
           sortOrder: setOrder++,
         },
       });

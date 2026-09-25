@@ -460,3 +460,48 @@ Next-round recommendations (priority):
 3. Consider streak rest-day grace (round-7 leftover product decision).
 4. Watchdog hardening if needed: email/notification on restart, RSS-based proactive recycling before the OOM killer fires (currently reactive-only).
 5. WeekProgressCard: tap-through already goes to Insights; could add per-day drill-down to the specific workout.
+
+---
+Task ID: 14
+Agent: main (Z.ai Code)
+Task: Part 2 UI overhaul — single-row set entry redesign: new set fields (setType/RPE/tempo/rest/completedAt) through schema→API→UI, SetTable component library, integrated rest timer bar, Today summaries, quick-add bar, settings columns, e1RM methods
+
+Work Log:
+- Environment recovered (echo ok after prior Errno-11). Dev server alive; health green; watchdog running. Worklog read (13 prior entries).
+- SCHEMA (additive migration 20260926040000_part2_set_fields, applied + backfilled via prisma migrate deploy):
+  - TrainingSet: setType (NORMAL|WARMUP|DROP|FAILURE|AMRAP, default NORMAL; isWarmup kept in sync as legacy mirror), rpe (6.0–10.0), tempo ("3-1-1-0" pattern), restPlannedSec, restActualSec, completedAt.
+  - Exercise: defaultSetType, defaultRpeTarget, defaultTempo.
+  - UserSettings: showSetType/showRpe/showTempo/showRest (default true), autoRestFromRow (true), restEndBehaviour (NOTIFY_AND_FOCUS_NEXT), e1rmMethod (BRZYCKI).
+  - PredefinedSet: setType/rpe/tempo/restPlannedSec (null = copy previous).
+  - Backfill: existing isWarmup rows → setType='WARMUP' (verified count 1=1).
+- CONTRACT LAYER: constants (SET_TYPES + SET_TYPE_META letters/colours, RPE_OPTIONS, TEMPO_REGEX + parseTempo/normaliseTempo, formatRestSec, REST_END_BEHAVIOURS, E1RM_METHODS, AVG_REST graph metric); types.ts DTOs; Zod schemas (tempo regex both create+update, RPE 6–10, rest caps); mappers (mapSet/mapExercise/mapPredefinedSet/settings spread); workout-service (SetFieldsInput, syncWarmup setType⟺isWarmup, completedAt stamping + restActualSec derived from previous completed set on ✓, PR check honours effective warmup); exercise/routine/settings services pass-through; routine log-day copies new fields; account export/import round-trips new fields (old backups import as nulls); client api.ts input types.
+- e1RM RULES: formulas.estOneRmEpley/estOneRmRpe (Tuchscherer approximation: effective reps = reps + (10−RPE), Epley on that)/estOneRmByMethod; analysis-service + mapRecords exclude FAILURE sets from e1RM, honour settings.e1rmMethod; new AVG_REST graph metric (avg restActualSec per day, any exercise type).
+- COMPONENT LIBRARY (src/components/set-table/):
+  - cells.tsx: SetTypeTag (tap cycles N→W→D→F→A, long-press/context-menu picker with descriptions), RpeCell (9-chip popover), TempoCell (4-field ecc/pause/con/pause editor with normalisation), RestCell (presets + custom min/sec + start-now), NumericCell (tap→inline input, autofocus+select, −/+ steppers appear under the cell while focused, Enter commits, arrows step, amrap "n+" suffix).
+  - set-table.tsx: single-row grid (# drag-handle / type / value cols minmax(0,1fr) / RPE / TEMPO / REST / ✓ / …), dnd-kit reorder via # cell, header labels adapt to exercise type + unit, add-set ghost row (last-time placeholders as muted italic ghosts, Enter adds, + button), drop-set connector line, FAILURE tint, completed dim, PR trophy + note dot in … cell, live rest countdown inside the resting row's REST cell.
+  - row-sheet.tsx: bottom Sheet (max 85vh, internal scroll): note textarea (blur-saves), set-type chips, RPE/Tempo/Rest editors, planned-vs-actual rest display, Use-as-prefill / Copy summary / Duplicate / Delete.
+  - Fixed two layout bugs found via browser bounding-box checks: (1) gridTemplate prop never applied to row style → cells stacked vertically 322px tall; (2) ✓ track missing from grid template when markSetsComplete=false → … cell wrapped to second row. Rows now 38px single-line, no horizontal overflow at 358px simulated width.
+- REST TIMER → RestBar (rest-timer.tsx rewrite): slim full-width bottom bar "Rest 1:12 [−15s][+15s][pause][Skip]" above bottom nav (desktop bottom-6), presets+mute popover kept, context gained restRowId/remainingSec/onRestEnd; ✓ or set-add starts countdown from row restPlannedSec → exercise restSec → last used (autoRestFromRow setting); on end: beep+vibrate+toast+fire onRestEnd (NOTIFY_AND_FOCUS_NEXT focuses the add row).
+- TRACK TAB REWRITE (track-tab.tsx): SetInputRow+SetsList deleted; SetTable wired with lifted add-draft state (LastTimeBar live deltas + tap-to-prefill still work); volume/e1RM/avgRPE summary line ("Vol 1.8k kg · Best e1RM 136.6 · Avg RPE 8 · N working sets"); keyboard shortcuts N (focus add row) / R (start rest) / Del (delete last-touched set) / ? (shortcuts sheet); delete → 10s undo toast (recreates set with all fields incl. type/rpe/tempo/rest); Enter-to-add fixed via draftRef (stale-closure bug caught in browser testing).
+- TODAY VIEW: QuickAddBar (desktop, lg:block) parsing "bench 100x5 @8 t3-1-1 r90" (name greedy prefix, weight×reps, @rpe, t-tempo normalised, r-rest) with live preview chips → finds/creates exercise + adds set in one shot (verified end-to-end: "Added to Barbell Bench Press 100kg × 5 @ RPE 8 · new PR! 🏆"); exercise cards gained the same Vol/Best-e1RM/Avg-RPE summary line; workout header gained PR-count chip (existing volume/sets/duration/streak chips retained); PR-chip + test data cleaned after verification.
+- SETTINGS: new "Set table" card — 4 column-visibility tiles (Set type/RPE/Tempo/Rest as switch cards), Rest-from-row switch, When-rest-ends segmented (Notify / Notify+focus next), Estimated-1RM-method segmented (Brzycki/Epley/RPE) with dynamic helper text. Column toggle verified end-to-end (Tempo off → column removed from table, restored after).
+- EXERCISE FORM: "New-set defaults" block — default set type select, RPE-target stepper (6–10), tempo input; payload wired through exercise-service create/update.
+- HISTORY/GRAPHS: setSummary now appends "@8" when RPE present (pills, toasts, clipboard); AVG_REST metric label + formatter + graph query support.
+- Ops notes: (a) `git stash` stashed the tracked db/custom.db and the running server kept a stale inode → SQLite "attempt to write a readonly database" (1032) on login; fixed by restarting dev server (and chmod). Never stash with the db file tracked — use `git stash -- src` scoping next time. (b) Bash tool output rendering eats "[m" sequences (ANSI-like) — "[mutate," displays as "utate,"; do not trust display when matching bracket-m strings (verify with rg -c). (c) sed -i on eslint-disable lines was safe but display artifact suggested corruption — always verify with git diff before "repairing". (d) Watchdog OOM-restarted the server once during heavy tsc runs (18:47) — known, auto-recovered.
+- Verification: bunx tsc — zero NEW errors vs stashed baseline (all remaining are pre-existing, line-shifted); bun run lint clean; browser QA (agent-browser): login, Today → squat training screen — SetTable renders all columns, RPE picker→"Avg RPE 8" in summary, tempo 3-1-1-0 saved, rest 1:30 set, ✓ → RestBar "Rest timer: X remaining", REST cell live countdown, row sheet full contents, type tag cycle N→W, delete + Undo restores row, quick-add parse preview + end-to-end add (PR toast), settings column toggles live-reflow table, exercise form defaults present, exercise-card summary line renders, 9-view sweep 0 console errors, mobile 358px no horizontal overflow/single-line rows. Screenshots: download/qa-r16-settable.png, qa-r16-settable-fixed.png, qa-r16-settable-final.png.
+
+Stage Summary:
+- Part 2 core delivered: every set is ONE inline-editable row with type tag, values, RPE, tempo, rest, ✓ and overflow sheet — persisting 6 new fields through migration→API→backup import/export, with warmup/failure exclusion rules and 3 e1RM methods server-side.
+- Integrated rest system: row-planned rest → live countdown in the REST cell + slim bottom RestBar with ±15s/skip, actual rest auto-recorded per set (visible in row sheet, AVG_REST graph).
+- Today gains: per-block Vol/e1RM/AvgRPE summary lines, workout PR chip, desktop quick-add bar with grammar parsing and live preview.
+- Settings: column visibility + rest behaviour + e1RM method all live-verifiable; exercise form exposes new-set defaults.
+- Two real layout bugs (missing grid template on rows; missing ✓ track) were caught by browser bounding-box measurement — innerText-only checks had passed; lesson recorded.
+
+Next-round recommendations (priority):
+1. Routine predefined-set editor UI: the API supports new template fields, but the routine day editor still uses the old row form — surface setType/RPE/tempo/rest there (reuse cells.tsx).
+2. History tab: render past workouts' sets with the read-only SetTable (mode=readonly) incl. rest actual column.
+3. Multi-select mode for set rows (long-press → bulk complete/delete/type) — spec §SET ROW; row sheet covers single ops today.
+4. Swipe gestures (left→delete/duplicate, right→complete) on mobile rows; currently only … sheet.
+5. Plate-calc popover on long-press of WEIGHT cell (PlateHint exists for the ghost target; per-cell would match spec).
+6. Web Worker + Notification-with-actions for background rest timing (currently interval-based; tab must stay focused).
+7. README/env/DB-switching docs (long-standing deliverable; needs explicit user request).

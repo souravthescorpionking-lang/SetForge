@@ -24,6 +24,7 @@ import { WeekProgressCard } from "./week-progress";
 import { WorkoutHeaderCard } from "./workout-header-card";
 import { ExerciseList } from "./exercise-list";
 import { NavPanel } from "./nav-panel";
+import { QuickAddBar } from "./quick-add";
 import { TrainingScreen } from "./training-screen";
 import { RestTimerProvider } from "./rest-timer";
 import { SummarySheet } from "./summary-sheet";
@@ -67,7 +68,7 @@ export function TodayView() {
   );
 
   // ---------- data ----------
-  const { data, isLoading } = useWorkoutByDate(dateKey);
+  const { data, isLoading, refetch: refetchWorkout } = useWorkoutByDate(dateKey);
   const workout = data?.workout ?? null;
 
   // does any workout exist before this date? (enables "Copy Previous")
@@ -296,6 +297,8 @@ export function TodayView() {
               transition={{ duration: 0.25 }}
               className="space-y-4"
             >
+              <QuickAddBar onAdded={() => refetchWorkout()} />
+
               <WorkoutHeaderCard
                 workout={workout}
                 dateKey={dateKey}
@@ -418,6 +421,13 @@ export function TodayView() {
                 keepScreenOn: false,
                 estOneRmRepLimit: 10,
                 weeklyWorkoutTarget: 0,
+                showSetType: true,
+                showRpe: true,
+                showTempo: true,
+                showRest: true,
+                autoRestFromRow: true,
+                restEndBehaviour: "NOTIFY_AND_FOCUS_NEXT",
+                e1rmMethod: "BRZYCKI",
               }
             }
             onNavigateDate={(key) => goTo(key)}

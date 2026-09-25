@@ -29,13 +29,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Stepper } from "@/components/shared/stepper";
 import { CategoryDot } from "@/components/shared/category-dot";
-import { CATEGORY_PALETTE, EXERCISE_TYPES, GRAPH_METRICS } from "@/lib/constants";
+import { CATEGORY_PALETTE, EXERCISE_TYPES, GRAPH_METRICS, SET_TYPES, SET_TYPE_META } from "@/lib/constants";
 import type { ExerciseDTO } from "@/lib/types";
 import { useApp } from "@/lib/client/store";
 import { useCategories, useInvalidate } from "@/lib/client/query";
 import { categoriesApi, exercisesApi, type ExerciseInput } from "@/lib/client/api";
 import { toast } from "sonner";
-import { Dumbbell, FlameKindling, Plus, Save } from "lucide-react";
+import { Dumbbell, FlameKindling, Layers2, Plus, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { defaultUnitFor, graphMetricLabel, metricsForType, typeLabel } from "./labels";
 import { useOfflineRun } from "./offline-run";
@@ -96,6 +96,10 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
   const [restSec, setRestSec] = useState<number | null>(exercise?.restSec ?? null);
   const [barWeight, setBarWeight] = useState<number | null>(exercise?.barWeight ?? null);
   const [autoWarmup, setAutoWarmup] = useState<boolean>(exercise?.autoWarmup ?? false);
+  // ---- Part 2: per-exercise set defaults ----
+  const [defaultSetType, setDefaultSetType] = useState<string>(exercise?.defaultSetType ?? "NORMAL");
+  const [defaultRpeTarget, setDefaultRpeTarget] = useState<number | null>(exercise?.defaultRpeTarget ?? null);
+  const [defaultTempo, setDefaultTempo] = useState<string>(exercise?.defaultTempo ?? "");
   const [defaultGraph, setDefaultGraph] = useState<string>(exercise?.defaultGraph ?? NO_GRAPH);
   const [saving, setSaving] = useState(false);
 
@@ -163,6 +167,9 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
       barWeight,
       autoWarmup,
       defaultGraph: defaultGraph === NO_GRAPH ? null : defaultGraph,
+      defaultSetType,
+      defaultRpeTarget,
+      defaultTempo: defaultTempo.trim() || null,
     };
     if (editing && unitChanged) payload.unitChangeMode = unitChangeMode;
 
@@ -437,6 +444,57 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
               />
             </div>
           ) : null}
+
+          {/* Part 2: set defaults for new sets */}
+          <div className="space-y-2.5 rounded-xl border px-3.5 py-3">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Layers2 className="h-4 w-4 text-primary" />
+              New-set defaults
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Type</span>
+                <Select value={defaultSetType} onValueChange={setDefaultSetType}>
+                  <SelectTrigger aria-label="Default set type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SET_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>{SET_TYPE_META[t].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">RPE target</span>
+                <Stepper
+                  ariaLabel="Default RPE target"
+                  value={defaultRpeTarget}
+                  onChange={(v) => setDefaultRpeTarget(v)}
+                  step={0.5}
+                  min={6}
+                  max={10}
+                  decimals={1}
+                  allowClear
+                  placeholder="none"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Tempo</span>
+                <Input
+                  aria-label="Default tempo"
+                  value={defaultTempo}
+                  onChange={(e) => setDefaultTempo(e.target.value.replace(/[^0-9-]/g, "").slice(0, 11))}
+                  placeholder="3-1-1-0"
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <p className="text-xs leading-snug text-muted-foreground">
+              Applied to sets added in the training screen when nothing better is known (e.g. no last-time value).
+            </p>
+          </div>
         </div>
 
         <DialogFooter className="p-5 pt-3 border-t bg-muted/30">
