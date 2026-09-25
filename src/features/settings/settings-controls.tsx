@@ -88,7 +88,7 @@ export function Segmented<T extends string | number>({
               "flex h-9 min-w-[74px] items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-all",
               selected
                 ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                : "text-muted-foreground hover:text-foreground",
+                : "text-foreground/70 hover:bg-background/60 hover:text-foreground",
             )}
           >
             {o.icon}

@@ -46,6 +46,14 @@ function compact(n: number): string {
   return round1(n);
 }
 
+/** Compact duration for KPI cards: 61440s → "17h 04m", 810s → "13:30". */
+function compactDuration(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+}
+
 export function InsightsView() {
   const navigate = useApp((s) => s.navigate);
   const route = useApp((s) => s.route);
@@ -130,7 +138,7 @@ export function InsightsView() {
           <KpiCard icon={Layers} label="Sets" value={String(stats.setCount)} delay={0.05} />
           <KpiCard icon={Dumbbell} label="Volume" value={compact(stats.volume)} suffix="kg" delay={0.1} />
           <KpiCard icon={Repeat} label="Reps" value={String(stats.reps)} delay={0.15} />
-          <KpiCard icon={Clock} label="Time" value={stats.durationSec > 0 ? formatSec(stats.durationSec) : "–"} delay={0.2} />
+          <KpiCard icon={Clock} label="Time" value={stats.durationSec > 0 ? compactDuration(stats.durationSec) : "–"} delay={0.2} />
           <KpiCard icon={MapPin} label="Distance" value={stats.distance > 0 ? round2(stats.distance) : "–"} suffix={stats.distance > 0 ? "km" : undefined} delay={0.25} />
         </div>
       ) : null}
@@ -199,7 +207,7 @@ export function InsightsView() {
                     {perDay && (
                       <>
                         {" · "}
-                        <span className="numeric">{round1(perDay.volume)}</span> avg per workout
+                        <span className="numeric">{compact(perDay.volume)}</span> avg per workout
                       </>
                     )}
                   </p>

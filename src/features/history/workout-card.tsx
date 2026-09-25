@@ -97,9 +97,12 @@ export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
               <p className="truncate text-sm font-semibold sm:text-base">
                 {workout.comment?.trim() || formatDayLong(dateKey)}
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {formatDayLabel(dateKey)}
-              </p>
+              {/* only show the short date when a comment replaced the date-as-title */}
+              {workout.comment?.trim() && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {formatDayLabel(dateKey)}
+                </p>
+              )}
             </div>
             <ChevronDown
               className={cn(

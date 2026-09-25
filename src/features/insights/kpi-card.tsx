@@ -39,7 +39,7 @@ export function KpiCard({
         >
           <Icon className="h-4 w-4" />
         </span>
-        <p className="truncate text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+        <p className="truncate text-[11px] font-bold uppercase tracking-wide text-foreground/70">
           {label}
         </p>
       </div>

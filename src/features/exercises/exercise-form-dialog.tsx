@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,7 +35,7 @@ import { useApp } from "@/lib/client/store";
 import { useCategories, useInvalidate } from "@/lib/client/query";
 import { categoriesApi, exercisesApi, type ExerciseInput } from "@/lib/client/api";
 import { toast } from "sonner";
-import { Dumbbell, Plus, Save } from "lucide-react";
+import { Dumbbell, FlameKindling, Plus, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { defaultUnitFor, graphMetricLabel, metricsForType, typeLabel } from "./labels";
 import { useOfflineRun } from "./offline-run";
@@ -94,6 +95,7 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
   const [weightIncrement, setWeightIncrement] = useState<number | null>(exercise?.weightIncrement ?? null);
   const [restSec, setRestSec] = useState<number | null>(exercise?.restSec ?? null);
   const [barWeight, setBarWeight] = useState<number | null>(exercise?.barWeight ?? null);
+  const [autoWarmup, setAutoWarmup] = useState<boolean>(exercise?.autoWarmup ?? false);
   const [defaultGraph, setDefaultGraph] = useState<string>(exercise?.defaultGraph ?? NO_GRAPH);
   const [saving, setSaving] = useState(false);
 
@@ -159,6 +161,7 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
       weightIncrement,
       restSec,
       barWeight,
+      autoWarmup,
       defaultGraph: defaultGraph === NO_GRAPH ? null : defaultGraph,
     };
     if (editing && unitChanged) payload.unitChangeMode = unitChangeMode;
@@ -413,6 +416,27 @@ export function ExerciseFormDialog({ open, onOpenChange, exercise, onSaved }: Pr
               </SelectContent>
             </Select>
           </Field>
+
+          {type === "WEIGHT_REPS" || type === "WEIGHT_TIME" || type === "WEIGHT_DISTANCE" ? (
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="ex-auto-warmup" className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                  <FlameKindling className="h-4 w-4 text-amber-500" />
+                  Auto warm-up ramp
+                </Label>
+                <p className="text-xs leading-snug text-muted-foreground">
+                  The warm-up generator opens automatically when you start this exercise with a target weight — ramp from empty bar to your working set.
+                </p>
+              </div>
+              <Switch
+                id="ex-auto-warmup"
+                checked={autoWarmup}
+                onCheckedChange={setAutoWarmup}
+                aria-label="Auto-open warm-up ramp for this exercise"
+                className="mt-0.5 shrink-0"
+              />
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter className="p-5 pt-3 border-t bg-muted/30">

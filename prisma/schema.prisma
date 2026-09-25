@@ -30,6 +30,7 @@ model User {
   measurements Measurement[]
   plates       Plate[]
   goals        Goal[]
+  timerPresets TimerPreset[]
   sessions     Session[]
 }
 
@@ -107,6 +108,7 @@ model Exercise {
   defaultGraph    String? // preferred graph metric
   isFavorite      Boolean   @default(false)
   barWeight       Float? // per-exercise bar weight for plate calculator
+  autoWarmup      Boolean   @default(false) // auto-open the warm-up ramp in the training screen
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
@@ -371,6 +373,24 @@ model Plate {
   sortOrder  Int     @default(0)
 
   @@index([userId, unitSystem])
+}
+
+// ---------- Interval timer ----------
+
+model TimerPreset {
+  id         String   @id
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  prepareSec Int      @default(10)
+  workSec    Int      @default(30)
+  restSec    Int      @default(15)
+  rounds     Int      @default(8)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, name])
 }
 
 // ---------- System ----------

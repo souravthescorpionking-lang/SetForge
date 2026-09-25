@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "./store";
-import { categoriesApi, exercisesApi, workoutsApi, measurementsApi } from "./api";
+import { categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi } from "./api";
 
 export const qk = {
   categories: ["categories"] as const,
@@ -27,6 +27,7 @@ export const qk = {
   settings: ["settings"] as const,
   plates: (unitSystem?: string) => ["plates", unitSystem ?? "all"] as const,
   lastSets: (exerciseId: string, before?: string) => ["last-sets", exerciseId, before ?? ""] as const,
+  timerPresets: ["timer-presets"] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -72,6 +73,10 @@ export function useMeasurements() {
   return useQuery({ queryKey: qk.measurements, queryFn: () => measurementsApi.list() });
 }
 
+export function useTimerPresets() {
+  return useQuery({ queryKey: qk.timerPresets, queryFn: () => timerPresetsApi.list() });
+}
+
 export function useInvalidate() {
   const qc = useQueryClient();
   return {
@@ -104,6 +109,7 @@ export function useInvalidate() {
     },
     goals: () => qc.invalidateQueries({ queryKey: ["goals"] }),
     plates: () => qc.invalidateQueries({ queryKey: ["plates"] }),
+    timerPresets: () => qc.invalidateQueries({ queryKey: ["timer-presets"] }),
     all: () => qc.invalidateQueries(),
   };
 }

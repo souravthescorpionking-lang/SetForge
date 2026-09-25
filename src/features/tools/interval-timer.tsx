@@ -2,26 +2,39 @@
 
 // Interval / HIIT timer — Tabata, EMOM & custom intervals.
 // Fully client-side engine (drift-corrected from wall-clock), Web Audio cues,
-// haptics and a screen wake-lock while running.
+// haptics, voice announcements (SpeechSynthesis) and a screen wake-lock while
+// running. Custom configs can be saved as per-user presets (server-synced so
+// they follow the account across devices).
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Stepper } from "@/components/shared/stepper";
+import { timerPresetsApi } from "@/lib/client/api";
+import { useTimerPresets, useInvalidate } from "@/lib/client/query";
+import type { TimerPresetDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import {
   Bell,
   BellOff,
+  BookmarkPlus,
   FastForward,
   Pause,
   Play,
   RotateCcw,
+  Speech,
   Timer as TimerIcon,
+  Trash2,
   Trophy,
   Vibrate,
   VibrateOff,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -45,6 +58,10 @@ const PRESETS: Preset[] = [
   { id: "sprints", name: "Sprints", hint: "30/60 × 6", config: { prepareSec: 10, workSec: 30, restSec: 60, rounds: 6 } },
   { id: "custom", name: "Custom", hint: "your mix", config: { prepareSec: 10, workSec: 45, restSec: 15, rounds: 5 } },
 ];
+
+function presetHint(c: { prepareSec: number; workSec: number; restSec: number; rounds: number }) {
+  return `${c.workSec}/${c.restSec} × ${c.rounds}`;
+}
 
 const PHASE_STYLE: Record<Phase, { label: string; ring: string; text: string; chip: string }> = {
   prepare: { label: "Get ready", ring: "stroke-amber-500", text: "text-amber-500", chip: "bg-amber-500/15 text-amber-500" },
@@ -100,6 +117,26 @@ function useVibrate(enabled: boolean) {
   );
 }
 
+/** Speaks short phase cues via the local SpeechSynthesis engine (no network). */
+function useSpeech(enabled: boolean) {
+  return useCallback(
+    (text: string) => {
+      if (!enabled || typeof window === "undefined" || !window.speechSynthesis) return;
+      try {
+        window.speechSynthesis.cancel(); // cut off any still-speaking cue
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.15;
+        u.volume = 0.9;
+        u.pitch = 1;
+        window.speechSynthesis.speak(u);
+      } catch {
+        /* speech unavailable — silent fallback */
+      }
+    },
+    [enabled],
+  );
+}
+
 /** Keeps the screen awake while active (re-acquires on tab visibility). */
 function useWakeLock(active: boolean) {
   useEffect(() => {
@@ -147,6 +184,35 @@ export function IntervalTimer() {
   const [elapsedTotal, setElapsedTotal] = useState(0);
   const [sound, setSound] = useState(true);
   const [haptics, setHaptics] = useState(true);
+  const [voice, setVoice] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
+
+  // server-synced user presets
+  const { data: savedPresets } = useTimerPresets();
+  const invalidate = useInvalidate();
+
+  const savePreset = useMutation({
+    mutationFn: (data: { name: string; config: Config }) =>
+      timerPresetsApi.create({ name: data.name, ...data.config }),
+    onSuccess: (p) => {
+      invalidate.timerPresets();
+      setSaveOpen(false);
+      setPresetName("");
+      setPresetId(p.id); // highlight the freshly saved preset
+      toast.success(`Preset “${p.name}” saved`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save preset"),
+  });
+
+  const deletePreset = useMutation({
+    mutationFn: (id: string) => timerPresetsApi.remove(id),
+    onSuccess: () => {
+      invalidate.timerPresets();
+      toast.success("Preset deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not delete preset"),
+  });
 
   const engineRef = useRef<Engine | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -156,6 +222,7 @@ export function IntervalTimer() {
 
   const { beep, warmupAudio } = useBeep(sound);
   const vibrate = useVibrate(haptics);
+  const speak = useSpeech(voice);
   useWakeLock(status === "running");
 
   const totalSec = config.prepareSec + config.rounds * config.workSec + Math.max(0, config.rounds - 1) * config.restSec;
@@ -182,14 +249,17 @@ export function IntervalTimer() {
       if (next === "work") {
         beep(880, 0.35, 0, 0.16);
         vibrate(200);
+        speak(nextRound === config.rounds && config.rounds > 1 ? "Last round — work!" : "Work!");
       } else if (next === "rest") {
         beep(440, 0.3, 0, 0.14);
         vibrate([120, 60, 120]);
+        speak("Rest");
       } else if (next === "prepare") {
         beep(660, 0.2, 0, 0.12);
+        speak("Get ready");
       }
     },
-    [config, beep, vibrate],
+    [config, beep, vibrate, speak],
   );
 
   const tick = useCallback(() => {
@@ -224,6 +294,7 @@ export function IntervalTimer() {
           beep(1100, 0.35, 0.3, 0.15);
           beep(1320, 0.5, 0.7, 0.16);
           vibrate([300, 100, 300]);
+          speak("Complete! Great job!");
           return;
         }
         enterPhase(config.restSec > 0 ? "rest" : "work", eng.round + (config.restSec > 0 ? 0 : 1), now);
@@ -231,7 +302,7 @@ export function IntervalTimer() {
         enterPhase("work", eng.round + 1, now);
       }
     }
-  }, [config, enterPhase, beep, vibrate]);
+  }, [config, enterPhase, beep, vibrate, speak]);
 
   const start = () => {
     warmupAudio(); // user gesture → unlock audio
@@ -311,6 +382,23 @@ export function IntervalTimer() {
     setPhaseTotalSec(Math.max(1, p.config.prepareSec));
   };
 
+  const applySavedPreset = (p: TimerPresetDTO) => {
+    reset();
+    setPresetId(p.id);
+    setConfig({ prepareSec: p.prepareSec, workSec: p.workSec, restSec: p.restSec, rounds: p.rounds });
+    setRemaining(p.prepareSec);
+    setPhaseTotalSec(Math.max(1, p.prepareSec));
+  };
+
+  const submitSavePreset = () => {
+    const name = presetName.trim();
+    if (!name) {
+      toast.error("Give the preset a name");
+      return;
+    }
+    savePreset.mutate({ name, config });
+  };
+
   // ring geometry
   const R = 120;
   const C = 2 * Math.PI * R;
@@ -334,8 +422,21 @@ export function IntervalTimer() {
       {/* config card */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             <TimerIcon className="h-4.5 w-4.5 text-primary" /> Interval timer
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto h-8 gap-1.5 rounded-lg px-2.5 text-xs font-semibold"
+              onClick={() => {
+                setPresetName("");
+                setSaveOpen(true);
+              }}
+              aria-label="Save current config as preset"
+              title="Save the current config as a preset"
+            >
+              <BookmarkPlus className="h-3.5 w-3.5 text-primary" /> Save preset
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -358,6 +459,57 @@ export function IntervalTimer() {
               </button>
             ))}
           </div>
+
+          {/* user-saved presets (server-synced) */}
+          {(savedPresets?.presets?.length ?? 0) > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Your presets</span>
+                <span className="numeric rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary">
+                  {savedPresets.presets.length}
+                </span>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 scroll-slim">
+                {savedPresets.presets.map((p) => (
+                  <motion.div
+                    key={p.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.15 }}
+                    className={cn(
+                      "group/preset relative flex min-h-[54px] shrink-0 flex-col items-center justify-center rounded-xl border px-3 py-2 transition-colors",
+                      presetId === p.id
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-border hover:bg-accent text-foreground/80",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => applySavedPreset(p)}
+                      className="flex flex-col items-center"
+                      aria-pressed={presetId === p.id}
+                      aria-label={`Load preset ${p.name}: ${presetHint(p)} — ${p.prepareSec}s prepare`}
+                    >
+                      <span className="max-w-44 truncate text-xs font-bold leading-tight">{p.name}</span>
+                      <span className="numeric mt-0.5 text-[10px] text-muted-foreground">{presetHint(p)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (presetId === p.id) setPresetId("custom");
+                        deletePreset.mutate(p.id);
+                      }}
+                      aria-label={`Delete preset ${p.name}`}
+                      title="Delete preset"
+                      className="absolute -top-1.5 -right-1.5 flex h-5.5 w-5.5 items-center justify-center rounded-full border bg-popover text-foreground/70 shadow-sm transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
             <div>
@@ -428,6 +580,11 @@ export function IntervalTimer() {
               <Switch checked={haptics} onCheckedChange={setHaptics} aria-label="vibration" />
               {haptics ? <Vibrate className="h-4 w-4 text-primary" /> : <VibrateOff className="h-4 w-4 text-muted-foreground" />}
               Vibration
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Switch checked={voice} onCheckedChange={setVoice} aria-label="voice announcements" />
+              {voice ? <Speech className="h-4 w-4 text-primary" /> : <Speech className="h-4 w-4 text-muted-foreground" />}
+              Voice
             </label>
             <span className="numeric ml-auto text-xs text-muted-foreground">
               total {mmss(totalSec)}
@@ -560,6 +717,57 @@ export function IntervalTimer() {
           </p>
         </CardContent>
       </Card>
+
+      {/* save-preset dialog */}
+      <Dialog open={saveOpen} onOpenChange={(o) => !savePreset.isPending && setSaveOpen(o)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookmarkPlus className="h-4.5 w-4.5 text-primary" /> Save timer preset
+            </DialogTitle>
+            <DialogDescription>
+              Presets sync to your account — available on every device.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="preset-name" className="text-xs font-medium text-muted-foreground">
+                Preset name
+              </Label>
+              <Input
+                id="preset-name"
+                autoFocus
+                placeholder="e.g. Finisher circuits"
+                value={presetName}
+                maxLength={40}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitSavePreset();
+                  }
+                }}
+              />
+            </div>
+            <div className="rounded-xl border bg-muted/40 px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Config summary</p>
+              <p className="numeric mt-1 text-sm font-semibold">
+                {config.prepareSec}s prepare · {config.workSec}s work · {config.restSec}s rest · ×{config.rounds}
+              </p>
+              <p className="numeric mt-0.5 text-xs text-muted-foreground">total {mmss(totalSec)}</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveOpen(false)} disabled={savePreset.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={submitSavePreset} disabled={savePreset.isPending} className="gap-1.5 min-w-24">
+              <BookmarkPlus className="h-4 w-4" />
+              {savePreset.isPending ? "Saving…" : "Save preset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

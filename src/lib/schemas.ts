@@ -45,6 +45,7 @@ export const exerciseCreateSchema = z.object({
   restSec: z.number().int().min(0).max(3600).nullable().optional(),
   defaultGraph: z.enum(GRAPH_METRICS).nullable().optional(),
   barWeight: z.number().min(0).max(1000).nullable().optional(),
+  autoWarmup: z.boolean().optional(),
 });
 export const exerciseUpdateSchema = exerciseCreateSchema.partial().extend({
   isFavorite: z.boolean().optional(),
@@ -236,6 +237,22 @@ export const graphQuerySchema = z.object({
   from: isoDate.optional(),
   to: isoDate.optional(),
 });
+
+// ---------- interval timer ----------
+const timerPresetBase = z.object({
+  name: z.string().trim().min(1).max(40),
+  prepareSec: z.number().int().min(0).max(600),
+  workSec: z.number().int().min(1).max(3600),
+  restSec: z.number().int().min(0).max(1800),
+  rounds: z.number().int().min(1).max(100),
+});
+export const timerPresetCreateSchema = timerPresetBase.extend({
+  // create requires the full config; defaults apply only where omitted
+  prepareSec: timerPresetBase.shape.prepareSec.default(10),
+  restSec: timerPresetBase.shape.restSec.default(0),
+  rounds: timerPresetBase.shape.rounds.default(8),
+});
+export const timerPresetUpdateSchema = timerPresetBase.partial(); // NO defaults — omitted fields stay untouched
 
 // ---------- pagination ----------
 export const listQuerySchema = z.object({

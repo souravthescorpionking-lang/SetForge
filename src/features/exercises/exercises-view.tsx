@@ -119,7 +119,7 @@ export function ExercisesView() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search exercises… (name or category)"
+              placeholder="Search exercises…"
               className="h-11 rounded-xl pl-9 pr-9"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}

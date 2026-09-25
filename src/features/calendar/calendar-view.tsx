@@ -182,20 +182,20 @@ export function CalendarView() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9"
+                  className="h-10 w-10"
                   aria-label="Previous month"
                   onClick={() => shiftMonth(-1)}
                 >
-                  <ChevronLeft className="h-4 w-4" />
+                  <ChevronLeft className="h-4.5 w-4.5" />
                 </Button>
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9"
+                  className="h-10 w-10"
                   aria-label="Next month"
                   onClick={() => shiftMonth(1)}
                 >
-                  <ChevronRight className="h-4 w-4" />
+                  <ChevronRight className="h-4.5 w-4.5" />
                 </Button>
               </div>
               <h2 className="min-w-0 flex-1 truncate text-base font-bold tracking-tight sm:text-lg">

@@ -2,7 +2,9 @@
 
 // Warm-up set generator: computes a ramp from the target working weight
 // (empty bar → 40% ×8 → 60% ×5 → 80% ×3) and logs each set in one tap.
-import { useState } from "react";
+// With `autoOpen` (per-exercise setting) the ramp opens by itself the first
+// time a target weight is available — the caller gates it per exercise entry.
+import { useEffect, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { FlameKindling, Plus } from "lucide-react";
@@ -42,16 +44,31 @@ export function WarmupPopover({
   step,
   onLog,
   disabled,
+  autoOpen,
+  onAutoOpened,
 }: {
   targetWeight: number;
   step: number;
   onLog: (weight: number, reps: number) => Promise<void>;
   disabled?: boolean;
+  /** Open the ramp automatically (fires at most once per mount via onAutoOpened). */
+  autoOpen?: boolean;
+  /** Called when the auto-open fired — lets the parent stop re-opening. */
+  onAutoOpened?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [loggingIdx, setLoggingIdx] = useState<number | null>(null);
+  const autoFiredRef = useRef(false);
 
   const steps = targetWeight > 0 ? buildWarmup(targetWeight, step) : [];
+
+  // auto-open once when a target weight first becomes available
+  useEffect(() => {
+    if (!autoOpen || autoFiredRef.current || steps.length === 0) return;
+    autoFiredRef.current = true;
+    onAutoOpened?.();
+    setOpen(true);
+  }, [autoOpen, steps.length, onAutoOpened]);
 
   const log = async (i: number, w: number, reps: number) => {
     setLoggingIdx(i);

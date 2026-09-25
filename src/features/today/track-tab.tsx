@@ -42,6 +42,9 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fav, setFav] = useState(ex.isFavorite);
+  // auto-warmup (per-exercise setting) may auto-open the ramp once per entry
+  const [warmupAutoDone, setWarmupAutoDone] = useState(false);
+  useEffect(() => setWarmupAutoDone(false), [we.id]);
 
   // prefill: first set of the last workout before this one
   const lastSets = useQuery({
@@ -268,6 +271,11 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
 
   const estOneRm = records.data?.estimatedOneRm ?? 0;
   const showRm = fields.includes("weight") && fields.includes("reps") && estOneRm > 0;
+  // auto-open the warm-up ramp only while this exercise has no real logged sets
+  const hasLoggedWork = we.sets.some(
+    (s) => !s.isWarmup && (s.weight != null || s.reps != null || s.distance != null || s.timeSec != null),
+  );
+  const warmupAutoOpen = !!ex.autoWarmup && !warmupAutoDone && !hasLoggedWork;
 
   return (
     <div className="space-y-4">
@@ -359,6 +367,8 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
               targetWeight={values.weight!}
               step={ex.weightIncrement ?? settings.defaultWeightIncrement}
               disabled={saving}
+              autoOpen={warmupAutoOpen}
+              onAutoOpened={() => setWarmupAutoDone(true)}
               onLog={async (w, reps) => {
                 const payload = { weight: w, reps, isComplete: true, isWarmup: true };
                 await mutate({

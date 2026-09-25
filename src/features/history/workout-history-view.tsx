@@ -167,7 +167,7 @@ export function WorkoutHistoryView() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search exercises, comments, categories…"
+            placeholder="Search workouts, notes, exercises…"
             className="h-11 rounded-xl pl-9 pr-9"
             aria-label="Search workout history"
           />

@@ -61,6 +61,7 @@ export function mapExercise(
     defaultGraph: e.defaultGraph,
     isFavorite: e.isFavorite,
     barWeight: e.barWeight,
+    autoWarmup: e.autoWarmup,
     ...extras,
   };
 }

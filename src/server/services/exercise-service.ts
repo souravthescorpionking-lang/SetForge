@@ -127,6 +127,7 @@ export async function createExercise(
     restSec?: number | null;
     defaultGraph?: string | null;
     barWeight?: number | null;
+    autoWarmup?: boolean;
   },
 ) {
   const cat = await db.category.findFirst({ where: { id: input.categoryId, userId } });
@@ -147,6 +148,7 @@ export async function createExercise(
       restSec: input.restSec ?? null,
       defaultGraph: input.defaultGraph ?? null,
       barWeight: input.barWeight ?? null,
+      autoWarmup: input.autoWarmup ?? false,
     },
     include: { category: true },
   });
@@ -166,6 +168,7 @@ export async function updateExercise(
     restSec?: number | null;
     defaultGraph?: string | null;
     barWeight?: number | null;
+    autoWarmup?: boolean;
     isFavorite?: boolean;
     unitChangeMode?: "convert" | "change";
   },
@@ -216,6 +219,7 @@ export async function updateExercise(
       ...(patch.restSec !== undefined ? { restSec: patch.restSec } : {}),
       ...(patch.defaultGraph !== undefined ? { defaultGraph: patch.defaultGraph } : {}),
       ...(patch.barWeight !== undefined ? { barWeight: patch.barWeight } : {}),
+      ...(patch.autoWarmup !== undefined ? { autoWarmup: patch.autoWarmup } : {}),
       ...(patch.isFavorite !== undefined ? { isFavorite: patch.isFavorite } : {}),
     },
     include: { category: true },

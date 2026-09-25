@@ -17,6 +17,7 @@ import type {
   SetDTO,
   SettingsDTO,
   StatsDTO,
+  TimerPresetDTO,
   UnitDTO,
   WorkoutDTO,
   WorkoutSummaryDTO,
@@ -115,6 +116,7 @@ export type ExerciseInput = {
   restSec?: number | null;
   defaultGraph?: string | null;
   barWeight?: number | null;
+  autoWarmup?: boolean;
   isFavorite?: boolean;
   unitChangeMode?: "convert" | "change";
 };
@@ -366,6 +368,23 @@ export const settingsApi = {
   get: () => request<SettingsDTO>("/api/settings"),
   update: (data: Partial<SettingsDTO>) =>
     request<SettingsDTO>("/api/settings", { method: "PATCH", body: body(data) }),
+};
+
+export type TimerPresetInput = {
+  name?: string;
+  prepareSec?: number;
+  workSec?: number;
+  restSec?: number;
+  rounds?: number;
+};
+
+export const timerPresetsApi = {
+  list: () => request<{ presets: TimerPresetDTO[] }>("/api/timer-presets"),
+  create: (data: TimerPresetInput) =>
+    request<TimerPresetDTO>("/api/timer-presets", { method: "POST", body: body(data) }),
+  update: (id: string, data: TimerPresetInput) =>
+    request<TimerPresetDTO>(`/api/timer-presets/${id}`, { method: "PATCH", body: body(data) }),
+  remove: (id: string) => request<{ ok: true }>(`/api/timer-presets/${id}`, { method: "DELETE" }),
 };
 
 export const platesApi = {

@@ -40,8 +40,21 @@ export type ExerciseDTO = {
   defaultGraph: string | null;
   isFavorite: boolean;
   barWeight: number | null;
+  autoWarmup: boolean;
   workoutCount?: number;
   lastPerformed?: string | null;
+};
+
+// ---------- interval timer ----------
+
+export type TimerPresetDTO = {
+  id: string;
+  name: string;
+  prepareSec: number;
+  workSec: number;
+  restSec: number;
+  rounds: number;
+  sortOrder: number;
 };
 
 export type SetDTO = {

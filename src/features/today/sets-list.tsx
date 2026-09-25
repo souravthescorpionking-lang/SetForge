@@ -137,7 +137,7 @@ function SetRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "group/row flex touch-manipulation items-center gap-1 overflow-hidden rounded-xl border bg-card pr-1 pl-2 transition-colors",
+        "group/row flex touch-manipulation items-center gap-1.5 overflow-hidden rounded-xl border bg-card pr-1 pl-3 transition-colors",
         selected ? "border-primary/70 bg-primary/5 ring-1 ring-primary/40" : "border-border/70 hover:border-primary/30",
         isDragging && "z-10 opacity-80 shadow-xl ring-2 ring-primary/60",
       )}
