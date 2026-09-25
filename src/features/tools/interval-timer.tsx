@@ -26,6 +26,7 @@ import {
   BookmarkPlus,
   FastForward,
   Pause,
+  Pencil,
   Play,
   RotateCcw,
   Speech,
@@ -165,6 +166,96 @@ function useWakeLock(active: boolean) {
   }, [active]);
 }
 
+/** Exposes the timer on the OS media session: lock-screen / hardware-key
+ *  controls (play/pause, next = skip phase) plus live phase metadata and
+ *  position. Best-effort — silently inert where unsupported (headless). */
+function useMediaSession(opts: {
+  active: boolean;
+  playing: boolean;
+  title: string;
+  album: string;
+  positionSec: number;
+  durationSec: number;
+  onPlay: () => void;
+  onPause: () => void;
+  onNext: () => void;
+  onStop: () => void;
+}) {
+  const { active, playing, title, album, positionSec, durationSec } = opts;
+  const handlers = useRef(opts);
+  useEffect(() => {
+    handlers.current = opts;
+  });
+
+  const ms = typeof navigator !== "undefined" && "mediaSession" in navigator ? navigator.mediaSession : null;
+
+  // register action handlers once per session
+  useEffect(() => {
+    if (!ms) return;
+    const trySet = (action: string, fn: (() => void) | null) => {
+      try {
+        ms.setActionHandler(action as MediaSessionAction, fn as never);
+      } catch {
+        /* action unsupported on this platform */
+      }
+    };
+    trySet("play", () => handlers.current.onPlay());
+    trySet("pause", () => handlers.current.onPause());
+    trySet("nexttrack", () => handlers.current.onNext());
+    trySet("stop", () => handlers.current.onStop());
+    trySet("previoustrack", () => handlers.current.onStop());
+    return () => {
+      trySet("play", null);
+      trySet("pause", null);
+      trySet("nexttrack", null);
+      trySet("stop", null);
+      trySet("previoustrack", null);
+    };
+  }, [ms]);
+
+  // metadata while active; cleared when idle/complete
+  useEffect(() => {
+    if (!ms) return;
+    if (!active) {
+      try {
+        ms.metadata = null;
+        ms.playbackState = "none";
+      } catch {
+        /* best-effort */
+      }
+      return;
+    }
+    try {
+      if (typeof MediaMetadata !== "undefined") {
+        ms.metadata = new MediaMetadata({
+          title,
+          artist: "SetForge",
+          album,
+        });
+      }
+      ms.playbackState = playing ? "playing" : "paused";
+    } catch {
+      /* best-effort */
+    }
+  }, [ms, active, playing, title, album]);
+
+  // position state (scrubber on the lock screen) — only while playing
+  useEffect(() => {
+    if (!ms || !active || !playing) return;
+    try {
+      if (typeof ms.setPositionState === "function" && Number.isFinite(durationSec) && durationSec > 0) {
+        ms.setPositionState({
+          duration: durationSec,
+          playbackRate: 1,
+          position: Math.min(Math.max(0, positionSec), durationSec),
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+  }, [ms, active, playing, positionSec, durationSec]);
+}
+
 // ---------- engine ----------
 type Engine = {
   phase: Phase;
@@ -187,6 +278,10 @@ export function IntervalTimer() {
   const [voice, setVoice] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
+  // rename dialog state
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<TimerPresetDTO | null>(null);
+  const [renameName, setRenameName] = useState("");
 
   // server-synced user presets
   const { data: savedPresets } = useTimerPresets();
@@ -213,6 +308,25 @@ export function IntervalTimer() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not delete preset"),
   });
+
+  const renamePreset = useMutation({
+    mutationFn: (data: { id: string; name: string }) => timerPresetsApi.update(data.id, { name: data.name }),
+    onSuccess: (p) => {
+      invalidate.timerPresets();
+      setRenameOpen(false);
+      toast.success(`Renamed to “${p.name}”`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not rename preset"),
+  });
+
+  const submitRename = () => {
+    const name = renameName.trim();
+    if (!name) {
+      toast.error("Give the preset a name");
+      return;
+    }
+    if (renameTarget) renamePreset.mutate({ id: renameTarget.id, name });
+  };
 
   const engineRef = useRef<Engine | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -417,6 +531,20 @@ export function IntervalTimer() {
   const running = status === "running";
   const currentRound = phase === "done" ? config.rounds : phase === "rest" ? round + 1 : Math.max(1, round || 1);
 
+  // expose the timer on the OS media session (lock-screen controls)
+  useMediaSession({
+    active: status === "running" || status === "paused",
+    playing: running,
+    title: phase === "done" ? "Complete!" : `${style.label} · ${remaining}s left`,
+    album: `Round ${Math.max(currentRound, 1)}/${config.rounds} · ${config.workSec}s/${config.restSec}s`,
+    positionSec: Math.max(0, phaseTotalSec - remaining),
+    durationSec: phaseTotalSec,
+    onPlay: resume,
+    onPause: pause,
+    onNext: skipPhase,
+    onStop: reset,
+  });
+
   return (
     <div className="space-y-4">
       {/* config card */}
@@ -492,6 +620,19 @@ export function IntervalTimer() {
                     >
                       <span className="max-w-44 truncate text-xs font-bold leading-tight">{p.name}</span>
                       <span className="numeric mt-0.5 text-[10px] text-muted-foreground">{presetHint(p)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameTarget(p);
+                        setRenameName(p.name);
+                        setRenameOpen(true);
+                      }}
+                      aria-label={`Rename preset ${p.name}`}
+                      title="Rename preset"
+                      className="absolute -top-1.5 -left-1.5 flex h-5.5 w-5.5 items-center justify-center rounded-full border bg-popover text-foreground/70 shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <Pencil className="h-3 w-3" />
                     </button>
                     <button
                       type="button"
@@ -764,6 +905,60 @@ export function IntervalTimer() {
             <Button onClick={submitSavePreset} disabled={savePreset.isPending} className="gap-1.5 min-w-24">
               <BookmarkPlus className="h-4 w-4" />
               {savePreset.isPending ? "Saving…" : "Save preset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* rename-preset dialog */}
+      <Dialog open={renameOpen} onOpenChange={(o) => !renamePreset.isPending && setRenameOpen(o)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-4.5 w-4.5 text-primary" /> Rename preset
+            </DialogTitle>
+            <DialogDescription>The name changes — the config stays exactly the same.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-name" className="text-xs font-medium text-muted-foreground">
+                New name
+              </Label>
+              <Input
+                id="rename-name"
+                autoFocus
+                onFocus={(e) => e.currentTarget.select()}
+                placeholder="e.g. Kettlebell finisher"
+                value={renameName}
+                maxLength={40}
+                onChange={(e) => setRenameName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitRename();
+                  }
+                }}
+              />
+            </div>
+            {renameTarget && (
+              <div className="rounded-xl border bg-muted/40 px-3 py-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Config (unchanged)</p>
+                <p className="numeric mt-1 text-sm font-semibold">
+                  {renameTarget.prepareSec}s prepare · {renameTarget.workSec}s work · {renameTarget.restSec}s rest · ×{renameTarget.rounds}
+                </p>
+                <p className="numeric mt-0.5 text-xs text-muted-foreground">
+                  total {mmss(renameTarget.prepareSec + renameTarget.rounds * renameTarget.workSec + Math.max(0, renameTarget.rounds - 1) * renameTarget.restSec)}
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renamePreset.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={submitRename} disabled={renamePreset.isPending || !renameName.trim()} className="gap-1.5 min-w-24">
+              <Pencil className="h-4 w-4" />
+              {renamePreset.isPending ? "Renaming…" : "Rename"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -31,6 +31,7 @@ import { ActivityGrid } from "./activity-grid";
 import { VolumeByExercise } from "./volume-chart";
 import { RecordsLeaderboard } from "./records-leaderboard";
 import { GoalsOverview } from "./goals-overview";
+import { WeeklyRhythm } from "./weekly-rhythm";
 
 const PERIODS: Array<{ value: "week" | "month" | "year" | "all"; label: string }> = [
   { value: "week", label: "7d" },
@@ -261,6 +262,11 @@ export function InsightsView() {
 
       {/* activity grid */}
       {stats && <ActivityGrid dates={stats.workoutDates} volumeByDate={volumeByDate} />}
+
+      {/* this week vs last week + weekday rhythm */}
+      {(workoutsQuery.data?.workouts?.length ?? 0) > 0 && (
+        <WeeklyRhythm workouts={workoutsQuery.data!.workouts} />
+      )}
 
       {/* charts + records */}
       <div className="grid gap-4 lg:grid-cols-2">

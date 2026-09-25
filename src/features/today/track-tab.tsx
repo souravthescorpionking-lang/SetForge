@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { EMPTY_SET_VALUES, SetInputRow, type SetValues } from "./set-input-row";
 import { PlateHint } from "./plate-hint";
 import { WarmupPopover } from "./warmup-popover";
+import { LastTimeBar } from "./last-time-bar";
 import { SetsList } from "./sets-list";
 import { useRestTimer } from "./rest-timer";
 import { useMutate } from "./use-mutate";
@@ -178,6 +179,18 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
     setSelectedSet(null);
     setDirty(false);
     applyPrefill(lastSets.data?.sets?.[0]);
+  };
+
+  /** Tap a "last time" pill → prefill the input row with that set. */
+  const applyLastSet = (s: SetDTO) => {
+    setSelectedSet(null);
+    setValues({
+      weight: fields.includes("weight") ? s.weight : null,
+      reps: fields.includes("reps") ? s.reps : null,
+      distance: fields.includes("distance") ? s.distance : null,
+      timeSec: fields.includes("timeSec") ? s.timeSec : null,
+    });
+    setDirty(true);
   };
 
   const selectSet = (set: SetDTO) => {
@@ -352,6 +365,20 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
         />
         {fields.includes("weight") && (values.weight ?? 0) > 0 && (
           <PlateHint weight={values.weight!} unitSystem={settings.unitSystem} />
+        )}
+
+        {/* beat-last-time context */}
+        {(lastSets.data?.sets?.length || lastSets.data?.date === null) && (
+          <LastTimeBar
+            date={lastSets.data?.date ?? null}
+            sets={lastSets.data?.sets ?? []}
+            fields={fields}
+            weight={values.weight}
+            reps={values.reps}
+            distance={values.distance}
+            todaySets={we.sets}
+            onApplySet={applyLastSet}
+          />
         )}
         <div className="flex gap-2">
           <Button

@@ -1,0 +1,253 @@
+     1→
+     2→Work Log:
+     3→- Environment had Errno-11 resource exhaustion at session start; recovered after poll/restart. Dev server was hung at "Starting…" → killed (`pkill -f 'next dev'`) and restarted; health green (db ok, migrations current).
+     4→- agent-browser QA (session setforge-qa-*): login demo@setforge.app OK, toured all 9 views. Found: 7 views fully functional; History + Insights were `FeatureStub` placeholders ("Under construction"). No console errors on working views.
+     5→- Implemented `src/features/history/` (2 files):
+     6→  - workout-card.tsx — expandable card: date block (day/month/weekday), comment/date title, metrics (ex, sets, volume, duration, distance), category dots; lazy-fetches full workout on expand (qk.workoutByDate), lists exercises + per-set rows (setSummary); actions: Open day (navigates /today?date=), Copy to today (createOrGet + copy API), delete via controlled AlertDialog.
+     7→  - workout-history-view.tsx — month-grouped sticky-header timeline, search (comment/category/date), category filter chips (from used categories), sort newest/oldest toggle, totals in subtitle, skeleton loading, empty states (no workouts / no matches + clear-filters), delete mutation with invalidation, framer-motion staggered cards.
+     8→- Implemented `src/features/insights/` (6 files):
+     9→  - insights-view.tsx — period selector (7d/30d/1y/All via hash query ?period=), 6 KPI cards (workouts/sets/volume/reps/time/distance; dash for zero time/distance), Heaviest Set + Biggest Volume Day highlight cards, assembles sections.
+    10→  - kpi-card.tsx — icon + label + big numeric value, accent variant.
+    11→  - activity-grid.tsx — GitHub-style 17-week heatmap from stats workoutDates, month labels, M/W/F row labels, future days dimmed, hover tooltip, staggered cell animation.
+    12→  - volume-chart.tsx — Recharts horizontal bars, top 8 exercises by volume, category-coloured cells, custom popover tooltip.
+    13→  - records-leaderboard.tsx — all records (recordsApi.all) sortable by e1RM/Best/Volume/Sets, rank + category dot + best weight×reps + date, e1RM + vol columns, row click → /exercise-overview/:id.
+    14→  - goals-overview.tsx — all goals with progress bars (emerald when achieved), Trophy + pct chip, current/target via goalValueLabel, click → exercise overview.
+    15→- Bugs found & fixed during QA:
+    16→  1. `OpenInNew` icon doesn't exist in lucide-react 0.525 → replaced with `ExternalLink` (build error).
+    17→  2. `qk.goals` is a static array not a function → `qk.goals()` crashed GoalsOverview render (TypeError) → fixed to `qk.goals`.
+    18→  3. `not-last:` variant → replaced with `mb-2 last:mb-0` for safety.
+    19→  4. False alarm: `oreOpen` appeared corrupted in tool output — hex-dump proved file correct (display layer ate `` as ANSI escape); no change needed.
+    20→- Styling polish (VLM-guided):
+    21→  - TODAY badge: bg-primary/15 text-primary → solid bg-primary text-primary-foreground font-black + shadow (workout-header-card.tsx).
+    22→  - Sidebar user section: cramped 2-line text → avatar (initials) + name + email + uppercase version line (nav-shell.tsx).
+    23→  - Exercise card name: `truncate` → `line-clamp-2` (today/exercise-card.tsx).
+    24→  - Insights KPI zero-value time/distance show "–"; highlight card dates use formatDayLabel (weekday context).
+    25→- Deleted orphaned `src/features/_stub.tsx` (no references remained).
+    26→- Verification: `bun run lint` clean; browser-verified History (expand shows sets 80kg×8; search "nomatch" → No-matches empty state; "chest" → filter hit), Insights (all 6 sections render with real data: 1800kg vol, 99.3 e1RM, activity grid Sep 25 dot; period switch All works), mobile 390×844 (bottom nav + More sheet + insights responsive), desktop screenshots VLM-reviewed (sidebar clean, TODAY badge pops, name legible). dev.log error-free; health green.
+    27→- QA screenshots saved to download/: qa-today.png, qa-today-v2/v3.png, qa-history.png, qa-history-expanded.png, qa-insights.png, qa-insights-v2.png, qa-insights-mobile.png, qa-calendar.png, qa-mobile-more.png.
+    28→
+    29→Stage Summary:
+    30→- ALL 10 feature views are now fully implemented and browser-verified. No stubs remain.
+    31→- Known minor items: history search does not match exercise names (summaries lack them; would need a dedicated search endpoint — candidate future enhancement); activity grid dots are small on low-contrast displays (acceptable); demo user has sparse data (1 workout) so charts look sparse — that's data, not a bug.
+    32→- Recommended next: seed richer demo data OR have QA create workouts across dates to exercise calendar/history/insights more deeply; consider exercise-name search API; PWA polish (Serwist SW + manifest icons already present — verify installability); README + deployment docs per original spec; consider CI.
+    33→
+    34→---
+    35→Task ID: 6
+    36→Agent: main (Z.ai Code)
+    37→Task: Demo-data seeding via public API, exercise-name search (backend + frontend), insights/dashboard + exercises styling polish
+    38→
+    39→Work Log:
+    40→- Smoke QA: login + Today view fine, no regressions from round 5.
+    41→- NEW `scripts/seed-demo-data.ts` (idempotent, retry-resilient fetch w/ cookie capture):
+    42→  - Seeds 13 weeks of training via the PUBLIC API (full-stack validation incl. PR recompute): Mon Push (Bench/DB Press/Arnold Press/Pushdown), Wed Pull (Deadlift/Row/Pulldown/Curl), Fri Legs (Squat/Leg Press/Leg Curl/Calf Raise), alternate Sat cardio (Treadmill Run distance+time, Hanging Knee Raise).
+    43→  - Linear progression + noise + deload every 5th week; 3-4 sets w/ rep patterns; startAt/endAt times; ~35% random comments.
+    44→  - Weekly Body Weight (78.2→81.4kg) + Body Fat (18.4→16.2%) records; 3 goals (Bench 105 ONE_RM, Squat 140 MAX_WEIGHT, Deadlift 190 ONE_RM).
+    45→  - Skips dates that already have exercises (safe to re-run). First run hit sandbox server death mid-way; retries + re-run completed: 47 workouts total, 545 sets, 1.32M kg volume, 26 measurement records, 3 goals.
+    46→- Exercise-name search (real feature):
+    47→  - `listWorkouts` service: new `search` opt — case-insensitive JS filter across comment/exercise name/category name (portable SQLite↔Postgres; no Prisma `contains` for case-insensitivity parity).
+    48→  - GET /api/workouts?search=… route param; `workoutsApi.list({search})` client type.
+    49→  - History view: 300ms-debounced server-side search (queryKey includes search); client now only applies category chips + sort on top (server owns text matching). Placeholder updated.
+    50→  - Verified via API: "deadlift"→13, "ROW"→13 (case-insensitive), "zzzz"→0, none→47. Browser: deadlift→13 workouts/182 sets; treadmill→7.
+    51→- Styling polish (VLM-guided):
+    52→  - Exercises view: filter chips gap-1.5→gap-2, py-1→py-1.5 (better tap targets); exercise-row metadata contrast muted-foreground→foreground/70. VLM re-review: PASS "no obvious issues remain".
+    53→  - Insights: Volume KPI compact formatting (427.7k / 1.32M — fixes truncation); ActivityGrid volume-quartile intensity buckets (feeds from workout summaries map) + Less→More legend + hover now shows day volume; month-label collision fixed (Map last-wins per column — JUNE was shadowed by MAY in shared column).
+    54→- Round bugs/notes: dev server died twice mid-session (sandbox process reaper? memory OK at 1.1/4.1GB) — restart procedure: pkill + nohup bun run dev, health recovers in ~15s. Known cosmetic: routines view looks sparse (no routine seed data — candidate next round).
+    55→- Verification: lint clean; browser-verified history search, insights (compact volume, varied heatmap intensity w/ legend, all month labels JUN/JUL/AUG/SEP), calendar (13 Sep workouts w/ dots on many days), exercises chips. VLM final QA: all 3 checkpoints PASS.
+    56→- Screenshots: download/qa-history-rich.png, qa-calendar-rich.png, qa-calendar-final.png, qa-exercises.png, qa-exercises-v2.png, qa-routines.png, qa-body.png, qa-insights-rich.png, qa-insights-final.png, qa-insights-final2.png.
+    57→
+    58→Stage Summary:
+    59→- App now shows a fully alive product experience: 47 workouts / 13 weeks across calendar, history (4 month groups), insights (KPIs, heatmap intensity, top-8 volume chart, 14-exercise records board, 3 goals w/ progress), body tracker trend data.
+    60→- New capability: server-side workout search by exercise/comment/category names (case-insensitive, portable).
+    61→- Next-round recommendations (priority order): (1) seed 1-2 routines via API to flesh out routines view; (2) PWA installability check (manifest + SW present, untested); (3) README + env reference + DB-switching docs per original spec; (4) exercise-overview spot-check with the new rich data (graphs/records tabs); (5) investigate dev-server random deaths (sandbox-level, monitor).
+    62→
+    63→---
+    64→Task ID: 7
+    65→Agent: main (Z.ai Code)
+    66→Task: QA round → critical data-integrity fixes (seed multiplier bug, performed-work rule) → routines seeding → new features (streaks, warm-up generator) → styling polish → sandbox stability engineering
+    67→
+    68→Work Log:
+    69→- Environment recovered from prior session's Errno-11 exhaustion (echo test OK, dev server running, worklog intact).
+    70→- QA tour (agent-browser session setforge-qa): all 10 views render, zero console/page errors. Found THREE real bugs:
+    71→  1. "Invalid Date" in training-screen prefill hint — `formatDayShort(lastSets.data.date)` passed a full ISO string where a yyyy-mm-dd day key was expected (`parseDayKey` concatenated `T00:00:00.000Z` twice). Fixed via `dayKeyOf()` wrapper (src/features/today/track-tab.tsx).
+    72→  2. CRITICAL seed-data bug: `r2d = (n) => Math.round(n * 2.5) * 2.5` MULTIPLIED instead of dividing — every main-lift weight ×6.25 (bench 525kg, deadlift 795kg, leg press 1305kg; accessories used correct `r1` so looked fine). All PRs/e1RM/insights were garbage (bench e1RM 678 vs goal 105). Root-caused by reverse-engineering week-0 sets per exercise from the DB. Fixed to `Math.round(n / 2.5) * 2.5`.
+    73→  3. Domain rule gap: planned/blank routine-prefilled sets counted as performed work — polluted PR table, records, stats ("heaviest set 207.5kg" from NOT-yet-performed today sets), goals, history summaries.
+    74→- Implemented "performed work counts" rule (only `isComplete: true` sets): `recomputePRs` + `isPRForReeps` context (workout-service.ts), `allSetsForExercise` records/graph source, `computeStats` (volume/sets/reps/distance/maxWeight/maxVolumeDay + `workoutDates`/`workouts` now count only days with ≥1 completed set), `mapWorkoutSummary` (history cards), Today header volume chip (`doneSets` filter; "kg done" label). New-set PR toast still fires as a preview (values vs completed bests).
+    75→- Wrote `scripts/reset-demo-data.ts` (wipes demo workouts/routines/goals/measurement records via public API, then re-seeds) + fixed seed script's routine-response handling (services return full routine DTO; new entities = last in sorted arrays) + bodyweight exercises now log reps-only (no fake 5kg).
+    76→- Re-seeded demo data: 47 historical workouts (13 weeks, realistic: bench 72.5→85kg, squat 95→110kg, deadlift 110→127.5kg), 26 measurement records, 3 goals. Bench e1RM now 105.5 (goal 105 — achieved).
+    77→- NEW: routine seeding (worklog #1 recommendation) — 4 routines (Push/Pull/Legs/Conditioning) with predefined sets at next-progression weights; log-day creates today's workout with prefilled blank sets (Leg Day on Friday). Routines view fully alive (4 routines, exercises, predefined set editors).
+    78→- NEW: exercise restSec + notes seeding (bench 180s/"Retract scapula…", deadlift 240s, squat 210s etc.) — rest-timer chips and notes popovers now demo real content.
+    79→- NEW FEATURE — Training streaks: `computeStreak()` in analysis-service (current = walk back from today-or-yesterday over days with ≥1 completed set; longest = scan sorted days; all-time). `StatsDTO.streak {current, longest}`. Insights: third highlight card (amber, current vs personal best + motivational copy, grid now sm:2/lg:3). Today header: amber flame "N-day streak" chip (today only, staleTime 60s).
+    80→- NEW FEATURE — Warm-up set generator (src/features/today/warmup-popover.tsx): ramp from target weight (empty bar ×10 for ≥40kg targets, 40%×8, 60%×5, 80%×3, rounded to weight step via `roundToStep`); each step logs as a completed set in one tap (online + offline queue). Amber FlameKindling icon button next to Save Set (only for weight exercises with weight > 0).
+    81→- Data touch-up for honest streak demo: completed 2 squat sets today + added light Thu Sep 24 "makeup conditioning" workout (Treadmill Walk 4.6km, Hanging Knee Raise, Plank) → streak 3 current / 3 PB.
+    82→- Styling polish (VLM-guided): Volume KPI compact threshold 100k→10k ("98.1k" instead of truncated "98095.6"); nav-panel exercise chips max-w-28→max-w-36/44 + title tooltip; mobile date heading now responsive ("Fri, Sep 25" < sm, full "Friday, September 25, 2026" ≥ sm — fixes year truncation at 390px).
+    83→- SANDBOX STABILITY ENGINEERING (major time sink, fully diagnosed): next-server dies from (a) kernel OOM when cold recompiles spike RSS 950MB→2.4GB against the 4GB cgroup (esp. with ~900MB chrome alongside), and (b) background processes being reaped when the launching Bash tool command ends (setsid/nohup/disown do NOT survive). Mitigations: `scripts/watchdog.sh` (auto-restart, but itself subject to (b)); `scripts/seed-loop.sh` (idempotent seed with server restarts); warm routes sequentially via curl before browser loads; browser QA inside single mega-commands; subshell `(bun run dev &)` detachment survived between commands in later rounds — pattern is flaky, re-verify per session.
+    84→- Verification: lint clean ×3; API-verified (bench e1RM 105.5, squat records complete-only, stats week 5 workouts/40 sets/maxW 127.5, streak {current:3,longest:3}, routine log-day prefills); browser-verified (login → Today streak chip + 1,760kg done; training screen "prefill from Sep 18" + 210s rest chip + notes + warm-up popover logging 65×5 set — persisted; Insights streak card + heaviest set now Sep 18 real performance; mobile 390px clean 9/10; exercise overview history/graph/records with realistic data). Zero console/page errors. Screenshots: download/qa-round8-*.png, qa-round9-*.png.
+    85→
+    86→Stage Summary:
+    87→- Demo data now REALISTIC end-to-end (weights, PRs, e1RMs, goals, graphs, routines, streaks) — the product finally demos like a real trainee's account.
+    88→- Domain integrity: performed work (completed sets) is the single source of truth for PRs/records/stats/goals; planned sets are visible in Today (ex/sets chips) but never counted.
+    89→- New features: training streaks (backend + Insights + Today), warm-up ramp generator, seeded routines/rest timers/notes, responsive date heading.
+    90→- Known acceptable items: nav chip truncation on very long names mid-scroll (VLM minor, by design for horizontal scroll); streak semantics are strict daily (MWF trainees show 1-2 day streaks — honest; Duolingo-style grace not implemented).
+    91→- Next-round recommendations (priority): (1) workout completion celebration/summary sheet (PRs hit this session vs prior bests — natural follow-up to performed-work rule); (2) PWA installability + Serwist SW verification (manifest exists, untested); (3) README + env reference + DB-switching docs (original spec deliverable, still missing); (4) warm-up sets could be tagged/visualized differently from working sets in SetsList (currently indistinguishable apart from weight); (5) consider streak rest-day grace (e.g., 1 rest day keeps streak alive at reduced intensity) — needs product decision; (6) keep watchdog/seed-loop scripts for any future heavy seeding.
+    92→
+    93→---
+    94→Task ID: 8
+    95→Agent: main (Z.ai Code)
+    96→Task: QA round → warm-up set tagging (full stack) → workout summary/celebration sheet → rest timer polish → critical cache-invalidation bug fix → VLM styling polish
+    97→
+    98→Work Log:
+    99→- Environment recovered cleanly at session start (echo OK, dev server up, health green). QA tour of all 9 views: zero console/page errors, all interactive (login → today streak chip/2085kg done → all nav views render).
+   100→- NEW FEATURE — Warm-up set tagging (`isWarmup` on TrainingSet), full stack:
+   101→  - Migration `20260925143554_set_warmup_flag` (Boolean @default(false)); dev server stopped → `prisma migrate dev` → restarted (runbook procedure).
+   102→  - Backend: setCreateSchema + SetDTO + mapSet/mapWorkoutSummary; workout-service (recomputePRs excludes warm-ups, createSet/updateSet pass isWarmup through, warm-up sets never claim newPr, copyWorkout preserves the flag); exercise-service lastSets prefill excludes warm-ups; analysis-service (records/graph source, streak days, stats volume/reps/sets/distance all exclude warm-up ramp); account export/import round-trips the flag. Domain rule: warm-up ramp is preparation — never counts toward PRs, records, stats, or "kg done" tonnage.
+   103→  - Frontend: shared `src/components/shared/warmup-badge.tsx` (amber "W" chip); SetsList rows show W badge + muted text, selected row gains FlameKindling mark/unmark toggle (with toast explaining PR/volume exclusion); warmup-popover logs with isWarmup:true; header volume/distance chips filter warm-ups; warm-up badge also rendered in training-screen history tab, today exercise-card SetPills (amber variant), and history workout-card rows.
+   104→  - API-verified: 200kg×1 squat as warm-up → newPr false + absent from records; PATCH isWarmup:false → appears in records; re-mark → vanishes; workout volume stays 2085 with warm-up logged; UI roundtrip (W ↔ numbered) verified live.
+   105→- NEW FEATURE — Workout Summary Sheet (`src/features/today/summary-sheet.tsx`):
+   106→  - "Finish Workout" CTA in the header card (stops a running timer first) + "Session summary" dropdown item; only shown when ≥1 performed (non-warm-up completed) set exists.
+   107→  - Bottom sheet (rounded-t-3xl, sm:max-w-2xl centered, max-h-92vh scroll-slim): hero with spring-animated trophy/flame + title that flips to "records fell!" when PRs were set; custom framer-motion confetti burst (34 brand-palette shards) fires only on PR sessions; streak chip in subtitle.
+   108→  - Stat tiles (Volume accent/Sets/Reps/Work-time-or-Duration/Distance) — odd tile count spans the full row on mobile via `[&>*:nth-child(odd):last-child]:col-span-2`.
+   109→  - PR section: per-exercise comparison of today's best set (max weight, tie→max reps, completed non-warmup) vs prior best from records strictly BEFORE this workout's date; amber cards with prior→new (strikethrough arrow), emerald +kg delta chip, e1RM delta; staggered spring entrance. Empty state: "No records this session — show up, log honestly, and they'll come 💪".
+   110→  - Per-exercise breakdown (category dot, sets/volume/top set, trophy if PR) + Copy-summary to clipboard (shareable text block with PRs and streak).
+   111→  - Verified: today (no PR state) + Sep 18 (4 PR rows: Squat 107.5×6→110×8 +2.5kg e1RM+11.7, Leg Press, Leg Curl, Calf Raise — prior-best date filtering correct), desktop + mobile 390px.
+   112→- NEW FEATURE — Rest timer polish: completion checkbox now auto-starts the rest timer (same as a save; warm-up sets excluded); popover gains −15s/+15s adjust buttons (works running & paused, clamps ≥0, clean resume). Verified: 3:19 → −15s → 3:04 → +15s → 3:18.
+   113→- CRITICAL BUG FIXED — TanStack cache invalidation: `invalidate.workout()` (no dateKey) only invalidated `["workouts", params]` list queries; the by-date query family is `["workout", dateKey]` — a different first key. EVERY Today-view mutation via use-mutate (save/delete/toggle set, comments, warm-up, groups, exercise add/remove) never refreshed the open day; sets only appeared after route remount. Fix: invalidate both `["workout"]` and `["workouts"]` prefixes in query.tsx. Verified: UI-saved set now appears in the SetsList instantly.
+   114→- BUG FIXED — stale date on Today: navigating from `#/today?date=<past>` to `#/today` (e.g. sidebar Today click) kept the old date; the sync effect now resets to todayKey() when the route has no date param.
+   115→- Styling polish (VLM 2-round review; round-1 findings triaged — heatmap/nav-chip/"truncation" claims partly false positives from static shots):
+   116→  - Summary stat tiles odd-count full-row span (kills the orphan empty cell on mobile).
+   117→  - Copy summary button outline→secondary+border (visible weight next to Done).
+   118→  - PR row icon tile h-10→h-9 (more room for names).
+   119→  - Activity heatmap intensity ladder strengthened: rest days bg-muted/40, levels primary/35/55/80/solid (was /25/45/70 vs muted/60 — levels were near-indistinguishable).
+   120→  - Final VLM re-review: PASS on all 3 checkpoints.
+   121→- Verification: `bun run lint` clean (3 intermediate issues fixed: JSX fragment in SetsList selected-actions, useMemo dep-array form, unused import); full 9-view tour ×2 (before + after dev-server death) with 0 page errors / 0 console errors; mobile 390×844 (bottom nav fits, sheet 390w, tiles balanced); demo data restored after API tests (only intentional leftover: one tagged 65×5 warm-up squat set demoing the badge; today volume 1,760 kg).
+   122→- Ops: dev server was OOM-killed once mid-session (cold recompile spike after edits, known sandbox issue) — restarted per runbook, health green, everything re-verified after.
+   123→- Screenshots: download/qa-r10-* (today, insights, summary no-PR, summary PR desktop/mobile, warmup badge, rest timer, mobile variants, post-fix v2/v3).
+   124→
+   125→Stage Summary:
+   126→- Three new user-facing capabilities: honest warm-up tagging (excluded from PRs/records/stats/volume everywhere, consistently, backend-enforced), a celebration-worthy session summary sheet with real PR math vs prior bests, and a smarter rest timer.
+   127→- One critical live-UI bug found & fixed (cache invalidation key-family mismatch) that had been silently degrading every Today mutation since the shell round.
+   128→- App is stable: 9 views, 0 errors, lint clean, mobile-verified.
+   129→- Next-round recommendations (priority): (1) PWA installability + Serwist SW verification (manifest exists, still untested — original spec deliverable); (2) README + env reference + zero-code DB-switching docs (original spec deliverable, still missing); (3) Web Share API for the summary sheet on mobile (currently clipboard-only); (4) optional: exercise-level warm-up defaults or per-exercise "always show warmup ramp" toggle; (5) dev-server OOM watchdog automation (cron) if random deaths recur.
+   130→
+   131→---
+   132→Task ID: 9
+   133→Agent: main (Z.ai Code)
+   134→Task: QA round → PWA service worker (full implementation + offline verification) → Web Share API → plate-loading hint in training screen → VLM styling polish → SW manifest caching fix
+   135→
+   136→Work Log:
+   137→- Environment recovered cleanly at session start (echo OK; prior session ended with Errno-11 resource exhaustion). Dev server was alive; health green.
+   138→- QA tour (agent-browser session setforge-qa-r11): login demo@setforge.app → all 9 views render, 0 console errors, 0 page errors. Exercise editing, empty-day actions, clipboard copy all confirmed present. Tools view already contains 1RM/Sets/Plates calculators.
+   139→- CRITICAL GAP FOUND — PWA was non-functional: NO service worker existed at all (Serwist never installed despite plan; /sw.js → 404; navigator.serviceWorker.getRegistrations() → []). Manifest + icons were fine. This was the top untested original-spec deliverable.
+   140→- Implemented PWA from scratch (custom SW, chosen over Serwist because sandbox runs dev-only — Serwist is typically disabled in dev, making it unverifiable here):
+   141→  - public/sw.js (v1.0.1): precaches shell (/, /offline.html, manifest, icons, logo) on install; activate cleans old caches + clients.claim(). Fetch: navigations network-first → cached shell → offline.html; /_next/static + icons + logo cache-first (content-hashed); API GETs network-first with per-SESSION cache fallback (cache key embeds sf_session cookie value → zero cross-user leakage; 80-entry trim; /api/health always live); mutations/websockets/HMR never intercepted. Messages: SKIP_WAITING, CLEAR_CACHES.
+   142→  - public/offline.html: self-contained branded offline page (inline CSS, forge orange, auto-retry on 'online' event).
+   143→  - src/components/shared/pwa.tsx: PwaBridge (registers /sw.js on load, updatefound → SKIP_WAITING, one-shot controllerchange reload), useInstallPrompt() (beforeinstallprompt capture + appinstalled toast + isStandalone detection), clearSwCaches().
+   144→  - Wiring: PwaBridge mounted in AppRoot; useLogout now calls clearSwCaches() (session cache isolation on account switch); account dropdown gains "Install app" item; mobile More sheet gains orange "Install SetForge · Offline-ready" CTA (only when canInstall); Settings gains "App" section (4th tab on mobile / stacked section on desktop): install row (button/Installed pill + helper fallback text), offline status row (Online/Offline pill), offline-cache Clear row (postMessage CLEAR_CACHES + window.caches wipe + success toast).
+   145→  - Manifest: added id:"/" + 2 app shortcuts (Log today's workout → /#/today, Insights → /#/insights).
+   146→- VERIFIED OFFLINE END-TO-END: SW registered+activated (scope /); caches populated (shell: 8 entries incl. "/" HTML; assets: chunks/fonts); agent-browser `set offline on` + reload → app renders COMPLETE UI with real data (Today view w/ squat 110kg×8 sets from per-session API cache); offline badge visible; VLM confirmed "complete UI with real data, no broken layout"; restored online cleanly.
+   147→- BUG FOUND & FIXED — SW manifest staleness: manifest.webmanifest was cache-first → my manifest update (id/shortcuts) didn't propagate (browser kept serving old cached copy). Fixed: manifest + offline.html now network-first with cache fallback (handleVolatile); SW version bumped to v1.0.1; verified fresh manifest served ({id:"/", shortcuts:2}).
+   148→- NEW FEATURE — Web Share API in summary sheet: copySummary → shareSummary; uses navigator.share (native mobile share sheet) when available, falls back to clipboard; AbortError (user dismissed) silently ignored; button label/icon adapts (Share2 "Share summary" vs ClipboardCopy "Copy summary").
+   149→- NEW FEATURE — Plate-loading hint (src/features/today/plate-hint.tsx): below weight/reps inputs in the training screen, shows "PER SIDE" chip row computed from the user's plate inventory (platesApi, staleTime 5min) via plateGreedy: colored dot + weight chips (25 ×2 10 5 2.5 style), "+ 20kg bar" suffix, amber "loads 62.5kg" note when exact load impossible (nearest shown), "Not loadable" state. AnimatePresence height animation. VERIFIED: 110kg → red 25 + blue 20 per side (45×2+20=110 ✓ per VLM + math).
+   150→- Styling polish (VLM-guided, 2 review batches over 9 view screenshots + mobile):
+   151→  - Training screen header: nav buttons gap-1.5 → gap-2 (X was cramped against next-exercise arrow).
+   152→  - Insights KPI labels: font-semibold → font-bold (stronger hierarchy under big numbers).
+   153→  - History card metadata rows: icon-text gap-1 → gap-1.5 (4 metric spans).
+   154→  - Today nav chips: max-w-36 → max-w-40 on mobile (fewer truncations).
+   155→  - Triage rejected as false positives (verified in code or via eval): button height mismatch (all h-13), 1RM table alignment (already text-right), calendar dot alignment (uniform grid), body spacing (space-y-4 consistent), "Leg F" chip truncation (scroll position, no actual clipping — eval scrollWidth check returned []).
+   156→- Ops: dev server died once mid-tour (known sandbox OOM issue — ps showed no next-server, log ended mid-200s). Restarted per runbook (pkill + nohup bun run dev, ~12s to healthy). Full tour re-run after restart: clean.
+   157→- Verification: `bun run lint` clean ×2; full 9-view tour ×2 with 0 console/page errors; offline test passed; mobile 390×844 (bottom nav 5 tabs intact, More sheet + install CTA, settings App tab); VLM final review: PASS on both checkpoints. Screenshots: download/qa-r11-*.png (calendar, history, exercises, routines, body, insights, tools, plates, settings, offline, offline-today, plate-hint, style-*, mobile-*, final-*, settings-app*).
+   158→
+   159→Stage Summary:
+   160→- PWA is REAL now: installable (SW + manifest + icons + id + shortcuts), fully offline-capable (shell + per-session data cache, verified by emulation), with install CTAs in 3 places (dropdown, More sheet, Settings App tab) and cache management UI.
+   161→- Two new user-facing features: native share for workout summaries, and a live plate-loading hint that turns the plate inventory into actionable guidance mid-set.
+   162→- One architectural SW bug caught & fixed during verification (volatile-file caching).
+   163→- App remains stable: 9 views, 0 errors, lint clean, mobile-verified.
+   164→
+   165→Next-round recommendations (priority):
+   166→1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing — needs explicit user request per doc policy).
+   167→2. Real-device PWA install test (headless can't fire beforeinstallprompt; Chrome/Android + iOS Safari Add-to-Home-Screen).
+   168→3. Consider a version-bump + auto-update toast flow polish (currently silent SKIP_WAITING + reload).
+   169→4. API cache could grow stale if user stays online long (network-first means fresh wins — only offline uses cache; acceptable).
+   170→5. Exercise-level warm-up defaults / "always show warmup ramp" toggle (round-8 leftover nice-to-have).
+   171→6. Dev-server OOM watchdog automation if random deaths recur (died once this round).
+   172→
+   173→---
+   174→Task ID: 10
+   175→Agent: main (Z.ai Code)
+   176→Task: QA round → new features (interval/HIIT timer, Enter-to-save, SW update toast) → CRITICAL fix: service worker served stale dev CSS (v1.0.2 asset strategy) → styling polish + full verification
+   177→
+   178→Work Log:
+   179→- Environment healthy at session start (dev server up since prior round's restart, health 200, SW v1.0.1 active). QA tour of all 9 views: 0 console errors, 0 page errors — app stable.
+   180→- NEW FEATURE — Interval/HIIT Timer (src/features/tools/interval-timer.tsx, 4th Tools tab "Timer"):
+   181→  - Presets: Tabata (20/10×8), EMOM 10 (60/0×10), HIIT (40/20×8), Sprints (30/60×6), Custom; config steppers (prepare/work/rest seconds, rounds), sound + vibration toggles, total time readout.
+   182→  - Engine: drift-corrected from wall-clock (phaseEndsAt epoch ms, 100ms tick), phases prepare→(work↔rest)×rounds→done with per-phase colors (amber prepare / orange work / emerald rest); skip-phase + reset; pause stores remainingMs, resume re-anchors; elapsed accumulator across pauses.
+   183→  - UX: SVG progress ring (280px, dasharray 2πR, drains per phase), phase label chip with AnimatePresence, big countdown (text-6xl), segmented round-progress dots (done/current/pending), elapsed vs planned, h-13 touch controls (Start/Pause/Resume + Skip + Reset), trophy completion state, "Go again" CTA.
+   184→  - Audio: Web Audio API (lazy AudioContext unlocked by Start gesture) — 3-2-1 countdown beeps, distinct work (880Hz)/rest (440Hz) phase tones, completion melody; vibration patterns via navigator.vibrate; screen wake-lock while running (re-acquires on visibility).
+   185→  - Fixed during lint: React "cannot access refs during render" → phaseTotalSec moved to state; fixed totalSec overcount (rounds-1 rests); round-dot current index advances during rest.
+   186→  - Verified live: full cycle (prepare→work→done), pause/resume button flip, elapsed counter, ring SVG attributes (dasharray 753.98, stroke-primary), VLM PASS desktop (presets/steppers/toggles/ring/chips) + mobile 390px (chips fit, 2-col steppers, ring centered, buttons sized).
+   187→- NEW FEATURE — Enter-to-save (track-tab.tsx): keydown on the set-input card saves the set (steppers commit their draft first, save deferred via setTimeout(0) for the state flush); kbd "↵ Enter" hint under buttons (desktop only, hidden sm:flex). Verified live: focused weight input → Enter → SETS 3→4, 0 errors; test set deleted via API to restore demo data.
+   188→- NEW FEATURE — SW update toast (pwa.tsx): controllerchange now shows "SetForge updated — refreshing…" toast (900ms) before the one-shot reload — updates are explained, not surprising.
+   189→- CRITICAL BUG FOUND & FIXED — service worker served STALE dev CSS/JS (v1.0.1):
+   190→  - Symptom: interval-timer's unique classes (max-w-[280px], text-6xl, min-h-[54px]) computed to none/defaults in the browser while present in the dev-served CSS file on disk (curl fetched /_next/static/chunks/[root-of-the-server]__*.css: rules existed). The ring rendered 830px (max-w ignored) — VLM flagged "timer card truncated".
+   191→  - Root cause: sw.js v1.0.1 used cache-first for /_next/static/* — valid for production immutable content-hashed URLs, but DEV chunk URLs are stable-but-mutable (Cache-Control: no-store, must-revalidate). The SW cached the first CSS chunk and served it forever across reloads AND dev-server restarts (caches outlive the server).
+   192→  - Fix (v1.0.2): assets are now network-first with cache fallback (same strategy family as navigations + API GETs). Dev/HMR always fresh; production still hits immutable URLs fast; offline falls back to cache. Verified: classes now apply (max-w-[280px] → 280px, ring exactly 280×280), old v1.0.1 caches wiped by activate(), offline re-verified (offline reload → full app with data), and the SW update propagated with the new toast flow.
+   193→  - DIAGNOSTIC NOTES for future rounds: (a) Turbopack+Tailwind DOES regenerate CSS on TSX className changes — "missing utility class" in dev is almost certainly the SW cache, not Tailwind scanning; (b) the postcss.js worker process persists across `pkill -f 'next dev'` restarts (it has its own PID — kill explicitly if CSS behaves weirdly after restarts); (c) verify with `curl <css-chunk-url>` + browser computed styles side-by-side.
+   194→- Styling polish: VLM review batches (desktop timer/exercise-overview/graph + mobile timer/training). Triage: "ring truncated" = the real SW bug (fixed above); "missing chart tooltip" false positive (TrendChart has custom tooltip — static shots just don't show it); Y-axis/toggle/contrast claims minor or by design; mobile findings all PASS. Removed temporary CSS probe classes after the fix verification.
+   195→- Verification: bun run lint clean; full 9-view tour ×2 → 0 console/page errors; mobile 390×844 verified (today, training screen w/ plate hint + sets, timer); offline mode verified post-fix; demo data restored after tests. Screenshots: download/qa-r12-*.png (timer phases idle/prepare/work/done, mobile timer ×2, offline-verify, timer-fixed, mobile-training, style-*).
+   196→
+   197→Stage Summary:
+   198→- Three new user-facing capabilities: a full interval/HIIT timer (presets, audio/haptic cues, wake lock, animated ring), keyboard-first set logging (Enter saves), and human-friendly SW update toasts.
+   199→- One critical architecture bug fixed in the PWA layer: cache-first assets made dev CSS stale forever (v1.0.2 = network-first + cache fallback; offline capability re-verified intact). This also retroactively explains any "style didn't apply" oddities in future dev sessions — check the SW first.
+   200→- App remains stable: 9 views + 4th Tools tab, 0 errors, lint clean, mobile-verified, offline-verified.
+   201→
+   202→Next-round recommendations (priority):
+   203→1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing).
+   204→2. Timer enhancements if desired: save interval configs per user (persisted presets), background/lock-screen audio (needs MediaSession API), per-exercise default interval link.
+   205→3. Real-device PWA install test (beforeinstallprompt unavailable in headless).
+   206→4. Exercise-level warm-up defaults toggle (round-8 leftover).
+   207→5. Consider auto-bumping sw.js VERSION on each deploy (cache names currently manual — fine while manual, but document the convention).
+   208→
+   209→---
+   210→Task ID: 11
+   211→Agent: main (Z.ai Code)
+   212→Task: QA round → three new features (persisted timer presets full-stack, per-exercise auto-warmup full-stack, timer voice cues) → bug fix (Zod PATCH defaults) → VLM-guided styling polish
+   213→
+   214→Work Log:
+   215→- Environment recovered cleanly at session start (echo OK; prior session ended with Errno-11 resource exhaustion). Dev server alive, health green, worklog read.
+   216→- QA tour (agent-browser session setforge-qa-r13): login demo@setforge.app → all 9 views + Tools/Timer tab render, 0 console/page errors → app judged stable → proceeded to new features per task instructions.
+   217→- NEW FEATURE — Persisted interval-timer presets (full stack):
+   218→  - Migration `20260925164655_timer_presets_ex_auto_warmup`: `TimerPreset` model (userId FK cascade, unique(userId,name), prepareSec/workSec/restSec/rounds/sortOrder) + `Exercise.autoWarmup Boolean @default(false)`.
+   219→  - Backend: `src/server/services/timer-preset-service.ts` (list/create/update/delete, name-conflict 409); routes GET/POST `/api/timer-presets`, PATCH/DELETE `/api/timer-presets/:id`; Zod `timerPresetBase` (create has defaults for prepare/rest/rounds; update is `.partial()` with NO defaults — see bug below).
+   220→  - Client: `timerPresetsApi` + `TimerPresetDTO` + `qk.timerPresets` + `useTimerPresets()` + `invalidate.timerPresets()`.
+   221→  - interval-timer.tsx: "Your presets" horizontal-scroll chip row (name + work/rest×rounds hint, count badge, per-chip X delete with destructive hover); "Save preset" header button → dialog (name input w/ Enter-to-save, config summary panel); applying a preset highlights it (presetId = preset id); framer-motion chip entrance.
+   222→  - API-verified via curl: CRUD round-trip, 409 on duplicate name, partial PATCH preserves fields, multi-tenant isolation (user B: empty list + 404 on user A's preset).
+   223→  - BUG FOUND & FIXED during build: Zod `.default()` on the create schema leaked into the update schema (`.partial()` keeps defaults) → partial PATCH reset prepareSec 15→10 and restSec 15→0. Fixed by splitting base/create/update schemas.
+   224→- NEW FEATURE — Per-exercise auto warm-up ramp (full stack):
+   225→  - `Exercise.autoWarmup` through schema/mappers/exercise-service (create+update passthrough)/ExerciseDTO/ExerciseInput.
+   226→  - exercise-form-dialog: amber "Auto warm-up ramp" switch row (shown for weight-type exercises) with explanatory hint.
+   227→  - warmup-popover: new `autoOpen`/`onAutoOpened` props — opens the ramp once when a target weight first becomes available (autoFiredRef guard).
+   228→  - track-tab: gates auto-open per exercise entry (`warmupAutoDone` reset on we.id) AND only while the exercise has no real logged sets (hasLoggedWork check ignores warm-up + blank routine-prefilled sets) — routine days still get the auto-open.
+   229→  - Browser-verified end-to-end: fresh day → add Barbell Squat → open training screen → ramp auto-opened (target 110kg → 20×10 empty bar, 45×8, 65×5, 90×3), logged the empty-bar set, deleted test workout after.
+   230→- NEW FEATURE — Voice cues for the interval timer: `useSpeech(enabled)` hook (SpeechSynthesis, local/offline, cancel-then-speak, rate 1.15) — announces "Get ready"/"Work!"/"Rest"/"Last round — work!"/"Complete! Great job!" at phase transitions; "Voice" toggle in the config footer row (Speech icon). Headless has no voices; guarded with try/catch, toggle + timer verified error-free.
+   231→- Demo data seeding: autoWarmup ON for Barbell Squat / Barbell Bench Press / Deadlift; 2 timer presets ("Kettlebell swings" 45/15×10, "Core finisher" 30/10×6).
+   232→- STYLING POLISH (VLM 3-batch review over 11 screenshots; findings triaged against code before applying — several claims verified as false positives: calendar equal-height cells/dot gaps/filled selected state already correct, body stepper h-10/h-11 fine, exercise chips have filled-active states, nav pill radius is deliberate design language):
+   233→  - Timer preset chips: name max-w-28→max-w-44 (fixes aggressive truncation), count badge leading-none (optical centering), delete X h-5→h-5.5 + icon h-3.5 + text-foreground/70 (visibility).
+   234→  - Insights KPI labels: text-muted-foreground → text-foreground/70 (readability); TIME value 17:04:00 → compactDuration "17h 04m"; "avg per workout" value now uses compact().
+   235→  - History: date redundancy fixed — short-date subtitle only renders when a comment replaced the date-as-title (was 3x same date); search placeholder shortened to "Search workouts, notes, exercises…".
+   236→  - Calendar: month nav arrows h-9→h-10 w-10 (better touch targets, 40px verified).
+   237→  - Settings: segmented control inactive segments text-muted-foreground → text-foreground/70 + hover bg.
+   238→  - SetsList rows: pl-2→pl-3 + gap-1→gap-1.5 (breathing room around warm-up badges).
+   239→  - Exercises search placeholder shortened.
+   240→- Ops: dev server died once mid-round (known sandbox OOM; curl connection-refused + stale SW cache made the browser show pre-fix code — diagnosed quickly, restarted per runbook, SW caches cleared, all fixes re-verified rendering). Noted for future rounds: a dead dev server + SW network-first fallback looks EXACTLY like "my code changes didn't apply" — check /api/health first.
+   241→- Verification: bun run lint clean ×2; full 9-view tour with error hook → ZERO JS errors; preset save/apply/delete round-trip in browser; auto-warmup end-to-end; mobile 390×844 (today + timer); offline mode (shell + real data via session API cache after repopulation) + clean online restore; VLM final review: all 3 checkpoints PASS (insights KPI readability + compact time, history date de-duplication, timer preset names untruncated). Screenshots: download/qa-r13-*.{png} (today, timer presets, auto-warmup + open ramp, review-*, style-*, final-*, mobile-*, offline).
+   242→
+   243→Stage Summary:
+   244→- Three new user-facing capabilities: server-synced custom interval-timer presets (account-portable), per-exercise auto warm-up ramp (turns the existing generator into a zero-tap start for main lifts), and voice announcements for hands-free HIIT timing.
+   245→- One API-contract bug caught during build (Zod defaults leaking into PATCH) — update schemas are now explicitly default-free.
+   246→- Styling: 8 concrete refinements landed from a code-triaged VLM review; all previously-passing views remain error-free.
+   247→
+   248→Next-round recommendations (priority):
+   249→1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing — needs explicit user request per doc policy).
+   250→2. Timer preset rename UI (PATCH endpoint already supports it; only the FE dialog is missing).
+   251→3. Real-device PWA install + voice test (headless lacks speech voices and beforeinstallprompt).
+   252→4. Consider MediaSession API for interval timer background audio (round-10 leftover).
+   253→5. Dev-server OOM watchdog automation if random deaths recur (died once this round).
