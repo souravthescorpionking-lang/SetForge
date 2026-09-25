@@ -349,6 +349,7 @@ export function PreferencesSection() {
                 key={key}
                 type="button"
                 aria-pressed={settings[key]}
+                aria-label={`Show ${label} column`}
                 onClick={() => patch({ [key]: !settings[key] })}
                 className={cn(
                   "flex min-h-[64px] flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition-all",
@@ -359,7 +360,16 @@ export function PreferencesSection() {
               >
                 <span className="flex w-full items-center justify-between">
                   <span className={cn("text-sm font-semibold", settings[key] ? "text-primary" : "text-foreground")}>{label}</span>
-                  <Switch checked={settings[key]} aria-label={`Show ${label} column`} onCheckedChange={(v) => patch({ [key]: v })} />
+                  {/* visual state pill — decorative only; the whole tile is the button */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors",
+                      settings[key] ? "justify-end bg-primary" : "justify-start bg-muted",
+                    )}
+                  >
+                    <span className={cn("h-4 w-4 rounded-full bg-background shadow-sm transition-transform")} />
+                  </span>
                 </span>
                 <span className="text-[11px] leading-tight text-muted-foreground">{hint}</span>
               </button>

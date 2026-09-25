@@ -12,7 +12,7 @@ import { ChevronDown, Info, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { CategoryDot } from "@/components/shared/category-dot";
-import { routinesApi } from "@/lib/client/api";
+import { routinesApi, type PredefinedSetInput } from "@/lib/client/api";
 import { fieldsForType } from "@/lib/constants";
 import { useApp } from "@/lib/client/store";
 import type { RoutineExerciseDTO } from "@/lib/types";
@@ -44,11 +44,14 @@ export function RoutineExerciseRow({ routineId, dayId, re }: Props) {
 
   const exercisePath = `/api/routines/${routineId}/days/${dayId}/exercises/${re.id}`;
 
-  const addSet = () => {
-    void run(() => routinesApi.addSet(routineId, dayId, re.id, {}), {
+  // New sets start fully blank (all fields null = inherit/copy previous); any
+  // fields the user then enters inline flow through updateSet patches. The
+  // input passthrough keeps addSet able to carry initial Part 2 fields.
+  const addSet = (data: PredefinedSetInput = {}) => {
+    void run(() => routinesApi.addSet(routineId, dayId, re.id, data), {
       path: `${exercisePath}/sets`,
       method: "POST",
-      body: {},
+      body: data,
       label: "Set added",
     });
   };
@@ -155,7 +158,7 @@ export function RoutineExerciseRow({ routineId, dayId, re }: Props) {
                 variant="ghost"
                 size="sm"
                 className="gap-1.5 text-muted-foreground"
-                onClick={addSet}
+                onClick={() => addSet()}
                 aria-label={`Add set to ${re.exercise.name}`}
               >
                 <Plus className="h-4 w-4" /> Add set

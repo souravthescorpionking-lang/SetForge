@@ -1,14 +1,19 @@
 "use client";
 
-// Integrated rest timer (Part 2): a slim full-width bottom bar —
-// "Rest 1:12 [+15s] [-15s] [Skip]" — above the bottom nav (never covering
-// content: the training screen pads its body while the bar is visible).
-// - Ticking ✓ on a row starts the countdown from that row's planned rest.
-// - The REST cell of the resting row renders the live countdown (restRowId).
-// - On end: beep + vibrate, then fire registered onRestEnd callbacks
-//   (e.g. focus the next incomplete row's first cell per restEndBehaviour).
-// - Presets popover (60/90/120/180 + exercise default) on the timer chip;
-//   last duration persisted to localStorage.
+// Integrated rest timer — Part 2 slim bar + Part 3 FULL-SCREEN overlay.
+//
+// Slim bar (default): "Rest 1:12 [−15s][+15s][pause][Skip]" pinned above the
+// bottom nav; ticking ✓ on a set row starts the countdown from that row's
+// planned rest; the REST cell of the resting row renders the live countdown.
+//
+// Full-screen overlay (Part 3 rework): tap the countdown on the slim bar and
+// the timer takes over the whole viewport — huge tabular digits inside an SVG
+// progress ring, large ±15s / pause / skip buttons sized for chalked-up
+// thumbs, plus a screen Wake Lock so the display stays on while resting.
+// Minimise returns to the slim bar; finishing rest auto-collapses.
+// When the tab is hidden at finish time and Notification permission was
+// already granted, an OS notification fires (no permission prompts — the
+// user must have granted it from their own gesture elsewhere).
 import {
   createContext,
   useCallback,
@@ -20,7 +25,19 @@ import {
   type ReactNode,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Minus, Pause, Play, Plus, RotateCcw, SkipForward, Timer, Volume2, VolumeX } from "lucide-react";
+import {
+  ChevronDown,
+  Maximize2,
+  Minus,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  SkipForward,
+  Timer,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { toast } from "sonner";
 import { formatDuration } from "@/lib/formulas";
 import { cn } from "@/lib/utils";
@@ -105,6 +122,33 @@ function vibrate() {
   }
 }
 
+/** OS notification when rest ends while the tab is hidden (permission pre-granted only). */
+function notifyIfHidden() {
+  try {
+    if (typeof document === "undefined" || !document.hidden) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    new Notification("Rest complete", { body: "Get back under the bar 🔥", tag: "setforge-rest" });
+  } catch {
+    /* notifications unavailable */
+  }
+}
+
+/* ---------- minimal Wake Lock typings (TS lib may lack them) ---------- */
+type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
+type WakeLockNav = Navigator & {
+  wakeLock?: { request: (type: "screen") => Promise<WakeLockSentinelLike> };
+};
+
+async function acquireWakeLock(): Promise<WakeLockSentinelLike | null> {
+  try {
+    const nav = navigator as WakeLockNav;
+    if (!nav.wakeLock) return null;
+    return await nav.wakeLock.request("screen");
+  } catch {
+    return null; // denied (e.g. low battery) or unsupported
+  }
+}
+
 export function RestTimerProvider({ children, active = true }: { children: ReactNode; active?: boolean }) {
   // total configured duration (sec) and remaining (ms)
   const [durationSec, setDurationSec] = useState<number>(() => readLastRest());
@@ -115,9 +159,11 @@ export function RestTimerProvider({ children, active = true }: { children: React
   const [extraPreset, setExtraPreset] = useState<number | null>(null);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [restRowId, setRestRowId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const endAtRef = useRef<number>(0);
   const finishedRef = useRef(false);
   const restEndCbRef = useRef<(() => void) | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
 
   const fireRestEnd = useCallback(() => {
     const cb = restEndCbRef.current;
@@ -131,10 +177,12 @@ export function RestTimerProvider({ children, active = true }: { children: React
     setRunning(false);
     setRemaining(0);
     setRestRowId(null);
+    setExpanded(false); // Part 3: fullscreen overlay auto-collapses on finish
     if (!finishedRef.current) {
       finishedRef.current = true;
       if (!muted) beep();
       vibrate();
+      notifyIfHidden();
       toast.success("Rest complete", {
         icon: <Timer className="h-4 w-4 text-primary" />,
         description: "Get back under the bar 🔥",
@@ -158,6 +206,25 @@ export function RestTimerProvider({ children, active = true }: { children: React
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
   }, [running, finish]);
+
+  // Wake Lock: keep the screen on while the fullscreen rest overlay runs
+  useEffect(() => {
+    if (!expanded || !running) return;
+    let cancelled = false;
+    void acquireWakeLock().then((lock) => {
+      if (cancelled) {
+        void lock?.release();
+        return;
+      }
+      wakeLockRef.current = lock;
+    });
+    return () => {
+      cancelled = true;
+      const lock = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (lock) void lock.release();
+    };
+  }, [expanded, running]);
 
   const start = useCallback(
     (sec?: number, setId?: string | null) => {
@@ -185,6 +252,7 @@ export function RestTimerProvider({ children, active = true }: { children: React
     setRunning(false);
     setRemaining(0);
     setRestRowId(null);
+    setExpanded(false);
     restEndCbRef.current = null;
   }, []);
 
@@ -239,6 +307,20 @@ export function RestTimerProvider({ children, active = true }: { children: React
     };
   }, []);
 
+  // Escape collapses the fullscreen overlay (does not skip the rest)
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [expanded]);
+
   const api = useMemo<RestTimerApi>(
     () => ({
       start,
@@ -262,8 +344,10 @@ export function RestTimerProvider({ children, active = true }: { children: React
   return (
     <RestTimerContext.Provider value={api}>
       {children}
+
+      {/* ---------- slim bar (minimised state) ---------- */}
       <AnimatePresence>
-        {visible && (
+        {visible && !expanded && (
           <motion.div
             initial={{ opacity: 0, y: 28 }}
             animate={{ opacity: 1, y: 0 }}
@@ -316,7 +400,13 @@ export function RestTimerProvider({ children, active = true }: { children: React
                 </PopoverContent>
               </Popover>
 
-              <div className="flex min-w-0 flex-1 items-center gap-2 pl-0.5">
+              {/* countdown — tap to expand full-screen (Part 3) */}
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-label={`Expand rest timer, ${display} remaining`}
+                className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl px-2 pl-0.5 text-left transition-colors hover:bg-accent"
+              >
                 <span className="shrink-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rest</span>
                 <span
                   className={cn(
@@ -332,7 +422,8 @@ export function RestTimerProvider({ children, active = true }: { children: React
                     style={{ width: `${pct * 100}%` }}
                   />
                 </span>
-              </div>
+                <Maximize2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </button>
 
               {/* -15s / +15s */}
               <button
@@ -381,6 +472,123 @@ export function RestTimerProvider({ children, active = true }: { children: React
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---------- full-screen rest overlay (Part 3) ---------- */}
+      <AnimatePresence>
+        {visible && expanded && (
+          <motion.div
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="fixed inset-0 z-[80] flex flex-col bg-background/95 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Full-screen rest timer, ${display} remaining`}
+          >
+            {/* top row: label + minimise */}
+            <div className="flex shrink-0 items-center justify-between px-4 py-3 sm:px-6">
+              <div className="flex items-center gap-2">
+                <Timer className={cn("h-5 w-5", running ? "text-primary animate-pulse" : "text-muted-foreground")} />
+                <span className="text-sm font-bold uppercase tracking-[0.2em] text-muted-foreground">Rest</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 gap-1.5 rounded-xl px-3 text-sm font-semibold"
+                onClick={() => setExpanded(false)}
+                aria-label="Minimise rest timer"
+              >
+                <ChevronDown className="h-4 w-4" /> Minimise
+              </Button>
+            </div>
+
+            {/* the big clock */}
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-6 sm:gap-10">
+              <div className="relative flex items-center justify-center" aria-hidden>
+                <svg width="min(72vw, 22rem)" height="min(72vw, 22rem)" viewBox="0 0 320 320" className="-rotate-90">
+                  <circle cx="160" cy="160" r="144" fill="none" stroke="currentColor" strokeWidth="10" className="text-muted/40" />
+                  <circle
+                    cx="160"
+                    cy="160"
+                    r="144"
+                    fill="none"
+                    stroke="url(#restGrad)"
+                    strokeWidth="10"
+                    strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 144}
+                    strokeDashoffset={2 * Math.PI * 144 * (1 - pct)}
+                    style={{ transition: "stroke-dashoffset 0.25s linear" }}
+                  />
+                  <defs>
+                    <linearGradient id="restGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#f97316" />
+                      <stop offset="100%" stopColor="#f59e0b" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span
+                    className={cn(
+                      "text-[clamp(3.5rem,16vw,7.5rem)] font-black leading-none tabular-nums tracking-tight",
+                      running ? "text-primary" : "text-foreground",
+                    )}
+                    aria-live="polite"
+                  >
+                    {display}
+                  </span>
+                  <span className="mt-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    {running ? "resting" : "paused"}
+                    {" · planned "}
+                    <span className="tabular-nums">{formatDuration(durationSec)}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* large thumb-friendly controls */}
+              <div className="flex w-full max-w-md items-center justify-center gap-3 sm:gap-4">
+                <button
+                  type="button"
+                  aria-label="Subtract 15 seconds"
+                  onClick={() => adjust(-15)}
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl border text-lg font-bold tabular-nums text-muted-foreground transition-all active:scale-95 hover:bg-accent hover:text-foreground sm:h-16 sm:w-16"
+                >
+                  <Minus className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={running ? "Pause rest timer" : "Resume rest timer"}
+                  onClick={() => (running ? pause() : resume())}
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 text-primary transition-all active:scale-95 hover:bg-primary/25 sm:h-16 sm:w-16"
+                >
+                  {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                </button>
+                <button
+                  type="button"
+                  aria-label="Add 15 seconds"
+                  onClick={() => adjust(15)}
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl border text-lg font-bold tabular-nums text-muted-foreground transition-all active:scale-95 hover:bg-accent hover:text-foreground sm:h-16 sm:w-16"
+                >
+                  <Plus className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Skip rest"
+                  onClick={skip}
+                  className="flex h-14 items-center gap-2 rounded-2xl bg-primary px-6 text-base font-bold text-primary-foreground shadow-lg shadow-primary/25 transition-all active:scale-95 hover:bg-primary/90 sm:h-16 sm:px-8"
+                >
+                  <SkipForward className="h-5 w-5" /> Skip
+                </button>
+              </div>
+            </div>
+
+            {/* subtle bottom brand strip */}
+            <div className="shrink-0 pb-2 text-center text-[11px] font-semibold uppercase tracking-[0.25em] text-muted-foreground/50">
+              SetForge
             </div>
           </motion.div>
         )}

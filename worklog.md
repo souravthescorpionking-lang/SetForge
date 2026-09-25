@@ -505,3 +505,111 @@ Next-round recommendations (priority):
 5. Plate-calc popover on long-press of WEIGHT cell (PlateHint exists for the ghost target; per-cell would match spec).
 6. Web Worker + Notification-with-actions for background rest timing (currently interval-based; tab must stay focused).
 7. README/env/DB-switching docs (long-standing deliverable; needs explicit user request).
+
+---
+Task ID: 2-b
+Agent: subagent (routine-fields)
+Task: Routine predefined-set editor — surface the Part 2 template fields (setType / RPE / tempo / planned rest) in the routine day editor rows, matching the training set-table cell interaction patterns.
+
+Work Log:
+- Read worklog (Task 14 entry), routines feature files, cells.tsx, constants/schemas/types/api client, routine-service logDay. Confirmed API + DB + PredefinedSetInput already carry the fields; only the row UI was missing.
+- src/features/routines/predefined-set-row.tsx (main change):
+  - Appended a compact chip group to the existing flex-wrap row (after the numeric steppers, before the "blank" badge): TemplateTypeTag + RpeCell + TempoCell + RestCell. Kept as ONE shrink-0 group so on narrow screens it collapses to a single horizontal chip row under the numeric fields (matches the row's existing wrap design language; no "…" overflow popover needed). Desktop stays single-line (verified: all chip/stepper centers share one y).
+  - RPE/tempo/rest reuse the training cells verbatim (RpeCell/TempoCell/RestCell from src/components/set-table/cells.tsx) → identical popovers: 9-chip RPE picker, 4-field tempo editor w/ normalisation, rest presets + custom min/sec. RestCell gets remainingSec={null} and no onStartNow (no live timer in the template editor; "Start now" hidden automatically).
+  - TemplateTypeTag: local replication of SetTypeTag's internals (tap cycles NORMAL→WARMUP→DROP→FAILURE→AMRAP, 420ms long-press / context-menu opens the picker sheet with descriptions) extended for the template's null = "inherit" state: null renders a dashed "TYPE" chip and tap opens the picker directly (nothing to cycle from); picker gains a "Not set" row ("Logs as Normal, or copies previous") to return to null. Replicated locally instead of editing SetTypeTag because its value prop is non-null SetType and the workout flow always has a concrete type — zero changes to the shared component, zero conflict risk with the parallel set-table/track-tab agent.
+  - All four are OPTIONAL per row: null patches pass through as null in PredefinedSetInput (server PATCH only touches present keys, so clearing sends explicit nulls).
+  - "Blank set" action now clears ALL 8 fields (weight/reps/distance/timeSec + setType/rpe/tempo/restPlannedSec) so "blank = copy previous" is honest; isBlankRow (drives the per-row "blank" badge + disabled blank button) now requires all 8 fields null. The exercise-level "copy previous" header badge in routine-exercise-row stays numeric-fields-only — that mirrors the server's logDay copy rule exactly.
+- src/features/routines/routine-exercise-row.tsx: addSet now takes an optional PredefinedSetInput passthrough (default {}) so any creation-time fields flow to the API; UI still creates blank sets and every entered field flows through updateSet patches.
+- src/components/set-table/cells.tsx (smallest necessary change, 100% backward compatible — coordination note for the set-table/track-tab agent): RpeCell / TempoCell / RestCell each gained an OPTIONAL `placeholder?: string` prop (default "–"). When unset and a custom placeholder is passed, the cell renders it as a tiny uppercase label (text-[10px] font-semibold uppercase tracking-wide) instead of "–" — this makes the routine template chips self-labelling ("TYPE RPE TEMPO REST" when empty, values when set). No existing call site passes the prop → identical rendering everywhere else. Verified in-browser: training SetTable + row-sheet + add-row ghost all render exactly as before, console clean.
+- routine-day-card.tsx / routine-detail.tsx / log-all-dialog.tsx: no changes needed (set rows render via PredefinedSetRow; Log-this-day copies new fields server-side per Task 14).
+- Deliberate decision: chips are NOT gated on settings.showSetType/showRpe/showTempo/showRest — those are set-table column-visibility prefs; the template editor is an authoring surface where all fields stay reachable (chips are tiny and null-muted).
+
+Verification (dev server on :3000, health 200; agent-browser):
+- Login demo@setforge.app → #/routines → expanded "Push Day": all 13 predefined sets across exercises render the 4 new chips (aria-labels present).
+- Interactions on Barbell Bench Press set 1: type tap-on-null opened picker → picked Warm-up ("W" tag); tap-cycle W→D verified; RPE popover → 8; tempo editor → 3-1-1-0; rest presets → 1:30. "Not set" picker row clears type back to null (verified). Blank action on set 4 cleared an RPE 7 + weight/reps to fully blank (badge shown, button disabled); restored 85×6 via API afterwards.
+- PERSISTENCE: full page reload → re-expanded routine → set 1 shows Warm-up + RPE 8 + Tempo 3-1-1-0 + Planned rest 1:30 (values served fresh from GET /api/routines).
+- Console: no new errors (only benign HMR/DevTools logs) across routines + today views.
+- Desktop 1280×800: row single-line (all controls share vertical center), scrollWidth = viewport. Screenshot: download/qa-r17-routine-fields.png.
+- Mobile 390×844: documentElement.scrollWidth = 390 (no horizontal overflow); numeric steppers stack, chips collapse to one chip row underneath (bounding-box measured: TYPE 28px + RPE 44 + TEMPO 56 + REST 48 on one line). Screenshot: download/qa-r17-routine-fields-mobile.png. Viewport restored to 1280×800.
+- Backward compat of cells.tsx change: #/today training screen SetTable renders SetTypeTag/NumericCell/RpeCell/TempoCell/RestCell + add-row ghosts correctly; "…" row-sheet renders its Rpe/Tempo/Rest editors correctly; console clean.
+- bunx tsc --noEmit: zero errors in touched files (pre-existing errors elsewhere unchanged). bun run lint: exit 0 clean.
+
+Stage Summary:
+- The routine day editor now exposes all Part 2 template fields per predefined set with the exact training-screen cell interactions (cycle/picker type tag, 9-chip RPE, 4-field tempo, rest presets+custom), each optional with null = inherit/copy-previous semantics, persisted through routinesApi.updateSet/addSet.
+- Mobile-safe single-row design: chips wrap as one group under the numeric fields on narrow viewports; desktop rows stay single-line.
+- cells.tsx gained only additive optional placeholder props (no behavioural change for existing consumers) — flagged for the parallel set-table/track-tab agent.
+- Server code, Prisma schema, API routes, log-all-dialog, and history feature untouched.
+
+Next actions / notes for future rounds:
+- The training "add set" ghost row could reuse the placeholder prop for its muted value hints (currently hardcoded "–").
+- If SetTypeTag ever needs null support on the training screen too, consider unifying TemplateTypeTag back into cells.tsx as a shared component (props would stay backward compatible if value stays non-null for existing callers).
+- Potential product decision: gate routine chips behind settings.showSetType/showRpe/showTempo/showRest if template authors want parity with their training column prefs (intentionally not done).
+
+---
+Task ID: 2-a
+Agent: subagent (history-readonly)
+Task: History view — render past workouts' sets through the shared SetTable in a new readonly mode (Part 2 fields: set-type tags N/W/D/F/A, RPE, tempo, rest planned + "→ actual" suffix), without touching edit-mode behavior.
+
+Work Log:
+- Read worklog Task 14 + 2-b entries; read set-table.tsx, cells.tsx, row-sheet.tsx, history workout-card.tsx / workout-history-view.tsx, types.ts (SetDTO Part 2 fields verified: setType/rpe/tempo/restPlannedSec/restActualSec/completedAt), constants (SET_TYPE_META/formatRestSec/fieldsForType), client store (settings source) + query.tsx. Task 2-b's optional `placeholder` props in cells.tsx left untouched — no changes to cells.tsx were needed at all.
+- src/components/set-table/set-table.tsx:
+  - New prop `mode?: "edit" | "readonly"` (default "edit"). All interaction callbacks made optional in the Props type (onPatchSet/onAddSet/onDuplicateSet/onDeleteSet/onReorder/onStartRest/onToggleComplete/onUseAsPrefill; focusSignal/draft/onDraftChange were already optional). Guards: `onReorder?.(...)` in onDragEnd, `if (!onAddSet) return` in submitAdd, module-level `noop` fallback for SetTableRow/RowSheet internal prop passing. Exports unchanged (`SetTable`, `AddRowDraft`, `VisibleCols`) — track-tab/training-screen imports keep working.
+  - Edit mode renders byte-identical to before (same DndContext/SortableContext/add-ghost-row/RowSheet tree, same grid template values). Only DnD+ghost+sheet are conditionally skipped when mode="readonly".
+  - Readonly branch: plain rowgroup of ReadonlySetTableRow — # index as static span (amber when warmup, non-draggable), static SetTypeTag look (SET_TYPE_META letter chip with label tooltip, NOT tappable — rendered inline, no cells.tsx change), value cells as plain tabular-nums text (kg/lbs suffix on weight, km on distance, formatRestSec on timeSec, "n+" on AMRAP reps), RPE text ("8.5" or –), tempo text, REST cell = planned ("1:30") + muted "→ 83s" actual suffix when restActualSec present, dimmed emerald ✓ svg when isComplete (sr-only "not completed" otherwise), Trophy when newPr + MessageSquareText when comment in the last track. FAILURE tint, DROP connector line + violet tint, completed opacity-70 kept for visual parity. Single-line h-9 rows (38px incl. border), `cols` visibility respected in header + rows.
+  - Grid template in readonly: REST track widened 3.4rem → 4.75rem (fits "1:30 → 83s") and value tracks `minmax(3.75rem,1fr)` (floor so weight/reps never collapse to 0 on narrow screens). Root gets `scroll-slim overflow-x-auto` in readonly only — on phones the secondary columns (rest/✓/note) swipe-scroll inside the card instead of overflowing the document.
+- src/features/history/workout-card.tsx: expanded exercise blocks now render `<SetTable mode="readonly">` instead of the old one-line-per-set flex list (old list + WarmupBadge/setSummary imports removed). Column visibility read from the session store settings (`useApp((s) => s.settings)` — same source the Today view uses), fallback all-visible when settings aren't loaded; unit via exerciseUnit(ex, settings), weightStep via ex.weightIncrement ?? settings default (unused in readonly but keeps the required prop honest). Same "hide empty incomplete sets" filter logic kept. Expand/collapse behaviour, actions row, month grouping untouched. workout-history-view.tsx needed no changes.
+- Deliberately NOT changed: edit-mode code paths, cells.tsx, row-sheet.tsx, training-screen/track-tab, API/schema/server.
+
+Verification (dev server :3000 health 200; agent-browser, logged-in session):
+- #/history → expanded workouts: readonly tables render with header `# SET KG REPS RPE TEMPO REST ✓`; per-set type tags, values, RPE, tempo, REST. Verified NO add-ghost row (`button[aria-label="Add set"]` absent), NO drag handles, NO row-sheet/steppers in history.
+- Part 2 data coverage: demo DB has no setType/rpe/tempo/rest on historical sets, so I temporarily PATCHed Sep 21 Barbell Bench Press sets via the real API (WARMUP / rpe 8.5 + tempo 3-1-1-0 + rest 90s planned + 83s actual / DROP / FAILURE + comment) → history rendered `W | 85kg × 8`, `N | 82.5kg × 8 | 8.5 | 3-1-1-0 | 1:30 → 83s`, `D`, `F` + note icon + drop connector + failure tint + dimmed ✓. All values RESTORED to originals afterwards (re-verified via API: all NORMAL/nulls, today's squat completion flags back to original).
+- Column visibility wiring: toggled Settings → "Show Tempo column" off → history header dropped TEMPO; toggled back on → TEMPO returned. (Note: a pre-existing nested-button console warning fires on the SETTINGS view — its column tiles wrap a Switch in a button; unrelated to history. Clearing console and exercising only history: 0 messages, 0 page errors.)
+- Desktop 1280×800: rows uniform 38px single-line, grid 838px, documentElement.scrollWidth = 1280 (no overflow). Screenshot download/qa-r17-history-readonly.png (VLM-verified: all columns, W/N/D/F tags, RPE 8.5, 3-1-1-0, "1:30 → 83s", single-line, no overlap).
+- Mobile 390×844: documentElement.scrollWidth = 390 (no document overflow); weight/reps/RPE/tempo fully visible at scroll 0 (bounding-box measured: reps right=244, tempo right=358), rest/✓/note reachable via in-card horizontal swipe (grid scrollWidth 483 vs clientWidth 312 — initial template with minmax(0,1fr) collapsed value cols to 0px, caught via VLM screenshot review and fixed with the 3.75rem floor). Rows single-line 38px. Screenshot download/qa-r17-history-mobile.png (VLM-verified). Viewport restored to 1280×800.
+- Edit-mode regression: #/today → opened Barbell Squat training screen — SetTable renders interactive (add-row ghost present, type tag / … options / done buttons present, 8 rows incl. ghost), ✓ toggle completed a set (verified via API isComplete true → row dimmed) and toggled back (restored). Rows single-line 38px. Screenshot download/qa-r17-history-editmode-regression.png. Console: 0 errors across today+history after clearing (only benign Fast Refresh/HMR logs).
+- bunx tsc --noEmit: zero errors in touched files (pre-existing errors elsewhere unchanged). bun run lint: exit 0 clean.
+
+Stage Summary:
+- History expanded cards now show every past set through the same Part 2 SetTable grid as the training screen, read-only: type tag, values, RPE, tempo, planned rest with actual-rest suffix, completed check, PR/note markers — honouring the user's column-visibility settings with an all-columns fallback.
+- SetTable's interaction props are all optional now (guarded), enabling future read-only consumers without prop plumbing; edit mode is byte-for-byte the same render tree, verified interactively (add row, ✓ toggle) after the change.
+- Mobile-safe: the readonly table scrolls its secondary columns inside the card (scroll-slim overflow-x-auto + 3.75rem value-column floor) so weight/reps stay visible and the document never overflows at 390px.
+- Demo data left exactly as found (temporary Part 2 field seeding for screenshots was reverted through the API).
+
+Next actions / notes for future rounds:
+- If restActualSec becomes commonly populated, consider showing actual rest in the workout-card metrics line or the day summary (currently only in the table + row sheet).
+- The settings "Set table" tiles emit a nested <button> (tile button > Switch button) React warning — pre-existing, cheap fix would be div+onClick or Switch-only trigger.
+- History cards fetch the full workout tree per expand; once tables get heavy, consider virtualising or lazy per-exercise rendering.
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: Part 3 full-screen rework end-to-end — true full-viewport training screen, full-screen rest timer overlay (Wake Lock + hidden-tab notification), Part 2 leftovers delivered via parallel subagents (history readonly SetTable 2-a, routine template fields 2-b), settings nested-button a11y fix, full verification
+
+Work Log:
+- Session start: environment recovered (prior Errno-11 gone). Health 200, watchdog alive. Baseline 9-view sweep: 8 clean + Settings view carrying a pre-existing nested-button React error (button tile wrapping a Switch).
+- NOTE: user attached BUILD-PROMPT-Part-3-Full-Screen-Rework.pdf but the file NEVER landed on the filesystem (upload/ empty across repeated checks; filesystem-wide searches empty). Proceeded per user's standing "no wait / end-to-end" mandate using the spec TITLE (Full-Screen Rework) + Part 2 design language + worklog next-round recommendations as the scope. If the PDF re-lands, reconcile against it.
+- SUBAGENT 2-a (relaunched after first launch's result channel was interrupted by an incoming user message): SetTable gained mode="readonly" — all interaction callbacks optional/guarded, ReadonlySetTableRow renders static # / type tag / values / RPE / tempo / rest planned+actual / dimmed ✓ / markers; history workout cards render it with settings-driven columns. Verified live incl. mobile 390px and edit-mode regression (screenshots qa-r17-history-*).
+- SUBAGENT 2-b: routine predefined-set rows gained the full Part 2 field chips — TemplateTypeTag (null-aware cycle + picker incl. "Not set → inherit"), reused RpeCell/TempoCell/RestCell popovers (cells.tsx gained optional placeholder prop, backward-compatible). Persisted round-trip verified via API reload (screenshots qa-r17-routine-fields*).
+- PART 3 CORE (mine) — Full-screen training screen (training-screen.tsx rewrite):
+  - Dialog is still the shell (focus trap, Escape, scroll lock free) but DialogContent now overrides to a true full-viewport takeover: top-0! left-0! h-dvh w-full! max-w-none! rounded-none! border-0! p-0! flex-col, with safe-area top padding, slide-in-from-bottom-3 open animation.
+  - Full-width app bar (close X / prev-exercise / name+category+superset+position / next-exercise), tab strip with backdrop-blur, and a full-height overscroll-contain scroll region; working column centered at max-w-3xl on desktop — Track/History/Graph tabs all inherit the extra room.
+  - Verified: DOM bounds exactly 0,0→viewport on 1280×800 AND 390×844 (agent-browser geometry), tabs functional, no doc overflow on mobile, VLM QA 9/10 ("truly full-viewport, no dialog margins, production-ready").
+- PART 3 CORE (mine) — Full-screen rest timer overlay (rest-timer.tsx):
+  - Slim bar kept as minimized state; its countdown region is now a tap target (Maximize2 affordance) that expands a z-[80] full-screen overlay: SVG progress ring (orange gradient stroke, dash-offset animated), huge clamp(3.5rem,16vw,7.5rem) tabular countdown with aria-live, "resting/paused · planned X" status, thumb-sized controls (−15s / pause / +15s / Skip, h-14–16 with active:scale-95), Minimise button, SetForge brand strip, backdrop-blur-xl background.
+  - Screen Wake Lock acquired while overlay+running (minimal TS typings, safe release on cleanup); Notification fired at finish when tab hidden AND permission pre-granted (no prompts); Escape collapses overlay without skipping; finish()/skip() auto-collapse.
+  - Verified live on desktop AND mobile: expand → 1:20 counting → +15s adjusts → minimise returns slim bar (live 1:24) → re-expand → Escape collapses → skip clears; VLM QA 9/10 both viewports ("digits perfectly centered, no clipping at 390px, PASS"). The 'N' badge VLM flagged at mobile bottom-left = Next.js dev-mode indicator (dev-only, not in production); brand strip DOM-verified exactly centered (195/390).
+- SETTINGS A11Y FIX (preferences-section.tsx): column-visibility tiles wrapped a Switch (real nested <button> → React error + invalid HTML). Replaced inner Switch with a decorative aria-hidden state pill (track+thumb); tile keeps aria-pressed + gained aria-label. Toggle round-trip verified (aria-pressed true→false→true). Post-fix: clean reload + full 9-view sweep = 0 console errors on EVERY view.
+- Final verification: bunx tsc — zero NEW errors (all remaining are the documented pre-existing baseline in examples/scripts/skills/2 API routes); bun run lint clean ×2; health 200; final regression (open training → fullscreen bounds true → tick set 2 → rest slim bar → expand → screenshot → skip → untick → close) with 0 console errors; history readonly grid 120 gridcells renders on expand; demo data restored after every test interaction.
+- Ops: one routine watchdog OOM-restart during heavy tsc (auto-recovered in ~15s per runbook, health back to 200). Dev server stable through final verification.
+
+Stage Summary:
+- Part 3 "Full-Screen Rework" delivered end-to-end: the training experience is now a true immersive full-viewport mode (edge-to-edge on mobile AND desktop, verified by DOM geometry at 1280×800 and 390×844), and the rest timer gained a full-screen countdown overlay (huge digits + progress ring + Wake Lock + hidden-tab notification) while keeping the slim bar as minimized state.
+- All five Part 2 leftover recommendations that blocked "market ready" are closed: routine template fields (2-b), history readonly SetTable (2-a), plus the a11y nested-button defect on Settings — the app now sweeps 9/9 views with ZERO console errors.
+- App state: login → today → full-screen training (set entry, RPE/tempo/rest/type, prefill, warmup ramp, quick-add) → rest flow (slim + fullscreen + wake lock) → history review (readonly table with all Part 2 fields) → routines (template fields) → settings (columns/behaviour) — a real user's end-to-end loop works, verified interactively at desktop + mobile widths.
+
+Next-round recommendations (priority):
+1. PDF reconciliation: if BUILD-PROMPT-Part-3-Full-Screen-Rework.pdf actually lands in upload/, diff its spec against this implementation and close any gaps (the file never appeared on disk this session).
+2. Multi-select mode for set rows + swipe gestures (Part 2 spec §SET ROW leftovers; row sheet covers single ops today).
+3. Plate-calc popover on long-press of WEIGHT cell (PlateHint covers the ghost target only).
+4. Web Worker for background rest timing (interval-based today; tab must stay focused for exact ticks — Wake Lock + Notification already mitigate).
+5. Real-device PWA checks: beforeinstallprompt, MediaSession lock screen, Wake Lock behaviour on a real phone (unverifiable headless).

@@ -112,10 +112,13 @@ export function RpeCell({
   value,
   onChange,
   disabled,
+  placeholder = "–",
 }: {
   value: number | null;
   onChange: (rpe: number | null) => void;
   disabled?: boolean;
+  /** Optional label shown instead of "–" when unset (e.g. routine template rows). */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -131,7 +134,13 @@ export function RpeCell({
             disabled && "pointer-events-none opacity-60",
           )}
         >
-          {value != null ? value.toFixed(value % 1 ? 1 : 0) : "–"}
+          {value != null ? (
+            value.toFixed(value % 1 ? 1 : 0)
+          ) : placeholder === "–" ? (
+            "–"
+          ) : (
+            <span className="text-[10px] font-semibold uppercase tracking-wide">{placeholder}</span>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-52 p-3">
@@ -205,10 +214,13 @@ export function TempoCell({
   value,
   onChange,
   disabled,
+  placeholder = "–",
 }: {
   value: string | null;
   onChange: (tempo: string | null) => void;
   disabled?: boolean;
+  /** Optional label shown instead of "–" when unset (e.g. routine template rows). */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const initial = value?.split("-") ?? ["", "", "", ""];
@@ -237,7 +249,13 @@ export function TempoCell({
             disabled && "pointer-events-none opacity-60",
           )}
         >
-          {display}
+          {value ? (
+            display
+          ) : placeholder === "–" ? (
+            "–"
+          ) : (
+            <span className="text-[10px] font-semibold uppercase tracking-wide">{placeholder}</span>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-56 p-3">
@@ -284,20 +302,24 @@ export function RestCell({
   onChange,
   onStartNow,
   disabled,
+  placeholder = "–",
 }: {
   plannedSec: number | null;
   remainingSec: number | null;
   onChange: (sec: number | null) => void;
   onStartNow?: (sec: number) => void;
   disabled?: boolean;
+  /** Optional label shown instead of "–" when unset (e.g. routine template rows). */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [min, setMin] = useState("");
   const [sec, setSec] = useState("");
   const live = remainingSec != null && remainingSec > 0;
+  const hasRest = plannedSec != null && plannedSec > 0;
   const display = live
     ? formatRestSec(Math.ceil(remainingSec))
-    : plannedSec != null && plannedSec > 0
+    : hasRest
       ? formatRestSec(plannedSec)
       : "–";
   return (
@@ -322,7 +344,11 @@ export function RestCell({
             disabled && "pointer-events-none opacity-60",
           )}
         >
-          {display}
+          {!live && !hasRest && placeholder !== "–" ? (
+            <span className="text-[10px] font-semibold uppercase tracking-wide">{placeholder}</span>
+          ) : (
+            display
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-52 p-3">

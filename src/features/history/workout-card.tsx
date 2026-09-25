@@ -2,7 +2,10 @@
 
 // Expandable workout card for the history timeline.
 // Collapsed: date block + metrics + category dots.
-// Expanded: fetches the full workout tree and lists exercises with sets.
+// Expanded: fetches the full workout tree and lists exercises with their
+// sets rendered through the shared SetTable in readonly mode (Part 2 fields:
+// type tag, RPE, tempo, planned→actual rest) — column visibility follows the
+// user's set-table settings (fallback: all columns visible).
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -28,7 +31,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { WarmupBadge } from "@/components/shared/warmup-badge";
+import { SetTable, type VisibleCols } from "@/components/set-table/set-table";
+import { exerciseUnit } from "@/features/exercises/labels";
+import { useApp } from "@/lib/client/store";
 import { workoutsApi } from "@/lib/client/api";
 import { qk } from "@/lib/client/query";
 import {
@@ -39,7 +44,6 @@ import {
   formatSec,
   parseDayKey,
   round1,
-  setSummary,
 } from "@/lib/client/format";
 import type { WorkoutSummaryDTO } from "@/lib/types";
 
@@ -52,6 +56,15 @@ type Props = {
 
 export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
   const [expanded, setExpanded] = useState(false);
+  // user set-table settings (session store, same source as the Today view);
+  // fall back to every column visible when settings are not loaded yet
+  const settings = useApp((s) => s.settings);
+  const cols: VisibleCols = {
+    setType: settings?.showSetType ?? true,
+    rpe: settings?.showRpe ?? true,
+    tempo: settings?.showTempo ?? true,
+    rest: settings?.showRest ?? true,
+  };
   const dateKey = dayKeyOf(workout.date);
   const day = parseDayKey(dateKey);
   const hasDuration = workout.durationSec > 0;
@@ -187,46 +200,34 @@ export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
               {detail.data?.workout?.exercises.map((we) => {
                 const sets = we.sets.filter((s) => !s.isComplete || s.weight != null || s.reps != null);
                 const shown = sets.length > 0 ? sets : we.sets;
+                const ex = we.exercise;
                 return (
                   <div
                     key={we.id}
-                    className="mb-2 rounded-xl bg-muted/30 px-3 py-2.5 last:mb-0"
+                    className="mb-2.5 rounded-xl bg-muted/30 px-2.5 py-2.5 last:mb-0 sm:px-3"
                   >
                     <div className="flex items-center gap-2">
-                      {we.exercise.category?.colour && (
-                        <CategoryDot colour={we.exercise.category.colour} className="h-2.5 w-2.5" />
+                      {ex.category?.colour && (
+                        <CategoryDot colour={ex.category.colour} className="h-2.5 w-2.5" />
                       )}
                       <p className="truncate text-sm font-semibold">
-                        {we.exercise.name}
+                        {ex.name}
                       </p>
                       <span className="ml-auto shrink-0 text-[10px] font-medium text-muted-foreground">
                         <span className="numeric">{we.sets.length}</span> sets
                       </span>
                     </div>
                     {shown.length > 0 && (
-                      <div className="mt-1.5 space-y-0.5">
-                        {shown.map((s, i) => (
-                          <div
-                            key={s.id}
-                            className="flex items-baseline gap-2 text-xs text-muted-foreground"
-                          >
-                            {s.isWarmup ? (
-                              <WarmupBadge className="h-4 w-4 rounded text-[9px]" />
-                            ) : (
-                              <span className="w-4 shrink-0 text-right font-bold text-primary/70 numeric">
-                                {i + 1}
-                              </span>
-                            )}
-                            <span className={cn("font-medium", s.isWarmup ? "text-muted-foreground" : "text-foreground/90")}>
-                              {setSummary(s)}
-                            </span>
-                            {s.comment && (
-                              <span className="truncate italic opacity-70">
-                                {s.comment}
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                      <div className="mt-1.5">
+                        <SetTable
+                          mode="readonly"
+                          sets={shown}
+                          exerciseType={ex.type}
+                          cols={cols}
+                          weightStep={ex.weightIncrement ?? settings?.defaultWeightIncrement ?? 2.5}
+                          unit={exerciseUnit(ex, settings)}
+                          markSetsComplete={false}
+                        />
                       </div>
                     )}
                   </div>

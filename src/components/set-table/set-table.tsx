@@ -2,8 +2,12 @@
 
 // SetTable — the Part 2 single-row set entry table. One set = one row of
 // inline-editable cells (# / type tag / values / RPE / tempo / rest / ✓ / …).
-// Used by the training screen. An "add set" ghost row at the bottom carries
-// last-time placeholders; Enter on a cell commits and moves on.
+// Used by the training screen (mode "edit", default): an "add set" ghost row
+// at the bottom carries last-time placeholders; Enter on a cell commits and
+// moves on. mode "readonly" renders the same grid as static text for past
+// workouts (History) — no drag, no steppers, no sheet, no add row.
+// Interaction callbacks are optional so read-only consumers can omit them;
+// edit-mode behavior is unchanged when they are provided.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -32,6 +36,8 @@ type Props = {
   cols: VisibleCols;
   weightStep: number;
   unit: string;
+  /** "edit" (default) = full interactive table; "readonly" = static display (History). */
+  mode?: "edit" | "readonly";
   /** Last session's top set — renders as muted placeholder ghosts in the add row. */
   ghost?: { weight: number | null; reps: number | null; distance: number | null; timeSec: number | null; rpe: number | null; tempo: string | null; restPlannedSec: number | null } | null;
   /** Exercise-level defaults for new sets. */
@@ -39,8 +45,9 @@ type Props = {
   restRowId?: string | null;
   restRemainingSec?: number | null;
   markSetsComplete: boolean;
-  onPatchSet: (id: string, patch: Record<string, unknown>) => void;
-  onAddSet: (values: {
+  // ---- interaction callbacks (optional: required only for mode "edit") ----
+  onPatchSet?: (id: string, patch: Record<string, unknown>) => void;
+  onAddSet?: (values: {
     weight: number | null;
     reps: number | null;
     distance: number | null;
@@ -51,17 +58,20 @@ type Props = {
     restPlannedSec?: number | null;
     isComplete?: boolean;
   }) => Promise<void>;
-  onDuplicateSet: (set: SetDTO) => void;
-  onDeleteSet: (set: SetDTO) => void;
-  onReorder: (ids: string[]) => void;
-  onStartRest: (sec: number, setId: string) => void;
-  onToggleComplete: (set: SetDTO) => void;
-  onUseAsPrefill: (set: SetDTO) => void;
+  onDuplicateSet?: (set: SetDTO) => void;
+  onDeleteSet?: (set: SetDTO) => void;
+  onReorder?: (ids: string[]) => void;
+  onStartRest?: (sec: number, setId: string) => void;
+  onToggleComplete?: (set: SetDTO) => void;
+  onUseAsPrefill?: (set: SetDTO) => void;
   focusSignal?: number;
   /** Controlled add-row draft (lift state to feed live delta bars). */
   draft?: AddRowDraft;
   onDraftChange?: (d: AddRowDraft) => void;
 };
+
+/** No-op fallback so optional callbacks stay type-safe at internal call sites. */
+const noop = () => {};
 
 const FIELD_LABELS: Record<SetField, string> = {
   weight: "WEIGHT",
@@ -76,6 +86,7 @@ export function SetTable({
   cols,
   weightStep,
   unit,
+  mode = "edit",
   ghost,
   defaults,
   restRowId,
@@ -93,6 +104,7 @@ export function SetTable({
   draft,
   onDraftChange,
 }: Props) {
+  const readonly = mode === "readonly";
   const fields = useMemo(() => fieldsForType(exerciseType), [exerciseType]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -126,16 +138,19 @@ export function SetTable({
     const oldIndex = ids.indexOf(String(active.id));
     const newIndex = ids.indexOf(String(over.id));
     if (oldIndex < 0 || newIndex < 0) return;
-    onReorder(arrayMove(ids, oldIndex, newIndex));
+    onReorder?.(arrayMove(ids, oldIndex, newIndex));
   };
 
   // grid template: fixed small cols + flexible value cols
+  // (readonly: REST track wider for the "→ 83s" actual-rest suffix; value tracks
+  // keep a 3.75rem floor so weight/reps never collapse to 0 on narrow screens —
+  // the overflow-x-auto root then scrolls the secondary columns instead)
   const templateParts: string[] = ["2rem"];
   if (cols.setType) templateParts.push("2.25rem");
-  for (const _f of fields) templateParts.push("minmax(0,1fr)");
+  for (const _f of fields) templateParts.push(readonly ? "minmax(3.75rem,1fr)" : "minmax(0,1fr)");
   if (cols.rpe) templateParts.push("2.9rem");
   if (cols.tempo) templateParts.push("3.75rem");
-  if (cols.rest) templateParts.push("3.4rem");
+  if (cols.rest) templateParts.push(readonly ? "4.75rem" : "3.4rem");
   templateParts.push("2.5rem"); // ✓ — always present (checkbox or done toggle)
   templateParts.push("2.25rem");
   const gridTemplate = templateParts.join(" ");
@@ -165,6 +180,7 @@ export function SetTable({
   }, [addDraft]);
 
   const submitAdd = async (override?: Partial<AddRowDraft>) => {
+    if (!onAddSet) return;
     const d = { ...draftRef.current, ...override };
     const hasValue = fields.some((f) => d[f] != null);
     if (!hasValue) return;
@@ -182,7 +198,11 @@ export function SetTable({
   };
 
   return (
-    <div role="grid" aria-label="Sets" className="select-none">
+    <div
+      role="grid"
+      aria-label="Sets"
+      className={cn("select-none", readonly && "scroll-slim overflow-x-auto")}
+    >
       {/* header */}
       <div
         role="row"
@@ -192,104 +212,123 @@ export function SetTable({
         {headerLabels}
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <div role="rowgroup" className="relative">
-            {sorted.map((s, i) => (
-              <SetTableRow
-                key={s.id}
-                set={s}
-                index={i}
-                prevType={i > 0 ? (sorted[i - 1].setType ?? "NORMAL") : null}
-                fields={fields}
-                gridTemplate={gridTemplate}
-                cols={cols}
-                weightStep={weightStep}
-                unit={unit}
-                restRowId={restRowId}
-                restRemainingSec={restRowId === s.id ? restRemainingSec ?? null : null}
-                markSetsComplete={markSetsComplete}
-                onPatchSet={onPatchSet}
-                onOpenSheet={setSheetSet}
-                onToggleComplete={onToggleComplete}
-                onStartRest={onStartRest}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      {/* add-set ghost row */}
-      <div
-        role="row"
-        aria-label="Add set"
-        className="mt-1 grid items-center gap-1 rounded-xl border border-dashed border-border/80 bg-muted/20 px-1 py-1"
-        style={{ gridTemplateColumns: gridTemplate }}
-      >
-        <button
-          ref={addRef}
-          type="button"
-          aria-label="Add set"
-          onClick={() => void submitAdd()}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
-        >
-          <Plus className="h-4.5 w-4.5" />
-        </button>
-        {cols.setType && (
-          <span className="flex items-center justify-center">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted/60 text-[11px] font-bold text-muted-foreground/60">
-              {(defaults?.setType ?? "NORMAL") === "NORMAL" ? "N" : SET_TYPE_META[(defaults?.setType ?? "NORMAL") as SetType].letter}
-            </span>
-          </span>
-        )}
-        {fields.map((f) => (
-          <div key={f} className="min-w-0">
-            <AddDraftCell
-              field={f}
-              draft={addDraft}
-              weightStep={weightStep}
+      {readonly ? (
+        <div role="rowgroup" className="relative">
+          {sorted.map((s, i) => (
+            <ReadonlySetTableRow
+              key={s.id}
+              set={s}
+              index={i}
+              prevType={i > 0 ? (sorted[i - 1].setType ?? "NORMAL") : null}
+              fields={fields}
+              gridTemplate={gridTemplate}
+              cols={cols}
               unit={unit}
-              ghost={ghost}
-              onChange={(v) => setAddDraft({ ...addDraft, [f]: v })}
-              onEnter={(v) => void submitAdd({ [f]: v })}
             />
-          </div>
-        ))}
-        {cols.rpe && (
-          <span className="flex h-8 items-center justify-center text-sm font-semibold tabular-nums text-muted-foreground/40">
-            {ghost?.rpe ?? "–"}
-          </span>
-        )}
-        {cols.tempo && (
-          <span className="flex h-8 items-center justify-center text-xs font-semibold tabular-nums text-muted-foreground/40">
-            {ghost?.tempo ?? "–"}
-          </span>
-        )}
-        {cols.rest && (
-          <span className="flex h-8 items-center justify-center text-xs font-semibold tabular-nums text-muted-foreground/40">
-            {ghost?.restPlannedSec ? formatRestSec(ghost.restPlannedSec) : "–"}
-          </span>
-        )}
-        {markSetsComplete && <span />}
-        <span />
-      </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+              <div role="rowgroup" className="relative">
+                {sorted.map((s, i) => (
+                  <SetTableRow
+                    key={s.id}
+                    set={s}
+                    index={i}
+                    prevType={i > 0 ? (sorted[i - 1].setType ?? "NORMAL") : null}
+                    fields={fields}
+                    gridTemplate={gridTemplate}
+                    cols={cols}
+                    weightStep={weightStep}
+                    unit={unit}
+                    restRowId={restRowId}
+                    restRemainingSec={restRowId === s.id ? restRemainingSec ?? null : null}
+                    markSetsComplete={markSetsComplete}
+                    onPatchSet={onPatchSet ?? noop}
+                    onOpenSheet={setSheetSet}
+                    onToggleComplete={onToggleComplete ?? noop}
+                    onStartRest={onStartRest ?? noop}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
 
-      <RowSheet
-        set={sheetSet}
-        open={!!sheetSet}
-        onOpenChange={(o) => !o && setSheetSet(null)}
-        onPatch={onPatchSet}
-        onDuplicate={onDuplicateSet}
-        onDelete={onDeleteSet}
-        onUseAsPrefill={(s) => {
-          setAddDraft({
-            weight: fields.includes("weight") ? s.weight : null,
-            reps: fields.includes("reps") ? s.reps : null,
-            distance: fields.includes("distance") ? s.distance : null,
-            timeSec: fields.includes("timeSec") ? s.timeSec : null,
-          });
-        }}
-      />
+          {/* add-set ghost row */}
+          <div
+            role="row"
+            aria-label="Add set"
+            className="mt-1 grid items-center gap-1 rounded-xl border border-dashed border-border/80 bg-muted/20 px-1 py-1"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
+            <button
+              ref={addRef}
+              type="button"
+              aria-label="Add set"
+              onClick={() => void submitAdd()}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+            >
+              <Plus className="h-4.5 w-4.5" />
+            </button>
+            {cols.setType && (
+              <span className="flex items-center justify-center">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted/60 text-[11px] font-bold text-muted-foreground/60">
+                  {(defaults?.setType ?? "NORMAL") === "NORMAL" ? "N" : SET_TYPE_META[(defaults?.setType ?? "NORMAL") as SetType].letter}
+                </span>
+              </span>
+            )}
+            {fields.map((f) => (
+              <div key={f} className="min-w-0">
+                <AddDraftCell
+                  field={f}
+                  draft={addDraft}
+                  weightStep={weightStep}
+                  unit={unit}
+                  ghost={ghost}
+                  onChange={(v) => setAddDraft({ ...addDraft, [f]: v })}
+                  onEnter={(v) => void submitAdd({ [f]: v })}
+                />
+              </div>
+            ))}
+            {cols.rpe && (
+              <span className="flex h-8 items-center justify-center text-sm font-semibold tabular-nums text-muted-foreground/40">
+                {ghost?.rpe ?? "–"}
+              </span>
+            )}
+            {cols.tempo && (
+              <span className="flex h-8 items-center justify-center text-xs font-semibold tabular-nums text-muted-foreground/40">
+                {ghost?.tempo ?? "–"}
+              </span>
+            )}
+            {cols.rest && (
+              <span className="flex h-8 items-center justify-center text-xs font-semibold tabular-nums text-muted-foreground/40">
+                {ghost?.restPlannedSec ? formatRestSec(ghost.restPlannedSec) : "–"}
+              </span>
+            )}
+            {markSetsComplete && <span />}
+            <span />
+          </div>
+
+          <RowSheet
+            set={sheetSet}
+            open={!!sheetSet}
+            onOpenChange={(o) => !o && setSheetSet(null)}
+            onPatch={onPatchSet ?? noop}
+            onDuplicate={onDuplicateSet ?? noop}
+            onDelete={onDeleteSet ?? noop}
+            onUseAsPrefill={(s) => {
+              setAddDraft({
+                weight: fields.includes("weight") ? s.weight : null,
+                reps: fields.includes("reps") ? s.reps : null,
+                distance: fields.includes("distance") ? s.distance : null,
+                timeSec: fields.includes("timeSec") ? s.timeSec : null,
+              });
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -457,6 +496,175 @@ function SetTableRow({
         )}
         <MoreHorizontal className="h-4 w-4" />
       </button>
+    </div>
+  );
+}
+
+// ---------- readonly row (history / past workouts) ----------
+
+function ReadonlySetTableRow({
+  set,
+  index,
+  prevType,
+  fields,
+  gridTemplate,
+  cols,
+  unit,
+}: {
+  set: SetDTO;
+  index: number;
+  prevType: string | null;
+  fields: SetField[];
+  gridTemplate: string;
+  cols: VisibleCols;
+  unit: string;
+}) {
+  const type = (set.setType ?? (set.isWarmup ? "WARMUP" : "NORMAL")) as SetType;
+  const meta = SET_TYPE_META[type] ?? SET_TYPE_META.NORMAL;
+  const isDrop = type === "DROP" && prevType != null;
+  const restPlanned = set.restPlannedSec != null && set.restPlannedSec > 0 ? formatRestSec(set.restPlannedSec) : null;
+  const restActual = set.restActualSec != null && set.restActualSec > 0 ? set.restActualSec : null;
+
+  return (
+    <div
+      role="row"
+      aria-label={`Set ${index + 1}`}
+      style={{ gridTemplateColumns: gridTemplate }}
+      className={cn(
+        "relative grid items-center gap-1 rounded-xl border border-transparent px-1",
+        set.isComplete && "opacity-70",
+        type === "FAILURE" && "bg-destructive/5",
+        isDrop && "bg-violet-500/5",
+      )}
+    >
+      {/* drop-set connector: thin line to previous row */}
+      {isDrop && (
+        <span aria-hidden className="absolute top-0 left-[1.05rem] z-0 h-full w-0.5 rounded bg-violet-400/60" />
+      )}
+
+      {/* # — plain index (not draggable) */}
+      <span
+        className={cn(
+          "flex h-9 items-center justify-center text-xs font-bold tabular-nums text-muted-foreground/70",
+          set.isWarmup && "text-amber-600/80 dark:text-amber-400/80",
+        )}
+      >
+        {index + 1}
+      </span>
+
+      {cols.setType && (
+        <span className="flex items-center justify-center" title={`${meta.label} — ${meta.description}`}>
+          <span
+            role="gridcell"
+            aria-label={`Set type: ${meta.label}`}
+            className={cn("flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold", meta.className)}
+          >
+            {meta.letter}
+          </span>
+        </span>
+      )}
+
+      {fields.map((f) => {
+        const raw = f === "timeSec" ? set.timeSec : f === "weight" ? set.weight : f === "reps" ? set.reps : set.distance;
+        return (
+          <span
+            key={f}
+            role="gridcell"
+            aria-label={`${FIELD_LABELS[f].toLowerCase()}: ${raw ?? "not set"}`}
+            className={cn(
+              "flex h-9 min-w-0 items-center justify-center gap-0.5 truncate px-1 text-sm font-semibold tabular-nums",
+              raw == null && "text-muted-foreground/50",
+            )}
+          >
+            {raw == null ? (
+              "–"
+            ) : f === "timeSec" ? (
+              formatRestSec(raw)
+            ) : (
+              <>
+                <span className="truncate">{raw}</span>
+                {f === "weight" && <span className="text-[10px] font-medium text-muted-foreground">{unit}</span>}
+                {f === "distance" && <span className="text-[10px] font-medium text-muted-foreground">km</span>}
+                {f === "reps" && type === "AMRAP" && <span className="text-primary font-bold">+</span>}
+              </>
+            )}
+          </span>
+        );
+      })}
+
+      {cols.rpe && (
+        <span
+          role="gridcell"
+          aria-label={set.rpe != null ? `RPE ${set.rpe}` : "RPE not set"}
+          className={cn(
+            "flex h-9 items-center justify-center text-sm font-semibold tabular-nums",
+            set.rpe == null && "text-muted-foreground/50",
+          )}
+        >
+          {set.rpe != null ? (set.rpe % 1 ? set.rpe.toFixed(1) : set.rpe.toFixed(0)) : "–"}
+        </span>
+      )}
+      {cols.tempo && (
+        <span
+          role="gridcell"
+          aria-label={set.tempo ? `Tempo ${set.tempo}` : "Tempo not set"}
+          title={set.tempo ? `Tempo ${set.tempo} (eccentric-pause-concentric-pause)` : undefined}
+          className={cn(
+            "flex h-9 items-center justify-center truncate text-xs font-semibold tabular-nums",
+            !set.tempo && "text-muted-foreground/50",
+          )}
+        >
+          {set.tempo ?? "–"}
+        </span>
+      )}
+      {cols.rest && (
+        <span
+          role="gridcell"
+          aria-label={
+            restPlanned || restActual
+              ? `Rest ${restPlanned ?? "–"}${restActual != null ? `, actual ${restActual}s` : ""}`
+              : "Rest not set"
+          }
+          className="flex h-9 min-w-0 items-center justify-center gap-0.5 px-1 text-xs font-semibold tabular-nums"
+        >
+          {restPlanned == null && restActual == null ? (
+            <span className="text-muted-foreground/50">–</span>
+          ) : (
+            <>
+              {restPlanned != null && <span className="truncate">{restPlanned}</span>}
+              {restActual != null && (
+                <span className="shrink-0 text-[10px] font-medium text-muted-foreground">→ {restActual}s</span>
+              )}
+            </>
+          )}
+        </span>
+      )}
+
+      {/* ✓ — dimmed when the set was completed */}
+      <span role="gridcell" className="flex h-9 items-center justify-center">
+        {set.isComplete ? (
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4.5 w-4.5 text-emerald-600/70 dark:text-emerald-400/70"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ) : (
+          <span className="sr-only">not completed</span>
+        )}
+      </span>
+
+      {/* markers: PR trophy + note icon (static) */}
+      <span role="gridcell" className="flex h-9 items-center justify-center gap-1">
+        {set.newPr && <Trophy className="h-3.5 w-3.5 text-amber-500" aria-label="personal record" />}
+        {set.comment && <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground/70" aria-label="has note" />}
+      </span>
     </div>
   );
 }
