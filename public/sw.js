@@ -2,12 +2,13 @@
  *
  * Strategy:
  *  - Navigations: network-first → cached shell → /offline.html (true offline open works)
- *  - Static assets (/_next/static, icons, manifest, logo): cache-first (content-hashed/immutable)
+ *  - Static assets (/_next/static, icons, manifest, logo): network-first with cache
+ *    fallback (dev chunk URLs are stable-but-mutable, prod URLs are immutable)
  *  - API GETs: network-first → per-SESSION cache fallback (never leaks across users:
  *    the cache key embeds the sf_session cookie value, and logout wipes all caches)
  *  - Mutations / websockets / HMR: never intercepted
  */
-const VERSION = "v1.0.1";
+const VERSION = "v1.0.2";
 const SHELL_CACHE = `sf-shell-${VERSION}`;
 const ASSET_CACHE = `sf-assets-${VERSION}`;
 const API_CACHE = `sf-api-${VERSION}`;
@@ -79,16 +80,24 @@ async function handleVolatile(request, cacheName) {
   }
 }
 
+/** Network-first with cache fallback for static assets. Production chunk URLs
+ *  are content-hashed (immutable) so this hits the HTTP cache anyway; dev chunk
+ *  URLs are stable-but-mutable (no-store), so always deferring to the network
+ *  keeps dev/HMR correct while offline still falls back to the cache. */
 async function handleAsset(request) {
   const cache = await caches.open(ASSET_CACHE);
-  const cached = await cache.match(request);
-  if (cached) return cached;
-  const fresh = await fetch(request);
-  if (fresh && fresh.ok) {
-    cache.put(request, fresh.clone());
-    trimCache(ASSET_CACHE, 300);
+  try {
+    const fresh = await fetch(request);
+    if (fresh && fresh.ok) {
+      cache.put(request, fresh.clone());
+      trimCache(ASSET_CACHE, 300);
+    }
+    return fresh;
+  } catch {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    return Response.error();
   }
-  return fresh;
 }
 
 async function handleApiGet(request) {
@@ -130,7 +139,6 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(handleAsset(request));
     return;
   }
-  // everything else (dev HMR, source maps, …): network only
 });
 
 self.addEventListener("message", (event) => {

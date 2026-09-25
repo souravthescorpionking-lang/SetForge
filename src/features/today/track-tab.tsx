@@ -322,7 +322,17 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
       </div>
 
       {/* input card */}
-      <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+      <div
+        className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm"
+        onKeyDown={(e) => {
+          // Enter anywhere in the input card saves the set (steppers commit first,
+          // then the save runs after the state flush).
+          if (e.key === "Enter" && canSave && !saving) {
+            e.preventDefault();
+            setTimeout(() => void save(), 0);
+          }
+        }}
+      >
         <SetInputRow
           fields={fields}
           values={values}
@@ -371,6 +381,12 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
         {selectedSet && (
           <p className="text-xs text-muted-foreground">
             Editing set {selectedSet.sortOrder + 1} — tap a row to switch, Clear to log a new set.
+          </p>
+        )}
+        {!selectedSet && canSave && (
+          <p className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-[10px] font-bold">↵ Enter</kbd>
+            saves the set
           </p>
         )}
       </div>

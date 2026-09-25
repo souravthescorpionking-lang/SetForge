@@ -288,3 +288,39 @@ Next-round recommendations (priority):
 4. API cache could grow stale if user stays online long (network-first means fresh wins — only offline uses cache; acceptable).
 5. Exercise-level warm-up defaults / "always show warmup ramp" toggle (round-8 leftover nice-to-have).
 6. Dev-server OOM watchdog automation if random deaths recur (died once this round).
+
+---
+Task ID: 10
+Agent: main (Z.ai Code)
+Task: QA round → new features (interval/HIIT timer, Enter-to-save, SW update toast) → CRITICAL fix: service worker served stale dev CSS (v1.0.2 asset strategy) → styling polish + full verification
+
+Work Log:
+- Environment healthy at session start (dev server up since prior round's restart, health 200, SW v1.0.1 active). QA tour of all 9 views: 0 console errors, 0 page errors — app stable.
+- NEW FEATURE — Interval/HIIT Timer (src/features/tools/interval-timer.tsx, 4th Tools tab "Timer"):
+  - Presets: Tabata (20/10×8), EMOM 10 (60/0×10), HIIT (40/20×8), Sprints (30/60×6), Custom; config steppers (prepare/work/rest seconds, rounds), sound + vibration toggles, total time readout.
+  - Engine: drift-corrected from wall-clock (phaseEndsAt epoch ms, 100ms tick), phases prepare→(work↔rest)×rounds→done with per-phase colors (amber prepare / orange work / emerald rest); skip-phase + reset; pause stores remainingMs, resume re-anchors; elapsed accumulator across pauses.
+  - UX: SVG progress ring (280px, dasharray 2πR, drains per phase), phase label chip with AnimatePresence, big countdown (text-6xl), segmented round-progress dots (done/current/pending), elapsed vs planned, h-13 touch controls (Start/Pause/Resume + Skip + Reset), trophy completion state, "Go again" CTA.
+  - Audio: Web Audio API (lazy AudioContext unlocked by Start gesture) — 3-2-1 countdown beeps, distinct work (880Hz)/rest (440Hz) phase tones, completion melody; vibration patterns via navigator.vibrate; screen wake-lock while running (re-acquires on visibility).
+  - Fixed during lint: React "cannot access refs during render" → phaseTotalSec moved to state; fixed totalSec overcount (rounds-1 rests); round-dot current index advances during rest.
+  - Verified live: full cycle (prepare→work→done), pause/resume button flip, elapsed counter, ring SVG attributes (dasharray 753.98, stroke-primary), VLM PASS desktop (presets/steppers/toggles/ring/chips) + mobile 390px (chips fit, 2-col steppers, ring centered, buttons sized).
+- NEW FEATURE — Enter-to-save (track-tab.tsx): keydown on the set-input card saves the set (steppers commit their draft first, save deferred via setTimeout(0) for the state flush); kbd "↵ Enter" hint under buttons (desktop only, hidden sm:flex). Verified live: focused weight input → Enter → SETS 3→4, 0 errors; test set deleted via API to restore demo data.
+- NEW FEATURE — SW update toast (pwa.tsx): controllerchange now shows "SetForge updated — refreshing…" toast (900ms) before the one-shot reload — updates are explained, not surprising.
+- CRITICAL BUG FOUND & FIXED — service worker served STALE dev CSS/JS (v1.0.1):
+  - Symptom: interval-timer's unique classes (max-w-[280px], text-6xl, min-h-[54px]) computed to none/defaults in the browser while present in the dev-served CSS file on disk (curl fetched /_next/static/chunks/[root-of-the-server]__*.css: rules existed). The ring rendered 830px (max-w ignored) — VLM flagged "timer card truncated".
+  - Root cause: sw.js v1.0.1 used cache-first for /_next/static/* — valid for production immutable content-hashed URLs, but DEV chunk URLs are stable-but-mutable (Cache-Control: no-store, must-revalidate). The SW cached the first CSS chunk and served it forever across reloads AND dev-server restarts (caches outlive the server).
+  - Fix (v1.0.2): assets are now network-first with cache fallback (same strategy family as navigations + API GETs). Dev/HMR always fresh; production still hits immutable URLs fast; offline falls back to cache. Verified: classes now apply (max-w-[280px] → 280px, ring exactly 280×280), old v1.0.1 caches wiped by activate(), offline re-verified (offline reload → full app with data), and the SW update propagated with the new toast flow.
+  - DIAGNOSTIC NOTES for future rounds: (a) Turbopack+Tailwind DOES regenerate CSS on TSX className changes — "missing utility class" in dev is almost certainly the SW cache, not Tailwind scanning; (b) the postcss.js worker process persists across `pkill -f 'next dev'` restarts (it has its own PID — kill explicitly if CSS behaves weirdly after restarts); (c) verify with `curl <css-chunk-url>` + browser computed styles side-by-side.
+- Styling polish: VLM review batches (desktop timer/exercise-overview/graph + mobile timer/training). Triage: "ring truncated" = the real SW bug (fixed above); "missing chart tooltip" false positive (TrendChart has custom tooltip — static shots just don't show it); Y-axis/toggle/contrast claims minor or by design; mobile findings all PASS. Removed temporary CSS probe classes after the fix verification.
+- Verification: bun run lint clean; full 9-view tour ×2 → 0 console/page errors; mobile 390×844 verified (today, training screen w/ plate hint + sets, timer); offline mode verified post-fix; demo data restored after tests. Screenshots: download/qa-r12-*.png (timer phases idle/prepare/work/done, mobile timer ×2, offline-verify, timer-fixed, mobile-training, style-*).
+
+Stage Summary:
+- Three new user-facing capabilities: a full interval/HIIT timer (presets, audio/haptic cues, wake lock, animated ring), keyboard-first set logging (Enter saves), and human-friendly SW update toasts.
+- One critical architecture bug fixed in the PWA layer: cache-first assets made dev CSS stale forever (v1.0.2 = network-first + cache fallback; offline capability re-verified intact). This also retroactively explains any "style didn't apply" oddities in future dev sessions — check the SW first.
+- App remains stable: 9 views + 4th Tools tab, 0 errors, lint clean, mobile-verified, offline-verified.
+
+Next-round recommendations (priority):
+1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing).
+2. Timer enhancements if desired: save interval configs per user (persisted presets), background/lock-screen audio (needs MediaSession API), per-exercise default interval link.
+3. Real-device PWA install test (beforeinstallprompt unavailable in headless).
+4. Exercise-level warm-up defaults toggle (round-8 leftover).
+5. Consider auto-bumping sw.js VERSION on each deploy (cache names currently manual — fine while manual, but document the convention).

@@ -99,13 +99,15 @@ export function PwaBridge() {
     }
   }, []);
 
-  // One-shot reload when a new worker takes control (after SKIP_WAITING).
+  // One-shot reload when a new worker takes control (after SKIP_WAITING),
+  // with a brief toast so the reload is explained rather than surprising.
   useEffect(() => {
     let reloaded = false;
     const onControllerChange = () => {
       if (reloaded) return;
       reloaded = true;
-      window.location.reload();
+      toast.success("SetForge updated — refreshing…", { duration: 900 });
+      window.setTimeout(() => window.location.reload(), 650);
     };
     navigator.serviceWorker?.addEventListener("controllerchange", onControllerChange);
     return () => navigator.serviceWorker?.removeEventListener("controllerchange", onControllerChange);
