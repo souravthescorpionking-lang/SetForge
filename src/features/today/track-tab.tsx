@@ -200,6 +200,11 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
       queue: { path: `/api/workouts/${workout.id}/exercises/${we.id}/sets/${set.id}`, method: "PATCH", body: { isComplete: next } },
     });
     if (updated && next) {
+      // treat a completion tick the same as a save — kick off the rest clock
+      if (!set.isWarmup) {
+        if (ex.restSec && ex.restSec > 0) restTimer.start(ex.restSec);
+        else if (restTimer.everStarted) restTimer.start();
+      }
       maybeAdvance(
         we.sets.map((s) => (s.id === set.id ? { ...s, isComplete: next } : s)),
         set.id,
@@ -215,6 +220,22 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
     });
     toast.success("Set deleted");
     if (selectedSet?.id === set.id) clear();
+  };
+
+  const toggleWarmup = async (set: SetDTO) => {
+    const next = !set.isWarmup;
+    const updated = await mutate({
+      label: next ? "Set marked as warm-up" : "Warm-up mark removed",
+      run: () => workoutsApi.updateSet(workout.id, we.id, set.id, { isWarmup: next }),
+      queue: {
+        path: `/api/workouts/${workout.id}/exercises/${we.id}/sets/${set.id}`,
+        method: "PATCH",
+        body: { isWarmup: next },
+      },
+    });
+    if (updated) {
+      toast.success(next ? "Marked as warm-up — excluded from PRs & volume" : "Warm-up mark removed");
+    }
   };
 
   const reorderSets = async (ids: string[]) => {
@@ -325,13 +346,14 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
               step={ex.weightIncrement ?? settings.defaultWeightIncrement}
               disabled={saving}
               onLog={async (w, reps) => {
+                const payload = { weight: w, reps, isComplete: true, isWarmup: true };
                 await mutate({
                   label: "Warm-up set logged",
-                  run: () => workoutsApi.addSet(workout.id, we.id, { weight: w, reps, isComplete: true }),
+                  run: () => workoutsApi.addSet(workout.id, we.id, payload),
                   queue: {
                     path: `/api/workouts/${workout.id}/exercises/${we.id}/sets`,
                     method: "POST",
-                    body: { weight: w, reps, isComplete: true },
+                    body: payload,
                   },
                 });
                 toast.success(`Warm-up: ${w}kg × ${reps}`);
@@ -363,6 +385,7 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
           onSaveComment={(id, c) => void saveComment(id, c)}
           onReorder={(ids) => void reorderSets(ids)}
           onDelete={(s) => void deleteSet(s)}
+          onToggleWarmup={(s) => void toggleWarmup(s)}
         />
       </div>
     </div>

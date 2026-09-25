@@ -11,9 +11,9 @@ import { addDaysKey, formatDayShort, parseDayKey, round1, todayKey } from "@/lib
 const WEEKS = 17;
 const LEVEL_CLASSES = [
   "bg-muted/60",
-  "bg-primary/25",
-  "bg-primary/45",
-  "bg-primary/70",
+  "bg-primary/35",
+  "bg-primary/55",
+  "bg-primary/80",
   "bg-primary",
 ];
 
@@ -122,7 +122,7 @@ export function ActivityGrid({ dates, volumeByDate, className }: Props) {
                         ? "bg-muted/25"
                         : cell.logged
                           ? LEVEL_CLASSES[levels.get(cell.key) ?? 3]
-                          : "bg-muted/60",
+                          : "bg-muted/40",
                     )}
                     title={
                       cell.inFuture

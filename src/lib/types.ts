@@ -53,6 +53,7 @@ export type SetDTO = {
   timeSec: number | null;
   comment: string | null;
   isComplete: boolean;
+  isWarmup?: boolean;
   sortOrder: number;
   newPr?: boolean;
 };

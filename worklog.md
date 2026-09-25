@@ -208,3 +208,41 @@ Stage Summary:
 - New features: training streaks (backend + Insights + Today), warm-up ramp generator, seeded routines/rest timers/notes, responsive date heading.
 - Known acceptable items: nav chip truncation on very long names mid-scroll (VLM minor, by design for horizontal scroll); streak semantics are strict daily (MWF trainees show 1-2 day streaks — honest; Duolingo-style grace not implemented).
 - Next-round recommendations (priority): (1) workout completion celebration/summary sheet (PRs hit this session vs prior bests — natural follow-up to performed-work rule); (2) PWA installability + Serwist SW verification (manifest exists, untested); (3) README + env reference + DB-switching docs (original spec deliverable, still missing); (4) warm-up sets could be tagged/visualized differently from working sets in SetsList (currently indistinguishable apart from weight); (5) consider streak rest-day grace (e.g., 1 rest day keeps streak alive at reduced intensity) — needs product decision; (6) keep watchdog/seed-loop scripts for any future heavy seeding.
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: QA round → warm-up set tagging (full stack) → workout summary/celebration sheet → rest timer polish → critical cache-invalidation bug fix → VLM styling polish
+
+Work Log:
+- Environment recovered cleanly at session start (echo OK, dev server up, health green). QA tour of all 9 views: zero console/page errors, all interactive (login → today streak chip/2085kg done → all nav views render).
+- NEW FEATURE — Warm-up set tagging (`isWarmup` on TrainingSet), full stack:
+  - Migration `20260925143554_set_warmup_flag` (Boolean @default(false)); dev server stopped → `prisma migrate dev` → restarted (runbook procedure).
+  - Backend: setCreateSchema + SetDTO + mapSet/mapWorkoutSummary; workout-service (recomputePRs excludes warm-ups, createSet/updateSet pass isWarmup through, warm-up sets never claim newPr, copyWorkout preserves the flag); exercise-service lastSets prefill excludes warm-ups; analysis-service (records/graph source, streak days, stats volume/reps/sets/distance all exclude warm-up ramp); account export/import round-trips the flag. Domain rule: warm-up ramp is preparation — never counts toward PRs, records, stats, or "kg done" tonnage.
+  - Frontend: shared `src/components/shared/warmup-badge.tsx` (amber "W" chip); SetsList rows show W badge + muted text, selected row gains FlameKindling mark/unmark toggle (with toast explaining PR/volume exclusion); warmup-popover logs with isWarmup:true; header volume/distance chips filter warm-ups; warm-up badge also rendered in training-screen history tab, today exercise-card SetPills (amber variant), and history workout-card rows.
+  - API-verified: 200kg×1 squat as warm-up → newPr false + absent from records; PATCH isWarmup:false → appears in records; re-mark → vanishes; workout volume stays 2085 with warm-up logged; UI roundtrip (W ↔ numbered) verified live.
+- NEW FEATURE — Workout Summary Sheet (`src/features/today/summary-sheet.tsx`):
+  - "Finish Workout" CTA in the header card (stops a running timer first) + "Session summary" dropdown item; only shown when ≥1 performed (non-warm-up completed) set exists.
+  - Bottom sheet (rounded-t-3xl, sm:max-w-2xl centered, max-h-92vh scroll-slim): hero with spring-animated trophy/flame + title that flips to "records fell!" when PRs were set; custom framer-motion confetti burst (34 brand-palette shards) fires only on PR sessions; streak chip in subtitle.
+  - Stat tiles (Volume accent/Sets/Reps/Work-time-or-Duration/Distance) — odd tile count spans the full row on mobile via `[&>*:nth-child(odd):last-child]:col-span-2`.
+  - PR section: per-exercise comparison of today's best set (max weight, tie→max reps, completed non-warmup) vs prior best from records strictly BEFORE this workout's date; amber cards with prior→new (strikethrough arrow), emerald +kg delta chip, e1RM delta; staggered spring entrance. Empty state: "No records this session — show up, log honestly, and they'll come 💪".
+  - Per-exercise breakdown (category dot, sets/volume/top set, trophy if PR) + Copy-summary to clipboard (shareable text block with PRs and streak).
+  - Verified: today (no PR state) + Sep 18 (4 PR rows: Squat 107.5×6→110×8 +2.5kg e1RM+11.7, Leg Press, Leg Curl, Calf Raise — prior-best date filtering correct), desktop + mobile 390px.
+- NEW FEATURE — Rest timer polish: completion checkbox now auto-starts the rest timer (same as a save; warm-up sets excluded); popover gains −15s/+15s adjust buttons (works running & paused, clamps ≥0, clean resume). Verified: 3:19 → −15s → 3:04 → +15s → 3:18.
+- CRITICAL BUG FIXED — TanStack cache invalidation: `invalidate.workout()` (no dateKey) only invalidated `["workouts", params]` list queries; the by-date query family is `["workout", dateKey]` — a different first key. EVERY Today-view mutation via use-mutate (save/delete/toggle set, comments, warm-up, groups, exercise add/remove) never refreshed the open day; sets only appeared after route remount. Fix: invalidate both `["workout"]` and `["workouts"]` prefixes in query.tsx. Verified: UI-saved set now appears in the SetsList instantly.
+- BUG FIXED — stale date on Today: navigating from `#/today?date=<past>` to `#/today` (e.g. sidebar Today click) kept the old date; the sync effect now resets to todayKey() when the route has no date param.
+- Styling polish (VLM 2-round review; round-1 findings triaged — heatmap/nav-chip/"truncation" claims partly false positives from static shots):
+  - Summary stat tiles odd-count full-row span (kills the orphan empty cell on mobile).
+  - Copy summary button outline→secondary+border (visible weight next to Done).
+  - PR row icon tile h-10→h-9 (more room for names).
+  - Activity heatmap intensity ladder strengthened: rest days bg-muted/40, levels primary/35/55/80/solid (was /25/45/70 vs muted/60 — levels were near-indistinguishable).
+  - Final VLM re-review: PASS on all 3 checkpoints.
+- Verification: `bun run lint` clean (3 intermediate issues fixed: JSX fragment in SetsList selected-actions, useMemo dep-array form, unused import); full 9-view tour ×2 (before + after dev-server death) with 0 page errors / 0 console errors; mobile 390×844 (bottom nav fits, sheet 390w, tiles balanced); demo data restored after API tests (only intentional leftover: one tagged 65×5 warm-up squat set demoing the badge; today volume 1,760 kg).
+- Ops: dev server was OOM-killed once mid-session (cold recompile spike after edits, known sandbox issue) — restarted per runbook, health green, everything re-verified after.
+- Screenshots: download/qa-r10-* (today, insights, summary no-PR, summary PR desktop/mobile, warmup badge, rest timer, mobile variants, post-fix v2/v3).
+
+Stage Summary:
+- Three new user-facing capabilities: honest warm-up tagging (excluded from PRs/records/stats/volume everywhere, consistently, backend-enforced), a celebration-worthy session summary sheet with real PR math vs prior bests, and a smarter rest timer.
+- One critical live-UI bug found & fixed (cache invalidation key-family mismatch) that had been silently degrading every Today mutation since the shell round.
+- App is stable: 9 views, 0 errors, lint clean, mobile-verified.
+- Next-round recommendations (priority): (1) PWA installability + Serwist SW verification (manifest exists, still untested — original spec deliverable); (2) README + env reference + zero-code DB-switching docs (original spec deliverable, still missing); (3) Web Share API for the summary sheet on mobile (currently clipboard-only); (4) optional: exercise-level warm-up defaults or per-exercise "always show warmup ramp" toggle; (5) dev-server OOM watchdog automation (cron) if random deaths recur.

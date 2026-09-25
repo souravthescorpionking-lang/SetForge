@@ -102,6 +102,7 @@ export type SetInput = {
   timeSec?: number | null;
   comment?: string | null;
   isComplete?: boolean;
+  isWarmup?: boolean;
 };
 
 export type ExerciseInput = {

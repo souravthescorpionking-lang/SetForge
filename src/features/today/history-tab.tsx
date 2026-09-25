@@ -13,6 +13,7 @@ import { qk } from "@/lib/client/query";
 import { formatDayLabel, relativeFromNow, setSummary } from "@/lib/client/format";
 import type { ExerciseDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WarmupBadge } from "@/components/shared/warmup-badge";
 
 type HistoryEntry = {
   workoutId: string;
@@ -119,10 +120,16 @@ export function HistoryTab({
             <ul className="divide-y divide-border/60">
               {entry.sets.map((s, i) => (
                 <li key={s.id} className="flex items-center gap-2.5 px-3 py-2">
-                  <span className="numeric flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-bold text-muted-foreground">
-                    {i + 1}
+                  {s.isWarmup ? (
+                    <WarmupBadge className="h-6 w-6 text-[10px]" />
+                  ) : (
+                    <span className="numeric flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-bold text-muted-foreground">
+                      {i + 1}
+                    </span>
+                  )}
+                  <span className={cn("numeric flex-1 truncate text-sm", s.isWarmup ? "text-muted-foreground" : "font-medium")}>
+                    {setSummary(s)}
                   </span>
-                  <span className="numeric flex-1 truncate text-sm font-medium">{setSummary(s)}</span>
                   {s.newPr && <Trophy className="h-3.5 w-3.5 text-amber-500" aria-label="PR" />}
                   {s.comment && <MessageSquareText className="h-3.5 w-3.5 text-muted-foreground/60" aria-label="comment" />}
                 </li>

@@ -28,6 +28,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WarmupBadge } from "@/components/shared/warmup-badge";
 import { workoutsApi } from "@/lib/client/api";
 import { qk } from "@/lib/client/query";
 import {
@@ -206,10 +207,14 @@ export function WorkoutCard({ workout, onOpenDay, onDelete, onCopy }: Props) {
                             key={s.id}
                             className="flex items-baseline gap-2 text-xs text-muted-foreground"
                           >
-                            <span className="w-4 shrink-0 text-right font-bold text-primary/70 numeric">
-                              {i + 1}
-                            </span>
-                            <span className="font-medium text-foreground/90">
+                            {s.isWarmup ? (
+                              <WarmupBadge className="h-4 w-4 rounded text-[9px]" />
+                            ) : (
+                              <span className="w-4 shrink-0 text-right font-bold text-primary/70 numeric">
+                                {i + 1}
+                              </span>
+                            )}
+                            <span className={cn("font-medium", s.isWarmup ? "text-muted-foreground" : "text-foreground/90")}>
                               {setSummary(s)}
                             </span>
                             {s.comment && (

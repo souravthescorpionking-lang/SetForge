@@ -77,6 +77,10 @@ export function useInvalidate() {
   return {
     workout: (dateKey?: string) => {
       if (dateKey) qc.invalidateQueries({ queryKey: qk.workoutByDate(dateKey) });
+      // NB: ["workout", date] (by-date queries) is a DIFFERENT key family from
+      // ["workouts", params] (list queries) — invalidate both prefixes so
+      // mutations refresh the open day view even when the date isn't known.
+      qc.invalidateQueries({ queryKey: ["workout"] });
       qc.invalidateQueries({ queryKey: ["workouts"] });
       qc.invalidateQueries({ queryKey: ["workout-dates"] });
       qc.invalidateQueries({ queryKey: ["stats"] });

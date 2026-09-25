@@ -20,10 +20,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { GripVertical, MessageSquareText, Trash2, Trophy } from "lucide-react";
+import { GripVertical, FlameKindling, MessageSquareText, Trash2, Trophy } from "lucide-react";
 import type { SetDTO } from "@/lib/types";
 import { setSummary } from "@/lib/client/format";
 import { cn } from "@/lib/utils";
+import { WarmupBadge } from "@/components/shared/warmup-badge";
 
 type Props = {
   sets: SetDTO[];
@@ -34,6 +35,7 @@ type Props = {
   onSaveComment: (setId: string, comment: string | null) => void;
   onReorder: (ids: string[]) => void;
   onDelete: (set: SetDTO) => void;
+  onToggleWarmup: (set: SetDTO) => void;
 };
 
 export function SetsList({
@@ -45,6 +47,7 @@ export function SetsList({
   onSaveComment,
   onReorder,
   onDelete,
+  onToggleWarmup,
 }: Props) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -93,6 +96,7 @@ export function SetsList({
                     onSelect={() => onSelect(s)}
                     onToggleComplete={() => onToggleComplete(s)}
                     onSaveComment={(c) => onSaveComment(s.id, c)}
+                    onToggleWarmup={() => onToggleWarmup(s)}
                     onDelete={() => onDelete(s)}
                   />
                 </motion.li>
@@ -112,6 +116,7 @@ function SetRow({
   onSelect,
   onToggleComplete,
   onSaveComment,
+  onToggleWarmup,
   onDelete,
 }: {
   set: SetDTO;
@@ -120,6 +125,7 @@ function SetRow({
   onSelect: () => void;
   onToggleComplete: () => void;
   onSaveComment: (comment: string | null) => void;
+  onToggleWarmup: () => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: set.id });
@@ -143,15 +149,26 @@ function SetRow({
         aria-label={`Edit set: ${setSummary(set)}`}
         aria-pressed={selected}
       >
+        {set.isWarmup ? (
+          <WarmupBadge className="h-7 w-7 text-xs" />
+        ) : (
+          <span
+            className={cn(
+              "numeric flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
+              selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+            )}
+          >
+            {set.sortOrder + 1}
+          </span>
+        )}
         <span
           className={cn(
-            "numeric flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
-            selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+            "numeric min-w-0 flex-1 truncate text-[15px]",
+            set.isWarmup ? "font-medium text-muted-foreground" : "font-semibold",
           )}
         >
-          {set.sortOrder + 1}
+          {setSummary(set)}
         </span>
-        <span className="numeric min-w-0 flex-1 truncate text-[15px] font-semibold">{setSummary(set)}</span>
         {set.newPr && (
           <Trophy className="h-4 w-4 shrink-0 text-amber-500" aria-label="personal record on this set" />
         )}
@@ -161,15 +178,32 @@ function SetRow({
       </button>
 
       {selected && (
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Delete set"
-          className="h-9 w-9 shrink-0 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={set.isWarmup ? "Unmark warm-up set" : "Mark set as warm-up"}
+            title={set.isWarmup ? "Unmark warm-up" : "Mark as warm-up"}
+            className={cn(
+              "h-9 w-9 shrink-0 rounded-lg",
+              set.isWarmup
+                ? "bg-amber-500/15 text-amber-600 hover:bg-amber-500/25 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-400"
+                : "text-muted-foreground hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400",
+            )}
+            onClick={onToggleWarmup}
+          >
+            <FlameKindling className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete set"
+            className="h-9 w-9 shrink-0 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </>
       )}
 
       <Popover

@@ -97,6 +97,7 @@ export const setCreateSchema = z.object({
   timeSec: z.number().int().min(0).max(900000).nullable().optional(),
   comment: z.string().max(500).nullable().optional(),
   isComplete: z.boolean().optional(),
+  isWarmup: z.boolean().optional(),
 });
 export const setUpdateSchema = setCreateSchema;
 

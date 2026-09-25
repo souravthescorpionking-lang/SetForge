@@ -175,6 +175,24 @@ export function RestTimerProvider({ children, active = true }: { children: React
     setExtraPreset(sec && sec > 0 ? Math.round(sec) : null);
   }, []);
 
+  /** Nudge the remaining time by ±sec (clamped ≥ 0); keeps running state. */
+  const adjust = useCallback((deltaSec: number) => {
+    setRemaining((prev) => {
+      const cur = running ? Math.max(0, endAtRef.current - Date.now()) : prev;
+      const next = Math.max(0, cur + deltaSec * 1000);
+      if (running) {
+        if (next === 0) {
+          finish();
+          return 0;
+        }
+        endAtRef.current = Date.now() + next;
+      } else if (next > 0) {
+        finishedRef.current = false; // a paused adjustment can resume cleanly
+      }
+      return next;
+    });
+  }, [running, finish]);
+
   const api = useMemo<RestTimerApi>(
     () => ({ start, running, everStarted, setExtraPreset: setExtra }),
     [start, running, everStarted, setExtra],
@@ -237,6 +255,15 @@ export function RestTimerProvider({ children, active = true }: { children: React
                       Alert sound
                     </span>
                     <Switch checked={!muted} onCheckedChange={(v) => setMuted(!v)} aria-label="Toggle rest alert sound" />
+                  </div>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <span className="mr-auto text-[11px] text-muted-foreground">Adjust rest</span>
+                    <Button variant="outline" size="sm" className="h-9 rounded-lg px-3 text-xs font-bold" onClick={() => adjust(-15)}>
+                      −15s
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-9 rounded-lg px-3 text-xs font-bold" onClick={() => adjust(15)}>
+                      +15s
+                    </Button>
                   </div>
                   <p className="mt-2 text-[11px] text-muted-foreground">
                     Last duration: <span className="numeric font-semibold">{durationSec}s</span>

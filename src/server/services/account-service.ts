@@ -98,6 +98,7 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
             timeSec: s.timeSec ?? null,
             comment: s.comment ?? null,
             isComplete: s.isComplete,
+            isWarmup: s.isWarmup,
             sortOrder: s.sortOrder,
           })),
         })),
@@ -183,6 +184,7 @@ const backupSchema = z.object({
               timeSec: z.number().nullable().optional(),
               comment: z.string().nullable().optional(),
               isComplete: z.boolean().optional(),
+              isWarmup: z.boolean().optional(),
               sortOrder: z.number().optional(),
             }),
           ),
@@ -278,6 +280,7 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
             timeSec: s.timeSec ?? null,
             comment: s.comment ?? null,
             isComplete: s.isComplete ?? false,
+            isWarmup: s.isWarmup ?? false,
             sortOrder: s.sortOrder ?? 0,
           },
         });

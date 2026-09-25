@@ -10,6 +10,7 @@ import { Check, CheckCircle2, Circle, GripVertical, History, Trophy } from "luci
 import type { SetDTO, WorkoutExerciseDTO, WorkoutGroupDTO } from "@/lib/types";
 import { relativeFromNow, setSummary } from "@/lib/client/format";
 import { cn } from "@/lib/utils";
+import { WarmupBadge } from "@/components/shared/warmup-badge";
 
 export function ExerciseCard({
   we,
@@ -206,14 +207,19 @@ function SetPill({ set, index, markSetsComplete }: { set: SetDTO; index: number;
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium",
-        set.isComplete && markSetsComplete
+        set.isComplete && markSetsComplete && !set.isWarmup
           ? "border-primary/30 bg-primary/10 text-foreground"
           : "bg-muted/50 text-muted-foreground",
+        set.isWarmup && "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
       )}
     >
-      <span className="numeric text-muted-foreground/70">{index}.</span>
+      {set.isWarmup ? (
+        <WarmupBadge className="h-4 w-4 rounded text-[9px]" />
+      ) : (
+        <span className="numeric text-muted-foreground/70">{index}.</span>
+      )}
       <span className="numeric">{setSummary(set) || "—"}</span>
-      {set.isComplete && markSetsComplete && <Check className="h-3 w-3 text-primary" />}
+      {set.isComplete && markSetsComplete && !set.isWarmup && <Check className="h-3 w-3 text-primary" />}
       {set.newPr && <Trophy className="h-3 w-3 text-amber-500" aria-label="personal record" />}
     </span>
   );

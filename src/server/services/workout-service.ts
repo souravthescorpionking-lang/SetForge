@@ -35,6 +35,7 @@ export async function recomputePRs(
       weight: { not: null },
       reps: { not: null },
       isComplete: true, // only performed sets hold records
+      isWarmup: false, // warm-up ramps are preparation, not performance
     },
     include: { workoutExercise: { include: { workout: true } } },
     orderBy: { createdAt: "asc" },
@@ -267,7 +268,7 @@ export async function createSet(
   userId: string,
   workoutId: string,
   weId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean },
+  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean; isWarmup?: boolean },
 ) {
   const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
   const settings = await db.userSettings.findUnique({ where: { userId } });
@@ -276,6 +277,7 @@ export async function createSet(
   const count = await db.trainingSet.count({ where: { workoutExerciseId: weId } });
   const newPr =
     trackPR &&
+    !input.isWarmup &&
     input.weight != null &&
     input.reps != null &&
     (await isPRForReps(userId, we.exerciseId, input.reps, input.weight));
@@ -292,6 +294,7 @@ export async function createSet(
         timeSec: input.timeSec ?? null,
         comment: input.comment ?? null,
         isComplete: input.isComplete ?? false,
+        isWarmup: input.isWarmup ?? false,
         sortOrder: count,
       },
     });
@@ -306,7 +309,7 @@ export async function updateSet(
   workoutId: string,
   weId: string,
   setId: string,
-  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean },
+  input: { weight?: number | null; reps?: number | null; distance?: number | null; timeSec?: number | null; comment?: string | null; isComplete?: boolean; isWarmup?: boolean },
 ) {
   const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
   const existing = await db.trainingSet.findFirst({ where: { id: setId, workoutExerciseId: weId } });
@@ -322,6 +325,7 @@ export async function updateSet(
         ...(input.timeSec !== undefined ? { timeSec: input.timeSec } : {}),
         ...(input.comment !== undefined ? { comment: input.comment } : {}),
         ...(input.isComplete !== undefined ? { isComplete: input.isComplete } : {}),
+        ...(input.isWarmup !== undefined ? { isWarmup: input.isWarmup } : {}),
       },
     });
     await recomputePRs(tx, userId, we.exerciseId);
@@ -471,6 +475,7 @@ export async function copyWorkout(
           timeSec: s.timeSec,
           comment: s.comment,
           isComplete: false,
+          isWarmup: s.isWarmup,
           sortOrder: setOrder++,
         },
       });

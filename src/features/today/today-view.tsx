@@ -25,6 +25,7 @@ import { ExerciseList } from "./exercise-list";
 import { NavPanel } from "./nav-panel";
 import { TrainingScreen } from "./training-screen";
 import { RestTimerProvider } from "./rest-timer";
+import { SummarySheet } from "./summary-sheet";
 import { CopyWorkoutDialog } from "./copy-workout-dialog";
 import { MoveWorkoutDialog } from "./move-workout-dialog";
 import { CreateGroupDialog, EditGroupDialog } from "./group-dialog";
@@ -46,10 +47,14 @@ export function TodayView() {
   });
 
   useEffect(() => {
-    if (routeDate && /^\d{4}-\d{2}-\d{2}$/.test(routeDate) && routeDate !== dateKey) {
-      setDateKey(routeDate);
+    if (routeDate && /^\d{4}-\d{2}-\d{2}$/.test(routeDate)) {
+      if (routeDate !== dateKey) setDateKey(routeDate);
+    } else if (route.view === "today" && !routeDate) {
+      // /today without a ?date= param always means today (e.g. sidebar Today
+      // click after browsing a past date) — otherwise the stale date sticks.
+      if (dateKey !== todayKey()) setDateKey(todayKey());
     }
-  }, [routeDate]);
+  }, [routeDate, route.view]);
 
   const goTo = useCallback(
     (key: string) => {
@@ -90,6 +95,7 @@ export function TodayView() {
   const [editGroup, setEditGroup] = useState<WorkoutGroupDTO | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // if the workout data changes and selected exercises vanish → tidy selection
   useEffect(() => {
@@ -291,6 +297,7 @@ export function TodayView() {
                   setSelectMode(true);
                   toast.info("Tap exercises to select them");
                 }}
+                onOpenSummary={() => setSummaryOpen(true)}
               />
 
               {/* sticky slim nav bar below the header + selection toolbar */}
@@ -445,6 +452,15 @@ export function TodayView() {
         )}
         {workout && (
           <EditGroupDialog open={!!editGroup} onOpenChange={(o) => !o && setEditGroup(null)} workout={workout} group={editGroup} />
+        )}
+        {workout && (
+          <SummarySheet
+            open={summaryOpen}
+            onOpenChange={setSummaryOpen}
+            workout={workout}
+            dateKey={dateKey}
+            streak={streakQuery.data ?? null}
+          />
         )}
       </div>
     </RestTimerProvider>

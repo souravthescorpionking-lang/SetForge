@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import {
   CalendarDays,
+  CheckCircle2,
   CheckSquare,
   ClipboardCopy,
   Clock,
@@ -77,6 +78,7 @@ export function WorkoutHeaderCard({
   onCopy,
   onMove,
   onEnterSelectMode,
+  onOpenSummary,
 }: {
   workout: WorkoutDTO;
   dateKey: string;
@@ -84,6 +86,7 @@ export function WorkoutHeaderCard({
   onCopy: () => void;
   onMove: () => void;
   onEnterSelectMode: () => void;
+  onOpenSummary: () => void;
 }) {
   const invalidate = useInvalidate();
   const mutate = useMutate();
@@ -95,8 +98,9 @@ export function WorkoutHeaderCard({
   useTicker(active);
 
   const sets = workout.exercises.flatMap((we) => we.sets);
-  const doneSets = sets.filter((s) => s.isComplete);
-  const volume = totalVolume(doneSets); // performed work only — planned sets don't count
+  // performed work only — planned sets and warm-up ramps don't count toward tonnage
+  const doneSets = sets.filter((s) => s.isComplete && !s.isWarmup);
+  const volume = totalVolume(doneSets);
   const distance = doneSets.reduce((sum, s) => sum + (s.distance ?? 0), 0);
   const durationSec =
     workout.startAt
@@ -149,6 +153,12 @@ export function WorkoutHeaderCard({
     navigate("/today");
   };
 
+  /** Finish the session: stop a running timer, then celebrate with the summary sheet. */
+  const finishWorkout = async () => {
+    if (active) await toggleTimer();
+    onOpenSummary();
+  };
+
   return (
     <section className="rounded-2xl border bg-card p-4 shadow-sm sm:p-5" aria-label="Workout summary">
       <div className="flex items-start justify-between gap-3">
@@ -193,6 +203,11 @@ export function WorkoutHeaderCard({
             <DropdownMenuItem onClick={() => { setCommentDraft(workout.comment ?? ""); setCommentOpen(true); }}>
               <MessageSquareText className="h-4 w-4" /> Comment workout
             </DropdownMenuItem>
+            {doneSets.length > 0 && (
+              <DropdownMenuItem onClick={onOpenSummary}>
+                <CheckCircle2 className="h-4 w-4" /> Session summary
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => void toggleTimer()}>
               {active ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
               {active ? "Stop timer" : workout.startAt ? "Restart timer" : "Start timer"}
@@ -271,6 +286,18 @@ export function WorkoutHeaderCard({
           </span>
         )}
       </div>
+
+      {/* finish / summary CTA — only when there's performed work to celebrate */}
+      {doneSets.length > 0 && (
+        <Button
+          size="lg"
+          className="mt-3 h-12 w-full rounded-xl text-base font-bold shadow-lg shadow-primary/20"
+          onClick={() => void finishWorkout()}
+        >
+          <CheckCircle2 className="h-5 w-5" />
+          {active ? "Finish Workout" : "Session Summary"}
+        </Button>
+      )}
 
       <Dialog open={commentOpen} onOpenChange={setCommentOpen}>
         <DialogContent className="sm:max-w-md">

@@ -75,6 +75,7 @@ export function mapSet(s: TrainingSet, newPr?: boolean): SetDTO {
     timeSec: s.timeSec ?? null,
     comment: s.comment ?? null,
     isComplete: s.isComplete,
+    isWarmup: s.isWarmup,
     sortOrder: s.sortOrder,
     ...(newPr !== undefined ? { newPr } : {}),
   };
@@ -128,7 +129,7 @@ export function mapWorkoutSummary(
       if (we.exercise.category) cats.set(we.exercise.category.id, { name: we.exercise.category.name, colour: we.exercise.category.colour });
     }
     for (const s of we.sets) {
-      if (!s.isComplete) continue; // planned/blank sets are not performed work
+      if (!s.isComplete || s.isWarmup) continue; // planned/blank sets are not performed work; warm-up ramp tonnage is excluded too
       setCount++;
       volume += (s.weight ?? 0) * (s.reps ?? 0);
       distance += s.distance ?? 0;

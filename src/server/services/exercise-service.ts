@@ -269,7 +269,10 @@ export async function lastSetsForExercise(userId: string, exerciseId: string, be
       exerciseId,
       ...(beforeDate ? { workout: { date: { lt: new Date(beforeDate) } } } : {}),
     },
-    include: { workout: true, sets: { orderBy: { sortOrder: "asc" } } },
+    include: {
+      workout: true,
+      sets: { where: { isWarmup: false }, orderBy: { sortOrder: "asc" } },
+    },
     orderBy: { workout: { date: "desc" } },
   });
   if (!we) return { date: null, sets: [] };
@@ -283,6 +286,7 @@ export async function lastSetsForExercise(userId: string, exerciseId: string, be
       timeSec: s.timeSec ?? null,
       comment: s.comment ?? null,
       isComplete: s.isComplete,
+      isWarmup: s.isWarmup,
       sortOrder: s.sortOrder,
       workoutExerciseId: s.workoutExerciseId,
     })),

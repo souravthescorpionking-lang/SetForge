@@ -13,7 +13,7 @@ type SetLike = { weight: number | null; reps: number | null; distance: number | 
 async function allSetsForExercise(userId: string, exerciseId: string): Promise<SetLike[]> {
   const wes = await db.workoutExercise.findMany({
     where: { userId, exerciseId },
-    include: { workout: { select: { date: true } }, sets: { where: { isComplete: true } } },
+    include: { workout: { select: { date: true } }, sets: { where: { isComplete: true, isWarmup: false } } },
   });
   const out: SetLike[] = [];
   for (const we of wes) {
@@ -187,7 +187,7 @@ export async function getGraph(
  *  workout yet but yesterday does. */
 async function computeStreak(userId: string): Promise<{ current: number; longest: number }> {
   const rows = await db.workout.findMany({
-    where: { userId, exercises: { some: { sets: { some: { isComplete: true } } } } },
+    where: { userId, exercises: { some: { sets: { some: { isComplete: true, isWarmup: false } } } } },
     select: { date: true },
   });
   const days = new Set(rows.map((r) => dayKey(r.date)));
@@ -276,7 +276,7 @@ export async function getStats(userId: string, opts: { period: string; from?: st
       let exReps = 0;
       let exSetCount = 0;
       for (const s of we.sets) {
-        if (!s.isComplete) continue; // planned/blank sets don't count as work
+        if (!s.isComplete || s.isWarmup) continue; // planned/blank sets don't count as work; warm-up ramp neither
         performedSets++;
         exSetCount++;
         setCount++;
