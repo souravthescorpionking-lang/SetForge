@@ -416,3 +416,47 @@ Next-round recommendations (priority):
 3. Consider extending LastTimeBar deltas to timeSec-based exercises (currently weight/distance only — time deltas are ambiguous) and a "session volume vs last session" delta.
 4. Streak rest-day grace (round-7 leftover product decision) — e.g. 1 rest day keeps streak alive; needs product sign-off.
 5. Dev-server OOM watchdog automation if random deaths recur (died once this round; runbook restart works but costs ~1 min).
+
+---
+Task ID: 13
+Agent: main (Z.ai Code)
+Task: QA round → three new features (weekly workout target + Today progress card, LastTimeBar v2 time-deltas & session-volume, calendar month stats strip) → OOM-watchdog infrastructure → VLM styling polish → full verification
+
+Work Log:
+- Environment recovered at session start (prior session ended with Errno-11; tools healthy again). Read worklog (418 lines, 12 entries). QA baseline: already logged in, 9/9 views 0 console errors, dev.log clean, lint clean → app STABLE → proceeded to new features per instructions.
+- NEW FEATURE — Weekly workout target + "This Week" progress card:
+  - Schema: `UserSettings.weeklyWorkoutTarget Int @default(0)` (0 = card hidden). Migration `20260926020000_weekly_workout_target` (ALTER TABLE ADD COLUMN) applied via `prisma migrate deploy`; `prisma generate` re-run (stale client caught when the update script failed with Unknown argument).
+  - Full-stack wiring: SettingsDTO + settingsUpdateSchema (0–14) + settings-service patch type + account-export field + seed default + today-view fallback literal + preferences-section Stepper row (Target icon, dynamic helper text).
+  - New `src/features/today/week-progress.tsx`: SVG progress ring (done/target, emerald when achieved), weekday dot strip (trained = filled+check, today = ring highlight, future = dimmed), volume+sets chips (sm+), honouring `weekStart` setting; whole card is a button → #/insights. Data from `workoutsApi.list({from,to})` of the current week — zero new endpoints.
+  - Verified live: demo user target set to 4 → card shows "4 of 4 · Target hit — anything more is a bonus", Mon/Wed/Thu/Fri checkmarks, 14.6k kg + 36 sets chips; stepper round-trip 4→5→4 persisted via debounced PATCH; VLM close-up review PASS (ring, dots, chips, no overlap).
+- NEW FEATURE — LastTimeBar v2 (round-12 recommendation #3):
+  - Time-based exercise deltas: new `timeSec` prop; for TIME/WEIGHT_TIME exercises the current input vs last session's top hold renders "+0:15 hold vs last" / "−0:30 vs last (1:00)" / "matching last 1:00" chips.
+  - Session-volume chip: today's exercise volume (Σ weight×reps, warm-ups excluded) vs the whole last session — "session vol 4,070 kg · last 3,373 kg (+21%)" with up/same/down tones; only for weight exercises with both volumes > 0.
+  - Verified live: squat screen shows +21% chip; Plank (added to today's workout as a test) shows last-time pills 0:45/1:00/0:45 and live "+0:15 hold vs last" at 1:15 input; test data removed after (API DELETE 200).
+- NEW FEATURE — Calendar month summary strip (`src/features/calendar/month-stats.tsx`):
+  - 4 stat cells (Volume accent / Time / Sets / Avg per workout) from the already-fetched month summaries — client-side, no new API calls; hidden when month empty. Matches KpiCard visual language.
+  - Verified live: September shows 82.7k kg · 14h 43m · 151 sets · 5906.5 kg avg; VLM review PASS (aligned, style-consistent, no problems).
+- INFRASTRUCTURE — dev-server OOM watchdog (round-12 recommendation #5, became critical):
+  - Root cause found via dmesg: kernel OOM-kills next-server at ~2.1GB RSS (4GB sandbox; 3 kills logged). During downtimes the SW network-first fallback made the app look data-corrupted ("0 workouts" calendar, empty month queries) — a misleading failure mode now documented here.
+  - Deeper discovery: background processes started via plain `nohup &` (even with setsid) are killed ~10s after the Bash tool command completes (process-tree cleanup). Fix: double-fork orphan pattern `( setsid cmd & )` — verified with a heartbeat-marker experiment, then deployed.
+  - `watchdog.sh`: polls /api/health every 15s, after 2 consecutive failures pkills + restarts `bun run dev` with `NODE_OPTIONS=--max-old-space-size=1024`; writes `.watchdog-heartbeat` each loop + actions to watchdog.log; itself started orphaned. Server has since stayed up (12+ min at final check, previously died every ~2-6 min).
+- STYLING POLISH (VLM 3-batch review over 9 view screenshots + 2 zoomed re-checks; findings code-triaged per convention — 6 of 12 claims were false positives: nonexistent kebab menu / comment-title hierarchy is deliberate design / KPI alignment identical component / GripVertical is standard / body datetime "truncation" disproven by zoomed re-review / history clear-X contrast conventional):
+  - NavPanel chips row (Today): right-edge scroll-fade gradient affordance with scroll+ResizeObserver state (only while more chips exist off-screen); fixed an ordering bug in my own edit (useEffect dep evaluated before `exercises` declaration — TDZ) before it could ship.
+  - Insights activity grid: empty-day cells bg-muted/40 → /50 (structure legibility).
+  - Calendar MonthStats labels: text-foreground/60 → /70 (consistency with round-11 KPI label fix).
+  - 1RM calculator disclaimer: text-muted-foreground → text-foreground/70 (readability convention).
+  - WeekProgressCard subtitle: truncate → line-clamp-2 leading-snug (mobile 390px cut-off "Target hit…" found by VLM mobile review; fixed + re-screenshotted).
+- Verification: `bun run lint` clean ×4; full 9-view tour ×2 → ZERO console/page errors; mobile 390×844 (week card, chips fade visible, day strip); offline mode (navigator offline → today renders real cached data incl. week card + insights from cache, 0 errors, clean online restore); /api/health green; demo data restored (plank test removed, weekly target left at 4 for demo). Screenshots: download/qa-r15-*.{png} ×15 (week-card, calendar + VLM-verified, settings, lasttime session-vol, plank time-delta, mobile ×2, polish sweep ×9, final-today).
+
+Stage Summary:
+- Three new user-facing capabilities: account-portable weekly workout goal with a Today-view progress card (ring + day dots + week totals), extended beat-last-time context (time-based exercise deltas + session-volume comparison), and a calendar month totals strip.
+- Infrastructure hardened: OOM root cause diagnosed (kernel kill at 2.1GB), surviving watchdog deployed via double-fork orphan pattern with heap-capped restarts — the dev server is now stable across tool commands (previously dying every few minutes).
+- One schema change (UserSettings.weeklyWorkoutTarget) with committed migration; all 45+ existing APIs untouched except the settings PATCH gaining one optional field.
+- Known misleading failure mode documented: a dead dev server + SW fallback looks like data loss/empty views — always check /api/health + watchdog.log first.
+
+Next-round recommendations (priority):
+1. README + env reference + zero-code DB-switching docs (original spec deliverable, still missing — needs explicit user request per doc policy).
+2. Real-device PWA test: beforeinstallprompt, MediaSession lock-screen UI, SpeechSynthesis voices, weekly-target ring on a real phone (all unverifiable in headless).
+3. Consider streak rest-day grace (round-7 leftover product decision).
+4. Watchdog hardening if needed: email/notification on restart, RSS-based proactive recycling before the OOM killer fires (currently reactive-only).
+5. WeekProgressCard: tap-through already goes to Insights; could add per-day drill-down to the specific workout.

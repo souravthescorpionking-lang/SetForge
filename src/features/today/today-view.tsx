@@ -20,6 +20,7 @@ import { qk, useInvalidate, useOnline, useWorkoutByDate } from "@/lib/client/que
 import { addDaysKey, todayKey } from "@/lib/client/format";
 import type { WorkoutGroupDTO } from "@/lib/types";
 import { DateBar } from "./date-bar";
+import { WeekProgressCard } from "./week-progress";
 import { WorkoutHeaderCard } from "./workout-header-card";
 import { ExerciseList } from "./exercise-list";
 import { NavPanel } from "./nav-panel";
@@ -242,6 +243,14 @@ export function TodayView() {
       <div className="space-y-4 pb-16">
         <DateBar dateKey={dateKey} onChange={goTo} workoutExists={!!workout} />
 
+        {(settings?.weeklyWorkoutTarget ?? 0) > 0 && (
+          <WeekProgressCard
+            target={settings!.weeklyWorkoutTarget}
+            weekStart={settings?.weekStart ?? 1}
+            onOpenInsights={() => navigate("/insights")}
+          />
+        )}
+
         <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           {isLoading ? (
             <DaySkeleton />
@@ -408,6 +417,7 @@ export function TodayView() {
                 autoSelectNextSet: false,
                 keepScreenOn: false,
                 estOneRmRepLimit: 10,
+                weeklyWorkoutTarget: 0,
               }
             }
             onNavigateDate={(key) => goTo(key)}

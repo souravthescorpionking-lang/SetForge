@@ -63,6 +63,7 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       autoSelectNextSet: settings.autoSelectNextSet,
       keepScreenOn: settings.keepScreenOn,
       estOneRmRepLimit: settings.estOneRmRepLimit,
+      weeklyWorkoutTarget: settings.weeklyWorkoutTarget,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({

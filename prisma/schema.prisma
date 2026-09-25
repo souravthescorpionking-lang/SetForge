@@ -70,6 +70,7 @@ model UserSettings {
   autoSelectNextSet     Boolean @default(true)
   keepScreenOn          Boolean @default(false)
   estOneRmRepLimit      Int     @default(10)
+  weeklyWorkoutTarget   Int     @default(0) // workouts per week goal (0 = off)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }

@@ -25,6 +25,7 @@ export async function updateSettings(
     autoSelectNextSet: boolean;
     keepScreenOn: boolean;
     estOneRmRepLimit: number;
+    weeklyWorkoutTarget: number;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });

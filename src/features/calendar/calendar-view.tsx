@@ -16,6 +16,7 @@ import { dayKeyOf, formatMonthYear, todayKey } from "@/lib/client/format";
 import { CalendarDays, ChevronLeft, ChevronRight, CircleDot, List, SkipBack, SkipForward, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MonthGrid, type MonthAnchor } from "./month-grid";
+import { MonthStats } from "./month-stats";
 import { DaySheet } from "./day-sheet";
 import { WorkoutList, type DisplayMode } from "./workout-list";
 import { FiltersBar } from "./filters";
@@ -255,6 +256,8 @@ export function CalendarView() {
                 </button>
               </div>
             </div>
+
+            <MonthStats workouts={monthQuery.data?.workouts ?? []} />
 
             <div className="rounded-2xl border bg-card p-2.5 sm:p-4">
               <MonthGrid

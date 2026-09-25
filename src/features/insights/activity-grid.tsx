@@ -122,7 +122,7 @@ export function ActivityGrid({ dates, volumeByDate, className }: Props) {
                         ? "bg-muted/25"
                         : cell.logged
                           ? LEVEL_CLASSES[levels.get(cell.key) ?? 3]
-                          : "bg-muted/40",
+                          : "bg-muted/50",
                     )}
                     title={
                       cell.inFuture

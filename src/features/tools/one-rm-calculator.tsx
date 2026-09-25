@@ -103,7 +103,7 @@ export function OneRmCalculator() {
             </p>
           </div>
 
-          <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground/70">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" />
             Estimates are a training guide, not a guarantee — treat them as targets to earn, not
             numbers you can hit cold. Your record tracking counts sets of up to {repLimit} reps

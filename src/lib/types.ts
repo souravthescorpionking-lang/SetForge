@@ -15,6 +15,7 @@ export type SettingsDTO = {
   autoSelectNextSet: boolean;
   keepScreenOn: boolean;
   estOneRmRepLimit: number;
+  weeklyWorkoutTarget: number;
 };
 
 export type SessionDTO = { user: UserDTO; settings: SettingsDTO };

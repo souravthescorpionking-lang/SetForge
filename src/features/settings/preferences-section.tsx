@@ -10,7 +10,7 @@ import { Stepper } from "@/components/shared/stepper";
 import { useApp } from "@/lib/client/store";
 import type { SettingsDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Monitor, Moon, Sun, SunMoon, Ruler, CalendarDays, ListOrdered, Layers3, Trophy, CheckCheck, MousePointerClick, MonitorSmartphone, Gauge, Palette, Tag } from "lucide-react";
+import { Monitor, Moon, Sun, SunMoon, Ruler, CalendarDays, ListOrdered, Layers3, Trophy, CheckCheck, MousePointerClick, MonitorSmartphone, Gauge, Palette, Tag, Target } from "lucide-react";
 import { SettingRow, Segmented, SectionHeading } from "./settings-controls";
 import { isWakeLockSupported, useWakeLock } from "./use-wake-lock";
 
@@ -182,6 +182,29 @@ export function PreferencesSection() {
               onChange={(v) => patchDebounced({ homeSetsShown: v ?? 1 })}
               min={1}
               max={10}
+              step={1}
+              decimals={0}
+              className="w-[110px]"
+            />
+          }
+        />
+
+        {/* Weekly workout target */}
+        <SettingRow
+          icon={<Target className="h-4 w-4" />}
+          label="Weekly workout target"
+          helper={
+            settings.weeklyWorkoutTarget > 0
+              ? `Progress card on Today counts your sessions toward ${settings.weeklyWorkoutTarget} per week.`
+              : "Set 1–14 to show a weekly progress card on the Today screen. 0 hides it."
+          }
+          control={
+            <Stepper
+              ariaLabel="Weekly workout target"
+              value={settings.weeklyWorkoutTarget}
+              onChange={(v) => patchDebounced({ weeklyWorkoutTarget: v ?? 0 })}
+              min={0}
+              max={14}
               step={1}
               decimals={0}
               className="w-[110px]"

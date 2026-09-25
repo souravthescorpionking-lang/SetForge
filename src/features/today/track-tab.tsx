@@ -376,6 +376,7 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
             weight={values.weight}
             reps={values.reps}
             distance={values.distance}
+            timeSec={values.timeSec}
             todaySets={we.sets}
             onApplySet={applyLastSet}
           />

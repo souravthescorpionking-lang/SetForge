@@ -202,6 +202,7 @@ export const settingsUpdateSchema = z.object({
   autoSelectNextSet: z.boolean().optional(),
   keepScreenOn: z.boolean().optional(),
   estOneRmRepLimit: z.number().int().min(1).max(36).optional(),
+  weeklyWorkoutTarget: z.number().int().min(0).max(14).optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),

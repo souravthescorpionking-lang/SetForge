@@ -3,7 +3,7 @@
 // Sticky slim horizontal nav bar (rendered below the workout header):
 // drag-reorderable exercise chips (tap → open that exercise's training
 // screen) + Add exercise / superset group actions / Home buttons.
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -59,6 +59,23 @@ export function NavPanel({
   const exercises = [...workout.exercises].sort((a, b) => a.sortOrder - b.sortOrder);
   const ids = exercises.map((we) => we.id);
 
+  // scroll-fade affordance: show a right-edge gradient while more chips exist
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScroll, setCanScroll] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setCanScroll(el.scrollWidth - el.clientWidth > 8 && el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [exercises.length]);
+
   const onDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -82,13 +99,21 @@ export function NavPanel({
       <div className="flex items-center gap-1">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
-            <div className="scroll-slim flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5">
-              {exercises.length === 0 && (
-                <span className="px-2 py-2 text-xs text-muted-foreground">No exercises yet — add one to start</span>
+            <div className="relative min-w-0 flex-1">
+              <div ref={scrollRef} className="scroll-slim flex items-center gap-1 overflow-x-auto py-0.5 pr-4">
+                {exercises.length === 0 && (
+                  <span className="px-2 py-2 text-xs text-muted-foreground">No exercises yet — add one to start</span>
+                )}
+                {exercises.map((we) => (
+                  <NavChip key={we.id} we={we} active={activeWeId === we.id} onClick={() => onOpenExercise(we.id)} />
+                ))}
+              </div>
+              {canScroll && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 right-0 w-9 rounded-r-xl bg-gradient-to-l from-popover to-transparent"
+                />
               )}
-              {exercises.map((we) => (
-                <NavChip key={we.id} we={we} active={activeWeId === we.id} onClick={() => onOpenExercise(we.id)} />
-              ))}
             </div>
           </SortableContext>
         </DndContext>

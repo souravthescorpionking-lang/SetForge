@@ -221,6 +221,7 @@ export async function buildPerUserSeed(userId: string) {
     autoSelectNextSet: true,
     keepScreenOn: false,
     estOneRmRepLimit: 10,
+    weeklyWorkoutTarget: 0,
   };
 
   const plates = [

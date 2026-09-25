@@ -3,7 +3,8 @@
 // LastTimeBar — "beat last time" context above the set-input card: the last
 // performance of this exercise (date + tap-to-prefill set pills) and a live
 // delta of the current inputs vs the top set of that session (weight delta,
-// rep delta at same weight, e1RM delta, distance delta, today's best).
+// rep delta at same weight, e1RM delta, distance delta, hold-time delta,
+// today's best, plus session volume vs the whole last session).
 import { useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { History, Minus, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
@@ -22,6 +23,7 @@ type Props = {
   weight: number | null;
   reps: number | null;
   distance: number | null;
+  timeSec: number | null;
   todaySets: SetDTO[];
   onApplySet?: (s: SetDTO) => void;
 };
@@ -75,6 +77,11 @@ function DeltaChip({
   );
 }
 
+/** Volume (kg) of a set list: weight × reps, warm-ups excluded. */
+function volumeOf(sets: SetDTO[]): number {
+  return sets.reduce((sum, s) => (s.isWarmup ? sum : sum + (s.weight ?? 0) * (s.reps ?? 0)), 0);
+}
+
 export function LastTimeBar({
   date,
   sets,
@@ -82,6 +89,7 @@ export function LastTimeBar({
   weight,
   reps,
   distance,
+  timeSec,
   todaySets,
   onApplySet,
 }: Props) {
@@ -140,8 +148,36 @@ export function LastTimeBar({
       else out.push({ key: "d", tone: "same", text: "matching last distance" });
     }
 
+    if (fields.includes("timeSec") && timeSec != null && timeSec > 0 && lastTop.timeSec != null) {
+      const diff = Math.round(timeSec - lastTop.timeSec);
+      if (diff > 0) {
+        out.push({ key: "t", tone: "up", text: `+${formatDuration(diff)} hold vs last` });
+      } else if (diff < 0) {
+        out.push({ key: "t", tone: "down", text: `−${formatDuration(Math.abs(diff))} vs last (${formatDuration(lastTop.timeSec)})` });
+      } else {
+        out.push({ key: "t", tone: "same", text: `matching last ${formatDuration(lastTop.timeSec)}` });
+      }
+    }
+
     return out;
-  }, [fields, weight, reps, distance, lastTop]);
+  }, [fields, weight, reps, distance, timeSec, lastTop]);
+
+  // session volume vs the whole last session (weight exercises only)
+  const sessionVol = useMemo(() => {
+    if (!fields.includes("weight")) return null;
+    const lastVol = volumeOf(sets);
+    const todayVol = volumeOf(todaySets);
+    if (lastVol <= 0 || todayVol <= 0) return null;
+    const fmt = (n: number) => `${Math.round(n).toLocaleString()} kg`;
+    const pctDiff = Math.round(((todayVol - lastVol) / lastVol) * 100);
+    if (todayVol > lastVol) {
+      return { tone: "up" as const, text: `session vol ${fmt(todayVol)} · last ${fmt(lastVol)} (+${pctDiff}%)` };
+    }
+    if (todayVol < lastVol) {
+      return { tone: "down" as const, text: `session vol ${fmt(todayVol)} · last ${fmt(lastVol)} (${pctDiff}%)` };
+    }
+    return { tone: "same" as const, text: `session vol ${fmt(todayVol)} · matching last` };
+  }, [fields, sets, todaySets]);
 
   // no history at all — a friendly explainer instead of silence
   if (!date || last.sets.length === 0) {
@@ -204,7 +240,7 @@ export function LastTimeBar({
       </div>
 
       <AnimatePresence>
-        {(deltas.length > 0 || todayBest) && (
+        {(deltas.length > 0 || todayBest || sessionVol) && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -218,6 +254,9 @@ export function LastTimeBar({
                   {d.text}
                 </DeltaChip>
               ))}
+              {sessionVol && (
+                <DeltaChip tone={sessionVol.tone}>{sessionVol.text}</DeltaChip>
+              )}
               {todayBest && deltas.length > 0 && (
                 <span className="text-[11px] font-semibold text-muted-foreground">
                   today <span className="numeric">{pillLabel(todayBest, fields)}</span>
