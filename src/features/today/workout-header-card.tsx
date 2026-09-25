@@ -41,7 +41,7 @@ import {
 import { useApp } from "@/lib/client/store";
 import { workoutsApi } from "@/lib/client/api";
 import { useInvalidate } from "@/lib/client/query";
-import { formatDayLong, isToday, round2 } from "@/lib/client/format";
+import { formatDayLabel, formatDayLong, isToday, round2 } from "@/lib/client/format";
 import { totalVolume } from "@/lib/formulas";
 import type { WorkoutDTO } from "@/lib/types";
 import { toast } from "sonner";
@@ -73,12 +73,14 @@ function formatDur(sec: number) {
 export function WorkoutHeaderCard({
   workout,
   dateKey,
+  streak,
   onCopy,
   onMove,
   onEnterSelectMode,
 }: {
   workout: WorkoutDTO;
   dateKey: string;
+  streak?: number | null;
   onCopy: () => void;
   onMove: () => void;
   onEnterSelectMode: () => void;
@@ -93,8 +95,9 @@ export function WorkoutHeaderCard({
   useTicker(active);
 
   const sets = workout.exercises.flatMap((we) => we.sets);
-  const volume = totalVolume(sets);
-  const distance = sets.reduce((sum, s) => sum + (s.distance ?? 0), 0);
+  const doneSets = sets.filter((s) => s.isComplete);
+  const volume = totalVolume(doneSets); // performed work only — planned sets don't count
+  const distance = doneSets.reduce((sum, s) => sum + (s.distance ?? 0), 0);
   const durationSec =
     workout.startAt
       ? Math.max(
@@ -154,8 +157,9 @@ export function WorkoutHeaderCard({
             <CalendarDays className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 truncate text-base font-bold sm:text-lg">
-              {formatDayLong(dateKey)}
+            <h2 className="flex items-center gap-2 text-base font-bold sm:text-lg">
+              <span className="truncate sm:hidden">{formatDayLabel(dateKey)}</span>
+              <span className="hidden truncate sm:inline">{formatDayLong(dateKey)}</span>
               {isToday(dateKey) && (
                 <span className="shrink-0 rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-primary-foreground shadow-sm">
                   Today
@@ -220,12 +224,21 @@ export function WorkoutHeaderCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1.5 text-xs font-semibold">
-          <Flame className="h-3.5 w-3.5 text-primary" />
-          <span className="numeric">{Math.round(volume).toLocaleString()}</span> kg volume
-        </span>
+        {streak != null && streak > 0 && isToday(dateKey) && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-600 dark:text-amber-400"
+            title="Consecutive training days (all time)"
+          >
+            <Flame className="h-3.5 w-3.5" />
+            <span className="numeric">{streak}</span>-day streak
+          </span>
+        )}
         <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1.5 text-xs font-semibold">
           <Dumbbell className="h-3.5 w-3.5 text-primary" />
+          <span className="numeric">{Math.round(volume).toLocaleString()}</span> kg done
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1.5 text-xs font-semibold">
+          <Layers className="h-3.5 w-3.5 text-primary" />
           <span className="numeric">{workout.exercises.length}</span> ex · <span className="numeric">{sets.length}</span> sets
         </span>
         {distance > 0 && (

@@ -42,7 +42,7 @@ const PERIODS: Array<{ value: "week" | "month" | "year" | "all"; label: string }
 /** Compact display for big numbers: 427669 → 427.7k, 1322136 → 1.32M */
 function compact(n: number): string {
   if (n >= 1_000_000) return `${round2(n / 1_000_000)}M`;
-  if (n >= 100_000) return `${round1(n / 1000)}k`;
+  if (n >= 10_000) return `${round1(n / 1000)}k`;
   return round1(n);
 }
 
@@ -145,7 +145,7 @@ export function InsightsView() {
 
       {/* highlights */}
       {stats && stats.workouts > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -207,6 +207,45 @@ export function InsightsView() {
               ) : (
                 <p className="mt-2 text-sm text-muted-foreground">No volume logged yet</p>
               )}
+            </Card>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <Card className="h-full rounded-2xl border-amber-500/30 bg-amber-500/5 p-4">
+              <div className="flex items-center gap-2">
+                <Flame className="h-4 w-4 text-amber-500" />
+                <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  Training streak
+                </h3>
+              </div>
+              <div className="mt-2 flex items-end gap-3">
+                <div>
+                  <p className="text-2xl font-black tracking-tight numeric">
+                    {stats.streak.current}
+                    <span className="ml-1 text-sm font-bold text-muted-foreground">
+                      day{stats.streak.current === 1 ? "" : "s"}
+                    </span>
+                  </p>
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">current</p>
+                </div>
+                <div className="border-l border-border/70 pl-3">
+                  <p className="text-2xl font-black tracking-tight numeric">
+                    {stats.streak.longest}
+                    <span className="ml-1 text-sm font-bold text-muted-foreground">
+                      day{stats.streak.longest === 1 ? "" : "s"}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">personal best</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {stats.streak.current > 0
+                  ? "Keep it alive — log a set today."
+                  : "Log a workout today to start a new streak."}
+              </p>
             </Card>
           </motion.div>
         </div>

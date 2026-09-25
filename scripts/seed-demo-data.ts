@@ -54,7 +54,7 @@ function rand(): number {
 }
 const noise = (amp: number) => (rand() - 0.5) * 2 * amp;
 const r1 = (n: number) => Math.round(n * 10) / 10;
-const r2d = (n: number) => Math.round(n * 2.5) * 2.5; // nearest 2.5kg
+const r2d = (n: number) => Math.round(n / 2.5) * 2.5; // nearest 2.5kg
 
 // ---------- date helpers (UTC day keys) ----------
 function dayKey(d: Date): string {
@@ -208,10 +208,18 @@ async function main() {
       const progress = ex.weeklyGain * day.weekIndex;
       const deloadFactor = isDeload ? 0.9 : 1;
       for (let s = 0; s < ex.sets; s++) {
+        const reps = Math.max(3, ex.repPattern[s] + Math.round(noise(0.8)));
+        if (ex.startWeight === 0) {
+          // bodyweight exercise — reps only
+          await api(`/api/workouts/${workout.id}/exercises/${weId}/sets`, "POST", {
+            reps,
+            isComplete: true,
+          });
+          continue;
+        }
         let weight = (ex.startWeight + progress) * deloadFactor + noise(1.2);
         weight = ex.accessory ? r1(weight) : r2d(weight);
         weight = Math.max(weight, 5);
-        const reps = Math.max(3, ex.repPattern[s] + Math.round(noise(0.8)));
         await api(`/api/workouts/${workout.id}/exercises/${weId}/sets`, "POST", {
           weight,
           reps,
@@ -262,6 +270,91 @@ async function main() {
     gCount++;
   }
   console.log(`✓ goals: ${gCount} created`);
+
+  // ---------- exercise polish: rest timers + notes on key lifts ----------
+  const restDefs: Array<{ name: string; restSec: number; notes?: string }> = [
+    { name: "Barbell Bench Press", restSec: 180, notes: "Retract scapula, drive feet, bar to lower chest." },
+    { name: "Deadlift", restSec: 240, notes: "Brace hard, push floor away, neutral spine." },
+    { name: "Barbell Squat", restSec: 210, notes: "Break at hips and knees together, knees track toes." },
+    { name: "Barbell Row", restSec: 150 },
+    { name: "Dumbbell Bench Press", restSec: 120 },
+    { name: "Lat Pulldown", restSec: 90 },
+    { name: "Leg Press", restSec: 150 },
+    { name: "Treadmill Run", restSec: 0, notes: "Zone 2 pace — should be able to hold a conversation." },
+  ];
+  let rCount = 0;
+  for (const rd of restDefs) {
+    const ex = byName.get(rd.name);
+    if (!ex) continue;
+    await api(`/api/exercises/${ex.id}`, "PATCH", { restSec: rd.restSec, ...(rd.notes ? { notes: rd.notes } : {}) });
+    rCount++;
+  }
+  console.log(`✓ rest timers / notes set on ${rCount} exercises`);
+
+  // ---------- routines (Push / Pull / Legs + Cardio) ----------
+  // Predefined sets target the NEXT progression step after the seeded 13 weeks.
+  const nextW = (t: TemplateExercise) => t.startWeight + t.weeklyGain * 13;
+  const routineDefs: Array<{ name: string; notes: string; template: Template }> = [
+    { name: "Push Day", notes: "Chest · Shoulders · Triceps — heavy compounds first", template: PUSH },
+    { name: "Pull Day", notes: "Back · Biceps — deadlift opens the session", template: PULL },
+    { name: "Leg Day", notes: "Quads · Hamstrings · Calves", template: LEGS },
+    { name: "Conditioning", notes: "Cardio + core finisher", template: CARDIO },
+  ];
+  type RoutineResp = {
+    id: string;
+    days: Array<{ id: string; exercises: Array<{ id: string }> }>;
+  };
+  const createdDays: Array<{ routineName: string; routineId: string; dayId: string }> = [];
+  for (const rd of routineDefs) {
+    const routine = await api<RoutineResp>("/api/routines", "POST", { name: rd.name, notes: rd.notes });
+    let dayResp = await api<RoutineResp>(`/api/routines/${routine.id}/days`, "POST", { name: rd.name });
+    const dayId = dayResp.days[dayResp.days.length - 1].id;
+    for (const t of rd.template.exercises) {
+      const ex = byName.get(t.name)!;
+      dayResp = await api<RoutineResp>(`/api/routines/${routine.id}/days/${dayId}/exercises`, "POST", {
+        exerciseId: ex.id,
+      });
+      const reId = dayResp.days[dayResp.days.length - 1].exercises.slice(-1)[0].id;
+      if (ex.type === "DISTANCE_TIME") {
+        await api(`/api/routines/${routine.id}/days/${dayId}/exercises/${reId}/sets`, "POST", {
+          distance: 6.5,
+          timeSec: 1620,
+        });
+      } else if (ex.type === "WEIGHT_REPS" && t.startWeight > 0) {
+        for (let s = 0; s < t.sets; s++) {
+          await api(`/api/routines/${routine.id}/days/${dayId}/exercises/${reId}/sets`, "POST", {
+            weight: t.accessory ? r1(nextW(t)) : r2d(nextW(t)),
+            reps: t.repPattern[s],
+          });
+        }
+      } else {
+        // bodyweight reps (Hanging Knee Raise)
+        for (let s = 0; s < t.sets; s++) {
+          await api(`/api/routines/${routine.id}/days/${dayId}/exercises/${reId}/sets`, "POST", {
+            reps: t.repPattern[s],
+          });
+        }
+      }
+    }
+    createdDays.push({ routineName: rd.name, routineId: routine.id, dayId });
+    console.log(`✓ routine seeded: ${rd.name}`);
+  }
+
+  // ---------- today's workout from the matching routine ----------
+  const dow = today.getUTCDay();
+  const dayFor: Record<number, string> = { 1: "Push Day", 3: "Pull Day", 5: "Leg Day" };
+  const routineName = dayFor[dow] ?? "Push Day";
+  const todayDay = createdDays.find((d) => d.routineName === routineName);
+  if (todayDay) {
+    const key = dayKey(today);
+    const existingToday = await api<{ workout: { exercises: unknown[] } | null }>(`/api/workouts?date=${key}`, "GET");
+    if (!existingToday.workout || existingToday.workout.exercises.length === 0) {
+      await api(`/api/routines/${todayDay.routineId}/log`, "POST", { dayId: todayDay.dayId, date: key });
+      console.log(`✓ today's workout seeded from routine "${routineName}" (prefilled blank sets)`);
+    } else {
+      console.log("→ today already has a workout — leaving it");
+    }
+  }
 
   console.log("🎉 demo data seeding complete");
 }

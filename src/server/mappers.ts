@@ -128,6 +128,7 @@ export function mapWorkoutSummary(
       if (we.exercise.category) cats.set(we.exercise.category.id, { name: we.exercise.category.name, colour: we.exercise.category.colour });
     }
     for (const s of we.sets) {
+      if (!s.isComplete) continue; // planned/blank sets are not performed work
       setCount++;
       volume += (s.weight ?? 0) * (s.reps ?? 0);
       distance += s.distance ?? 0;

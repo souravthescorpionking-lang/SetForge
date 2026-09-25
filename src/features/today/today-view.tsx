@@ -15,7 +15,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Dumbbell, Flame, Link2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/client/store";
-import { ApiError, exercisesApi, workoutsApi } from "@/lib/client/api";
+import { ApiError, exercisesApi, statsApi, workoutsApi } from "@/lib/client/api";
 import { qk, useInvalidate, useOnline, useWorkoutByDate } from "@/lib/client/query";
 import { addDaysKey, todayKey } from "@/lib/client/format";
 import type { WorkoutGroupDTO } from "@/lib/types";
@@ -71,6 +71,14 @@ export function TodayView() {
     staleTime: 30_000,
   });
   const hasPrevious = (previousWorkouts.data?.workouts.length ?? 0) > 0;
+
+  // current streak (all time) — feeds the header flame chip
+  const streakQuery = useQuery({
+    queryKey: qk.stats("all"),
+    queryFn: () => statsApi.get("all"),
+    staleTime: 60_000,
+    select: (s) => s.streak?.current ?? 0,
+  });
 
   // ---------- ui state ----------
   const [trainingWeId, setTrainingWeId] = useState<string | null>(null);
@@ -276,6 +284,7 @@ export function TodayView() {
               <WorkoutHeaderCard
                 workout={workout}
                 dateKey={dateKey}
+                streak={streakQuery.data ?? null}
                 onCopy={() => setCopyOpen(true)}
                 onMove={() => setMoveOpen(true)}
                 onEnterSelectMode={() => {

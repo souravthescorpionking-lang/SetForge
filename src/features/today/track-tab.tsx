@@ -10,11 +10,12 @@ import { FileText, Star, Timer, Trophy, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { exercisesApi, workoutsApi } from "@/lib/client/api";
 import { qk, useInvalidate } from "@/lib/client/query";
-import { formatDayShort, round1, setSummary } from "@/lib/client/format";
+import { dayKeyOf, formatDayShort, round1, setSummary } from "@/lib/client/format";
 import { fieldsForType } from "@/lib/constants";
 import type { SetDTO, SettingsDTO, WorkoutDTO, WorkoutExerciseDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { EMPTY_SET_VALUES, SetInputRow, type SetValues } from "./set-input-row";
+import { WarmupPopover } from "./warmup-popover";
 import { SetsList } from "./sets-list";
 import { useRestTimer } from "./rest-timer";
 import { useMutate } from "./use-mutate";
@@ -293,7 +294,7 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
         <span className="flex-1" />
         {lastSets.data?.date && !dirty && !selectedSet && (
           <span className="text-[11px] text-muted-foreground">
-            prefill from {formatDayShort(lastSets.data.date)}
+            prefill from {formatDayShort(dayKeyOf(lastSets.data.date))}
           </span>
         )}
       </div>
@@ -318,6 +319,25 @@ export function TrackTab({ workout, we, settings, nextWe, groupNextWe, onSwitchE
           >
             {saving ? "Saving…" : selectedSet ? `Update Set ${selectedSet.sortOrder + 1}` : "Save Set"}
           </Button>
+          {fields.includes("weight") && (values.weight ?? 0) > 0 && (
+            <WarmupPopover
+              targetWeight={values.weight!}
+              step={ex.weightIncrement ?? settings.defaultWeightIncrement}
+              disabled={saving}
+              onLog={async (w, reps) => {
+                await mutate({
+                  label: "Warm-up set logged",
+                  run: () => workoutsApi.addSet(workout.id, we.id, { weight: w, reps, isComplete: true }),
+                  queue: {
+                    path: `/api/workouts/${workout.id}/exercises/${we.id}/sets`,
+                    method: "POST",
+                    body: { weight: w, reps, isComplete: true },
+                  },
+                });
+                toast.success(`Warm-up: ${w}kg × ${reps}`);
+              }}
+            />
+          )}
           <Button size="lg" variant="outline" className="h-13 rounded-xl px-4" onClick={clear} aria-label="Clear inputs">
             Clear
           </Button>

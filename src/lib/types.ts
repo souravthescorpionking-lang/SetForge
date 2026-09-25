@@ -232,6 +232,7 @@ export type StatsDTO = {
   maxVolumeDay: { value: number; date: string } | null;
   perExercise: StatsPerExerciseDTO[];
   workoutDates: string[];
+  streak: { current: number; longest: number };
 };
 
 export type HistoryEntryDTO = {

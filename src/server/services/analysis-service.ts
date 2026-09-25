@@ -13,7 +13,7 @@ type SetLike = { weight: number | null; reps: number | null; distance: number | 
 async function allSetsForExercise(userId: string, exerciseId: string): Promise<SetLike[]> {
   const wes = await db.workoutExercise.findMany({
     where: { userId, exerciseId },
-    include: { workout: { select: { date: true } }, sets: true },
+    include: { workout: { select: { date: true } }, sets: { where: { isComplete: true } } },
   });
   const out: SetLike[] = [];
   for (const we of wes) {
@@ -181,6 +181,40 @@ export async function getGraph(
 
 // ---------- stats ----------
 
+/** Current + longest training-day streak from all performed workouts (all time).
+ *  A streak day = a workout with at least one completed set. Consecutive
+ *  calendar days count; the current streak stays alive if today has no
+ *  workout yet but yesterday does. */
+async function computeStreak(userId: string): Promise<{ current: number; longest: number }> {
+  const rows = await db.workout.findMany({
+    where: { userId, exercises: { some: { sets: { some: { isComplete: true } } } } },
+    select: { date: true },
+  });
+  const days = new Set(rows.map((r) => dayKey(r.date)));
+  if (days.size === 0) return { current: 0, longest: 0 };
+
+  // longest streak
+  const sorted = [...days].sort();
+  let longest = 1;
+  let run = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(`${sorted[i - 1]}T00:00:00.000Z`).getTime();
+    const cur = new Date(`${sorted[i]}T00:00:00.000Z`).getTime();
+    run = cur - prev === 86400000 ? run + 1 : 1;
+    if (run > longest) longest = run;
+  }
+
+  // current streak: walk back from today (or yesterday when today is not yet logged)
+  const today = todayDayUtc();
+  let cursor = days.has(dayKey(today)) ? today : addDays(today, -1);
+  let current = 0;
+  while (days.has(dayKey(cursor))) {
+    current++;
+    cursor = addDays(cursor, -1);
+  }
+  return { current, longest: Math.max(longest, current) };
+}
+
 export async function getStats(userId: string, opts: { period: string; from?: string; to?: string }) {
   let from: Date | null = null;
   let to: Date | null = null;
@@ -227,6 +261,7 @@ export async function getStats(userId: string, opts: { period: string; from?: st
   let distance = 0;
   let maxWeight: { value: number; date: string; exerciseName: string } | null = null;
   let maxVolumeDay: { value: number; date: string } | null = null;
+  const activeDays: string[] = [];
   const perExercise = new Map<
     string,
     { exerciseId: string; name: string; categoryColour?: string; setCount: number; volume: number; reps: number }
@@ -234,11 +269,16 @@ export async function getStats(userId: string, opts: { period: string; from?: st
 
   for (const w of workouts) {
     let dayVolume = 0;
+    let performedSets = 0;
     if (w.startAt && w.endAt) durationSec += Math.max(0, (w.endAt.getTime() - w.startAt.getTime()) / 1000);
     for (const we of w.exercises) {
       let exVolume = 0;
       let exReps = 0;
+      let exSetCount = 0;
       for (const s of we.sets) {
+        if (!s.isComplete) continue; // planned/blank sets don't count as work
+        performedSets++;
+        exSetCount++;
         setCount++;
         const v = (s.weight ?? 0) * (s.reps ?? 0);
         volume += v;
@@ -259,13 +299,16 @@ export async function getStats(userId: string, opts: { period: string; from?: st
         volume: 0,
         reps: 0,
       };
-      cur.setCount += we.sets.length;
+      cur.setCount += exSetCount;
       cur.volume += exVolume;
       cur.reps += exReps;
       perExercise.set(we.exerciseId, cur);
     }
-    if (dayVolume > 0 && (!maxVolumeDay || dayVolume > maxVolumeDay.value)) {
-      maxVolumeDay = { value: dayVolume, date: w.date.toISOString() };
+    if (performedSets > 0) {
+      activeDays.push(dayKey(w.date));
+      if (dayVolume > 0 && (!maxVolumeDay || dayVolume > maxVolumeDay.value)) {
+        maxVolumeDay = { value: dayVolume, date: w.date.toISOString() };
+      }
     }
   }
 
@@ -273,7 +316,7 @@ export async function getStats(userId: string, opts: { period: string; from?: st
     period: opts.period,
     from: from?.toISOString() ?? null,
     to: to?.toISOString() ?? null,
-    workouts: workouts.length,
+    workouts: activeDays.length,
     setCount,
     volume: Math.round(volume * 100) / 100,
     reps,
@@ -282,7 +325,8 @@ export async function getStats(userId: string, opts: { period: string; from?: st
     maxWeight,
     maxVolumeDay,
     perExercise: [...perExercise.values()].sort((a, b) => b.volume - a.volume),
-    workoutDates: workouts.map((w) => dayKey(w.date)),
+    workoutDates: activeDays,
+    streak: await computeStreak(userId),
   };
 }
 

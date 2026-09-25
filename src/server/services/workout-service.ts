@@ -34,6 +34,7 @@ export async function recomputePRs(
       workoutExercise: { exerciseId },
       weight: { not: null },
       reps: { not: null },
+      isComplete: true, // only performed sets hold records
     },
     include: { workoutExercise: { include: { workout: true } } },
     orderBy: { createdAt: "asc" },
