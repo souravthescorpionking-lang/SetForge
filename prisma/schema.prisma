@@ -1,0 +1,380 @@
+// SetForge — workout tracker data model
+// Portable schema: no vendor extensions, no DB-side logic (DDL only).
+// IDs are UUIDv7 generated app-side (src/lib/uuid7.ts) — schema defaults are fallback only.
+// Note: sandbox uses SQLite; enums are stored as strings (validated app-side by Zod).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth ----------
+
+model User {
+  id           String   @id
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings     UserSettings?
+  categories   Category[]
+  exercises    Exercise[]
+  workouts     Workout[]
+  routines     Routine[]
+  measurements Measurement[]
+  plates       Plate[]
+  goals        Goal[]
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expiresAt  DateTime
+
+  @@id([identifier, token])
+}
+
+// ---------- User config ----------
+
+model UserSettings {
+  id                    String  @id
+  userId                String  @unique
+  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme                 String  @default("system") // light | dark | system
+  unitSystem            String  @default("metric") // metric | imperial
+  weekStart             Int     @default(1) // 0=Sunday 1=Monday
+  defaultWeightIncrement Float  @default(2.5)
+  homeSetsShown         Int     @default(3)
+  showCategory          Boolean @default(true)
+  trackPR               Boolean @default(true)
+  markSetsComplete      Boolean @default(false)
+  autoSelectNextSet     Boolean @default(true)
+  keepScreenOn          Boolean @default(false)
+  estOneRmRepLimit      Int     @default(10)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ---------- Exercise catalogue ----------
+
+model Category {
+  id        String    @id
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  colour    String    @default("#f97316")
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  exercises Exercise[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Exercise {
+  id              String    @id
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId      String
+  category        Category  @relation(fields: [categoryId], references: [id])
+  name            String
+  notes           String?
+  type            String    @default("WEIGHT_REPS") // ExerciseType
+  weightUnit      String? // override: kg | lbs (null = settings default)
+  weightIncrement Float? // per-exercise stepper increment
+  restSec         Int? // default rest timer
+  defaultGraph    String? // preferred graph metric
+  isFavorite      Boolean   @default(false)
+  barWeight       Float? // per-exercise bar weight for plate calculator
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  workoutExercises WorkoutExercise[]
+  routineExercises RoutineExercise[]
+  personalRecords  PersonalRecord[]
+  goals            Goal[]
+
+  @@unique([userId, name])
+  @@index([userId, categoryId])
+}
+
+// ---------- Workouts ----------
+
+model Workout {
+  id        String    @id
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime // UTC midnight of the workout day
+  comment   String?
+  startAt   DateTime?
+  endAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  exercises WorkoutExercise[]
+  groups    WorkoutGroup[]
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model WorkoutGroup {
+  id        String          @id
+  userId    String
+  workoutId String
+  workout   Workout         @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  name      String
+  colour    String          @default("#f97316")
+  createdAt DateTime        @default(now())
+
+  exercises WorkoutExercise[]
+
+  @@index([workoutId])
+}
+
+model WorkoutExercise {
+  id         String   @id
+  userId     String
+  workoutId  String
+  workout    Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id])
+  sortOrder  Int      @default(0)
+  groupId    String?
+  group      WorkoutGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  sets TrainingSet[]
+
+  @@index([workoutId])
+  @@index([exerciseId])
+}
+
+model TrainingSet {
+  id                String          @id
+  userId            String
+  workoutExerciseId String
+  workoutExercise   WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+  weight            Float?
+  reps              Int?
+  distance          Float?
+  timeSec           Int?
+  comment           String?
+  isComplete        Boolean         @default(false)
+  sortOrder         Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  personalRecords PersonalRecord[]
+
+  @@index([workoutExerciseId])
+}
+
+model PersonalRecord {
+  id         String   @id
+  userId     String
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  reps       Int
+  weight     Float
+  setId      String?  @unique
+  set        TrainingSet? @relation(fields: [setId], references: [id], onDelete: SetNull)
+  date       DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([exerciseId, reps])
+  @@index([userId, exerciseId])
+}
+
+// ---------- Routines ----------
+
+model Routine {
+  id        String    @id
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  notes     String?
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  days RoutineDay[]
+  groups RoutineGroup[]
+
+  @@index([userId])
+}
+
+model RoutineDay {
+  id         String   @id
+  userId     String
+  routineId  String
+  routine    Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  name       String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  exercises RoutineExercise[]
+
+  @@index([routineId])
+}
+
+model RoutineGroup {
+  id        String           @id
+  userId    String
+  routineId String
+  routine   Routine          @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  name      String
+  colour    String           @default("#f97316")
+  exercises RoutineExercise[]
+
+  @@index([routineId])
+}
+
+model RoutineExercise {
+  id         String    @id
+  userId     String
+  dayId      String
+  day        RoutineDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise  @relation(fields: [exerciseId], references: [id])
+  sortOrder  Int       @default(0)
+  groupId    String?
+  group      RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  sets PredefinedSet[]
+
+  @@index([dayId])
+  @@index([exerciseId])
+}
+
+model PredefinedSet {
+  id                String          @id
+  routineExerciseId String
+  routineExercise   RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+  weight            Float?
+  reps              Int?
+  distance          Float?
+  timeSec           Int?
+  sortOrder         Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([routineExerciseId])
+}
+
+// ---------- Goals ----------
+
+model Goal {
+  id             String   @id
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId     String
+  exercise       Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  type           String // ONE_RM | MAX_WEIGHT | MAX_REPS | MAX_DISTANCE | MAX_TIME | VOLUME
+  targetWeight   Float?
+  targetReps     Int?
+  targetDistance Float?
+  targetTimeSec  Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ---------- Body measurements ----------
+
+model MeasurementUnit {
+  id     String  @id
+  userId String? // null = system unit
+  name   String
+
+  measurements Measurement[]
+
+  @@unique([userId, name])
+}
+
+model Measurement {
+  id          String   @id
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unitId      String
+  unit        MeasurementUnit @relation(fields: [unitId], references: [id])
+  name        String
+  goalType    String   @default("NONE") // INCREASE | DECREASE | SPECIFIC | NONE
+  targetValue Float?
+  isEnabled   Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  records MeasurementRecord[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model MeasurementRecord {
+  id            String      @id
+  userId        String
+  measurementId String
+  measurement   Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+  value         Float
+  recordedAt    DateTime
+  comment       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([measurementId])
+}
+
+// ---------- Plates ----------
+
+model Plate {
+  id         String  @id
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weight     Float
+  colour     String  @default("#9ca3af")
+  count      Int     @default(2)
+  isAvailable Boolean @default(true)
+  unitSystem String  @default("metric") // metric | imperial
+  sortOrder  Int     @default(0)
+
+  @@index([userId, unitSystem])
+}
+
+// ---------- System ----------
+
+model SystemMeta {
+  key   String @id
+  value String
+}
