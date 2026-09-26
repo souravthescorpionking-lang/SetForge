@@ -1,25 +1,51 @@
-// Auth: scrypt password hashing + opaque database sessions.
-// No vendor SDKs — auth lives in the same database as all other data.
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+// Auth: Argon2id password hashing (hash-wasm, pure WASM — no native deps) with
+// transparent migration of legacy scrypt hashes on successful login.
+// Sessions are opaque tokens in the same database as all other data — no vendor SDKs.
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { SESSION_COOKIE } from "@/lib/constants";
 import { uuid7 } from "@/lib/uuid7";
+import { argon2id, argon2Verify } from "hash-wasm";
 
+// OWASP-recommended Argon2id parameters for web applications.
+const ARGON2_PARAMS = { parallelism: 1, iterations: 3, memorySize: 19456, hashLength: 32, outputType: "encoded" } as const;
+
+// Legacy scrypt parameters (kept only for verification + migration).
 const SCRYPT_N = 16384;
 const SCRYPT_r = 8;
 const SCRYPT_p = 1;
 const KEYLEN = 64;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, KEYLEN, { N: SCRYPT_N, r: SCRYPT_r, p: SCRYPT_p }).toString("hex");
-  return `scrypt$${SCRYPT_N}$${SCRYPT_r}$${SCRYPT_p}$${salt}$${hash}`;
+/** Hash a password with Argon2id → `$argon2id$v=19$m=19456,t=3,p=1$...` */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  return argon2id({ password, salt, ...ARGON2_PARAMS });
 }
 
-export function verifyPassword(password: string, stored: string | null): boolean {
-  if (!stored) return false;
+/** True when the stored hash is a legacy scrypt digest that should be upgraded. */
+export function isLegacyHash(stored: string | null): boolean {
+  return !!stored && stored.startsWith("scrypt$");
+}
+
+/** Verify against Argon2id or legacy scrypt; returns [ok, needsUpgrade]. */
+export async function verifyPassword(password: string, stored: string | null): Promise<{ ok: boolean; needsUpgrade: boolean }> {
+  if (!stored) return { ok: false, needsUpgrade: false };
+  if (stored.startsWith("$argon2")) {
+    try {
+      return { ok: await argon2Verify({ password, hash: stored }), needsUpgrade: false };
+    } catch {
+      return { ok: false, needsUpgrade: false };
+    }
+  }
+  if (stored.startsWith("scrypt$")) {
+    return { ok: verifyScrypt(password, stored), needsUpgrade: true };
+  }
+  return { ok: false, needsUpgrade: false };
+}
+
+function verifyScrypt(password: string, stored: string): boolean {
   const parts = stored.split("$");
   if (parts.length !== 6 || parts[0] !== "scrypt") return false;
   const [, N, r, p, salt, hash] = parts;
@@ -34,6 +60,11 @@ export function verifyPassword(password: string, stored: string | null): boolean
   } catch {
     return false;
   }
+}
+
+/** Hash a token for storage (reset tokens are stored hashed, never plaintext). */
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export type SessionUser = {

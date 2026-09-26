@@ -32,6 +32,7 @@ model User {
   goals        Goal[]
   timerPresets TimerPreset[]
   sessions     Session[]
+  resetTokens  PasswordResetToken[]
 }
 
 model Session {
@@ -51,6 +52,19 @@ model VerificationToken {
   expiresAt  DateTime
 
   @@id([identifier, token])
+}
+
+// Password reset tokens (audit B8): stored SHA-256 hashed, single-use, 1h TTL.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // ---------- User config ----------
@@ -107,7 +121,7 @@ model Exercise {
   userId          String
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryId      String
-  category        Category  @relation(fields: [categoryId], references: [id])
+  category        Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   name            String
   notes           String?
   type            String    @default("WEIGHT_REPS") // ExerciseType
@@ -175,7 +189,7 @@ model WorkoutExercise {
   workoutId  String
   workout    Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   exerciseId String
-  exercise   Exercise @relation(fields: [exerciseId], references: [id])
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
   sortOrder  Int      @default(0)
   groupId    String?
   group      WorkoutGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
@@ -285,7 +299,7 @@ model RoutineExercise {
   dayId      String
   day        RoutineDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
   exerciseId String
-  exercise   Exercise  @relation(fields: [exerciseId], references: [id])
+  exercise   Exercise  @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
   sortOrder  Int       @default(0)
   groupId    String?
   group      RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
@@ -354,7 +368,7 @@ model Measurement {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   unitId      String
-  unit        MeasurementUnit @relation(fields: [unitId], references: [id])
+  unit        MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
   name        String
   goalType    String   @default("NONE") // INCREASE | DECREASE | SPECIFIC | NONE
   targetValue Float?

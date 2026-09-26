@@ -2,7 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/lib/constants";
 
-const EXEMPT = ["/api/health", "/api/auth/login", "/api/auth/signup", "/api/auth/logout", "/api/auth/session"];
+const EXEMPT = [
+  "/api/health",
+  "/api/auth/login",
+  "/api/auth/signup",
+  "/api/auth/logout",
+  "/api/auth/session",
+  "/api/auth/reset",
+];
 
 export default function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

@@ -1,9 +1,11 @@
-// Boot sequence: validate env → connect (retries + backoff) → seed system data → verify → mark.
+// Boot sequence: validate env → auto-migrate (prod) → connect (retries + backoff) →
+// one-time data copy (DB_MIGRATE_FROM_URL) → seed system data → verify → mark.
 // Invoked from instrumentation.ts on server start. Never serves half-initialised state:
 // in production a boot failure is fatal; in dev it degrades to loud logging + /api/health reports fail.
 import { db } from "@/lib/db";
 import { getEnv, normaliseDatabaseUrl } from "./env";
 import { seedSystemData } from "./seed";
+import { copyDatabase } from "./db-portability";
 
 let bootPromise: Promise<BootResult> | null = null;
 
@@ -36,6 +38,50 @@ async function connectWithRetry(retries: number, backoffMs: number): Promise<str
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
+/**
+ * `prisma migrate deploy` on boot (audit A6). Runs in production only — in dev
+ * the sandbox database is managed with `db:push`/`db:migrate` (documented in README).
+ * An advisory lock (pg_advisory_lock, Postgres only) prevents concurrent runners
+ * during multi-replica boots; SQLite is single-writer by design.
+ */
+async function autoMigrate(env: ReturnType<typeof getEnv>): Promise<void> {
+  if (!env.DB_AUTO_MIGRATE) return;
+  if (env.NODE_ENV !== "production") {
+    console.log("[bootstrap] DB_AUTO_MIGRATE skipped in dev (use `bun run db:migrate` / `db:push`)");
+    return;
+  }
+  const url = normaliseDatabaseUrl(env.DIRECT_DATABASE_URL ?? env.DATABASE_URL, env.DATABASE_SSL);
+  const { spawn } = await import("node:child_process");
+  let lockAcquired = false;
+  if (url.startsWith("postgres")) {
+    try {
+      // Advisory lock keyed on a constant — released on session end / error.
+      await db.$queryRawUnsafe("SELECT pg_advisory_lock(hashtext('setforge-migrate'))");
+      lockAcquired = true;
+      console.log("[bootstrap] acquired migration advisory lock");
+    } catch {
+      console.warn("[bootstrap] advisory lock unavailable — proceeding without it");
+    }
+  }
+  console.log(`[bootstrap] running prisma migrate deploy against ${url.replace(/:[^:@/]*@/, ":***@")}`);
+  try {
+    const exitCode = await new Promise<number>((resolve) => {
+      const child = spawn("bunx", ["prisma", "migrate", "deploy", "--schema=prisma/schema.prisma"], {
+        env: { ...process.env, DATABASE_URL: url },
+        stdio: "inherit",
+      });
+      child.on("error", () => resolve(1));
+      child.on("exit", (code) => resolve(code ?? 0));
+    });
+    if (exitCode !== 0) throw new Error(`prisma migrate deploy exited with ${exitCode}`);
+    console.log("[bootstrap] migrations applied");
+  } finally {
+    if (lockAcquired) {
+      await db.$queryRawUnsafe("SELECT pg_advisory_unlock(hashtext('setforge-migrate'))").catch(() => undefined);
+    }
+  }
+}
+
 async function runBootstrap(): Promise<BootResult> {
   const env = getEnv();
   const started = Date.now();
@@ -43,8 +89,14 @@ async function runBootstrap(): Promise<BootResult> {
   console.log(
     `[bootstrap] db target: ${normaliseDatabaseUrl(env.DATABASE_URL, env.DATABASE_SSL).replace(/:[^:@/]*@/, ":***@")}`,
   );
-  if (env.DB_MIGRATE_FROM_URL) {
-    console.log("[bootstrap] DB_MIGRATE_FROM_URL set — one-time data copy will run if the target is empty");
+
+  // 0) auto-migrate (production boots; advisory-locked)
+  try {
+    await autoMigrate(env);
+  } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    console.error("[bootstrap] auto-migrate failed:", err);
+    if (env.NODE_ENV === "production") process.exit(1);
   }
 
   // 1) connect with retries
@@ -55,6 +107,17 @@ async function runBootstrap(): Promise<BootResult> {
     console.error("[bootstrap] DB connection failed:", err);
     if (env.NODE_ENV === "production") process.exit(1);
     return { db: "fail", migrations: "unknown", version: "", latencyMs: Date.now() - started, bootedAt: Date.now(), error: err };
+  }
+
+  // 1b) one-time data copy (audit A8: DB_MIGRATE_FROM_URL into empty target)
+  if (env.DB_MIGRATE_FROM_URL) {
+    try {
+      await copyDatabase(normaliseDatabaseUrl(env.DB_MIGRATE_FROM_URL, env.DATABASE_SSL), db);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      console.error("[bootstrap] DB_MIGRATE_FROM_URL copy failed:", err);
+      if (env.NODE_ENV === "production") process.exit(1);
+    }
   }
 
   // 2) migrations: applied out-of-band by `prisma migrate deploy` (Docker entrypoint / CI).

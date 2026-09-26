@@ -1,6 +1,8 @@
 "use client";
 
-// App root: providers, hash routing, session gate, offline flush.
+// App root: providers, session bootstrap, legacy store route sync, theme sync,
+// offline flush. The Part 3 application shell (NavPane/NavBar chrome + hash
+// router + screen slots) lives in src/features/shell/app-shell.tsx.
 import { useEffect, useRef } from "react";
 import { useTheme, ThemeProvider } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,29 +10,13 @@ import { useApp } from "@/lib/client/store";
 import { QueryProvider } from "@/lib/client/query";
 import { flushOutbox, isOnline, outboxCount } from "@/lib/client/offline";
 import { PwaBridge } from "@/components/shared/pwa";
-import { AuthView } from "@/features/auth/auth-view";
-import { TopBar, Sidebar, BottomNav } from "@/components/nav-shell";
-import { Flame } from "lucide-react";
-
-// Feature views
-import { TodayView } from "@/features/today/today-view";
-import { WorkoutHistoryView } from "@/features/history/workout-history-view";
-import { ExercisesView } from "@/features/exercises/exercises-view";
-import { ExerciseOverviewView } from "@/features/exercise-overview/exercise-overview-view";
-import { InsightsView } from "@/features/insights/insights-view";
-import { CalendarView } from "@/features/calendar/calendar-view";
-import { RoutinesView } from "@/features/routines/routines-view";
-import { BodyView } from "@/features/body/body-view";
-import { ToolsView } from "@/features/tools/tools-view";
-import { SettingsView } from "@/features/settings/settings-view";
+import { AppShell } from "@/features/shell/app-shell";
 import type { SessionDTO } from "@/lib/types";
 import { toast } from "sonner";
 
 function AppInner({ initialSession }: { initialSession: SessionDTO | null }) {
-  const session = useApp((s) => s.session);
-  const settings = useApp((s) => s.settings);
-  const route = useApp((s) => s.route);
   const setSession = useApp((s) => s.setSession);
+  const settings = useApp((s) => s.settings);
   const setRouteFromHash = useApp((s) => s.setRouteFromHash);
   const { setTheme } = useTheme();
   const qc = useQueryClient();
@@ -44,7 +30,8 @@ function AppInner({ initialSession }: { initialSession: SessionDTO | null }) {
     }
   }, [initialSession, setSession]);
 
-  // hash routing
+  // legacy store route sync — legacy views (and NavBar/NavPane highlighting)
+  // read useApp(s => s.route); keep it in sync with location.hash.
   useEffect(() => {
     setRouteFromHash();
     const onHash = () => setRouteFromHash();
@@ -76,54 +63,7 @@ function AppInner({ initialSession }: { initialSession: SessionDTO | null }) {
     return () => window.removeEventListener("online", onOnline);
   }, [qc]);
 
-  if (!session) {
-    return <AuthView />;
-  }
-
-  const view = (() => {
-    switch (route.view) {
-      case "today":
-        return <TodayView />;
-      case "history":
-        return <WorkoutHistoryView />;
-      case "exercises":
-        return <ExercisesView />;
-      case "exercise-overview":
-        return route.param ? <ExerciseOverviewView exerciseId={route.param} /> : <ExercisesView />;
-      case "insights":
-        return <InsightsView />;
-      case "calendar":
-        return <CalendarView />;
-      case "routines":
-        return <RoutinesView />;
-      case "body":
-        return <BodyView />;
-      case "tools":
-        return <ToolsView />;
-      case "settings":
-        return <SettingsView />;
-      default:
-        return <TodayView />;
-    }
-  })();
-
-  return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <Sidebar />
-      <div className="lg:pl-60 flex flex-col min-h-screen">
-        <TopBar />
-        <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-5 sm:px-6 sm:py-8 pb-28 lg:pb-12">
-          {view}
-        </main>
-        <footer className="mt-auto lg:block hidden">
-          <p className="text-center text-xs text-muted-foreground pb-6">
-            SetForge · Forge every set · offline-ready PWA
-          </p>
-        </footer>
-      </div>
-      <BottomNav />
-    </div>
-  );
+  return <AppShell initialSession={initialSession} />;
 }
 
 export function AppRoot({ initialSession }: { initialSession: SessionDTO | null }) {
@@ -136,5 +76,3 @@ export function AppRoot({ initialSession }: { initialSession: SessionDTO | null 
     </QueryProvider>
   );
 }
-
-export { Flame };

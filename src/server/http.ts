@@ -55,13 +55,22 @@ export function handler<Ctx extends HandlerCtx = HandlerCtx>(
   };
 }
 
-/** Parse a JSON body against a Zod schema (size-limited). */
-export async function parseBody<T>(req: NextRequest, schema: z.ZodType<T>): Promise<T> {
+/** Parse a JSON body against a Zod schema. Size-limited (default 1 MB; import allows 50 MB). */
+export async function parseBody<T>(req: NextRequest, schema: z.ZodType<T>, maxBytes = 1024 * 1024): Promise<T> {
+  const declared = Number(req.headers.get("content-length") || 0);
+  if (declared > maxBytes) {
+    throw new HttpError(413, "PAYLOAD_TOO_LARGE", `Request body exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
+  }
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
     throw badRequest("Body must be valid JSON");
+  }
+  // Re-check actual size (content-length can be absent or spoofed by proxies).
+  const actual = Buffer.byteLength(JSON.stringify(raw ?? null), "utf8");
+  if (actual > maxBytes) {
+    throw new HttpError(413, "PAYLOAD_TOO_LARGE", `Request body exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
   }
   return schema.parse(raw);
 }

@@ -613,3 +613,180 @@ Next-round recommendations (priority):
 3. Plate-calc popover on long-press of WEIGHT cell (PlateHint covers the ghost target only).
 4. Web Worker for background rest timing (interval-based today; tab must stay focused for exact ticks — Wake Lock + Notification already mitigate).
 5. Real-device PWA checks: beforeinstallprompt, MediaSession lock screen, Wake Lock behaviour on a real phone (unverifiable headless).
+
+---
+Task ID: 4
+Agent: main (Z.ai Code) — orchestrator
+Task: REAL Part 3 spec arrived ("BUILD PROMPT — PART 3: FULL SCREEN REWORK. ZERO OVERLAP. ONE CARD SYSTEM."). It supersedes the inferred Part 3 from Task ID 3 (Dialog-fullscreen training + rest overlay will be REPLACED by route-based screens on the new layout system). Begin execution per spec §ORDER OF WORK.
+
+Work Log:
+- Recon: server health 200; git clean (only watchdog/db drift); worklog read through Task 3; 2-a/2-b confirmed landed; agent-browser CLI reference confirmed (set viewport / press / eval / wait / screenshot / find).
+- Built scripts/qa/verify-layout.sh — the §VERIFICATION HARNESS adapted to this platform (agent-browser + single-page hash routing; no Playwright/Storybook/CI exists here): per width [320 360 390 768 1024 1440] checks leaf-element overlap (>1px tolerance), right-edge overflow, document horizontal scroll, [data-row] single-line (scrollHeight<=clientHeight + nowrap), [data-row] heights ∈ {40,48,56,72}; runs at scroll-top AND scroll-bottom of [data-scroll-body]; fixed/sticky/absolute subtrees excluded by design (toasts/badges/popovers/sticky headers); svg roots checkable, svg internals skipped. Smoke-tested on legacy #/today (PASS at 390/1280; legacy has no data-row/data-scroll-body yet, as expected).
+- Platform adaptation decisions (documented deviations): "full-screen routes" implemented as HASH routes under the single Next.js `/` page (user can only see `/`); Storybook → #/dev showcase screen with screenshots; Lighthouse/CI → agent-browser gates per screen; lint token rules → src/lib/ui/tokens.ts constants + final grep audit.
+- Execution plan (subagent task IDs): p3-1 foundation (layout primitives + shell + hash router + screen slots) → p3-2 unified SetRow + ExerciseCard + #/dev showcase → p3-3 Today → p3-4 Training(3 tabs)+Exercise Picker → p3-5 Routines cluster → p3-6 Calendar+History → p3-7 Body+Records/Stats/Goals → p3-8 Settings/Account/Auth+Tools → p3-9 legacy deletion + FORBIDDEN grep audit + full harness sweep. Gates run per screen before acceptance.
+
+Stage Summary:
+- Harness + plan in place; dispatching p3-1 now. URL contract: #/today, #/today/{exerciseId}, #/calendar, #/calendar/filters, #/history, #/exercises, #/routines, #/routines/{id}, #/routines/{id}/log/{dayId}, #/routines/{id}/exercise/{reId}, #/body, #/insights, #/tools, #/settings, #/auth, #/dev. Screen slot files will live in src/features/screens/ so router never needs edits when screens are rebuilt.
+
+---
+Task ID: p3-1
+Agent: subagent (full-stack-developer) — gate completed by orchestrator after agent's result channel timed out
+Task: Part 3 ORDER OF WORK step 1 — layout primitives + app shell + hash router + 16 screen slot files
+
+Work Log:
+- Created src/components/layout/: Screen, TopBar (56px), SubBar (48px), ScrollBody (flex-1 min-h-0 overflow-y-auto, data-scroll-body attr, max-w-[720px] inner / lg 1100px), BottomBar (56px), NavBar (64px + safe-area, grid-cols-6, lg:hidden, destinations Today/Calendar/Routines/Body/Insights/Settings), NavPane (desktop 360px, all 9 destinations, user chip), use-hash-segment hook, index barrel.
+- Created src/features/shell/: router.ts (typed hash router, full URL contract incl. transitional #/exercise-overview/{id}, hydration-safe, unknown→#/today, query strings preserved), app-shell.tsx (auth gate with SSR-session trust, desktop NavPane|right-pane, mobile screen stack), stub-screen.tsx.
+- Created src/features/screens/*.tsx — 17 slots: 10 legacy pass-throughs (today/calendar/history/exercises-picker/routines/body/records-insights/tools/settings/auth) + 7 new-primitives stubs (training, calendar-filters, routine-detail, log-day, predefined-editor, dev-showcase, exercise-overview pass-through).
+- Rewrote src/components/app-root.tsx to render the new shell (session/theme/PWA providers preserved); page.tsx untouched.
+- Created src/lib/ui/tokens.ts (spacing 4/8/12/16/24/32, row heights 40/48/56/72, bar heights, radius 8, shared row class strings).
+- ORCHESTRATOR GATE (verified after timeout): health 200; harness #/today PASS 320/390/768/1440 (overlap 0, rightEdge 0, hscroll false); stubs #/today/{id} PASS 320/390/1024 and #/routines/{id} PASS 390/1440; all 12 routes render non-blank; NavBar bottom 65px on mobile / hidden ≥lg; NavPane exactly 360px flex on desktop; auth round-trip logout→#/auth→login→#/today with content; bunx eslint on all new dirs exit 0; screenshots download/qa-p3-1-{today-390,shell-1024,shell-1440}.png.
+
+Stage Summary:
+- Foundation landed: every screen now composes through the shared shell + router; screens get rebuilt by replacing only src/features/screens/*.tsx files. RouteParams: exerciseId / routineId / dayId / reId (+Route.query). NavBar = 6 items (History/Exercises/Tools reachable via NavPane on desktop + legacy headers on mobile until their screens are rebuilt).
+
+---
+Task ID: p3-2
+Agent: subagent (full-stack-developer) — gate completed by orchestrator after agent's result channel timed out
+Task: Part 3 ORDER OF WORK step 2 — the single source of truth components: SetRow + ExerciseCard (5 modes) + #/dev showcase
+
+Work Log:
+- Created src/components/set-row/set-row.tsx (889 lines; exports SetRow + SetRowProps) + viewport.ts (useViewportWidth hook).
+- Created src/components/exercise-card/card-types.ts (CardMode/CardExercise/CardSet/CardVisibleColumns/CardAction/toCardSet + field formatting/parsing/stepping helpers) + exercise-card.tsx (exports ExerciseCard + ExerciseCardProps, re-exports card types + toCardSet).
+- Replaced src/features/screens/dev-showcase.tsx (391 lines) with the component showcase: 5 modes × 3 modalities (weighted / distance-time / time-only), grouped superset example with groupColour, collapsed + expanded cards, all set types W/N/D/F/A, rpe/tempo/rest values, PR + note sets; every onAction console.log'd; Screen + TopBar + ScrollBody composition.
+- Grid behavior: ≥460px all present columns as spec px tracks; <460px rpe+tempo tracks REMOVED with values/editors behind the per-row ⋯ popover (spec's "more sheet" adapted to allowed anchored popover); <360px f1/f2 floors flex to guarantee 320px fit; missing-field/off columns removed from template; # column becomes checkbox in preview mode; template blanks render ↺ (tap = copy-last).
+- ORCHESTRATOR GATE: harness '#/dev' GATE: PASS at ALL 6 widths (320/360/390/768/1024/1440): rows=45, badHeights=[], nowrapFail=0, wsFail=0, overlap=0, rightEdge=0, hscroll=false, scrollBodies=1 (top+bottom sweep). Interactivity: collapse toggles 45→38 rows; "+ Add set" fires onAction {type:"add-set"} (console-captured); inline input edit commits on blur; ⋮ menus present (21 action buttons). bunx eslint clean. '#/today' regression PASS 390/1440. Screenshots: download/qa-p3-2-{dev-390,dev-1440,edit-390}.png.
+
+Stage Summary:
+- The ONE SetRow + ONE ExerciseCard now exist; every later screen (p3-3…) must import ONLY from src/components/set-row and src/components/exercise-card. CardAction union covers: toggle-collapse, add-set, update-set{setId,patch}, toggle-done, toggle-select, copy-last, notes, rest-timer{setId?}, move-up, move-down, add-to-group, replace, remove, select, open. Legacy set-table/today exercise-card remain untouched until p3-9 deletion.
+
+---
+Task ID: p3-4
+Agent: subagent (full-stack-developer) — gate completed by orchestrator after agent's result channel timed out
+Task: Part 3 ORDER OF WORK steps 4+5 — Training screen (#/today/{exerciseId}, Track/History/Graph tabs) + Exercise Picker (#/exercises full-screen)
+
+Work Log:
+- Created src/features/training/training-screen.tsx (1292 lines) + src/features/picker/picker-screen.tsx (826 lines); screens/training.tsx + screens/picker.tsx replaced with thin re-exports. Legacy exercise-overview route kept transitional.
+- Training: TopBar back/name/Notes popover/Records→#/exercise-overview/{id}/⋮; SubBar 3 equal tabs with ?tab= deep links; Track = ExerciseCard edit hideHeader + "LAST TIME" read card; BottomBar = RestBar swap or Save-set on focused mobile input; History = DateGroups (32px headers) with read→edit inline card toggle; Graph = ControlRow 48px + chart 240/360px + reserved 72px DetailRow.
+- Picker: TopBar back/search/⋮; SubBar 40px chip scroller (All/Favorites/Recent/categories — the one allowed extra scroll); 48px rows with star/favorite, meta "12 · 3d", ⋮ (Edit=inline expansion, Favorite, History→training history tab, Delete=confirm-destructive); query contract: date=, replace={exerciseId}, multi=1; pick → createOrGet workout + add → back to #/today?date=… (fixes p3-3 gap #3).
+- ExerciseCard authorized extensions: hideHeader?: boolean prop + "Focus view" (open) menu item in edit-mode ⋮ (fixes p3-3 gap #1).
+- ORCHESTRATOR GATE: '#/exercises' PASS all 6 widths; '#/today/{id}?date=2026-09-23' (track) PASS all 6; tab=history (52 history rows, date groups Sep 9/16/23) + tab=graph (svg chart + reserved DetailRow) PASS 390+1024; '#/dev' regression PASS 390+1440 after card edits; picker search "bench" → 8 rows filtered; tabs update hash query; bunx eslint clean (training/picker/slots/exercise-card); screenshots download/qa-p3-4-{training-track-390,training-history-390,training-graph-390,picker-390,picker-1024}.png.
+
+Stage Summary:
+- Steps 4+5 of ORDER OF WORK complete. Training screen + picker fully on primitives + the ONE card. Remaining p3-3 gap: 'select' multi-select action (info-toast only) — deferred to a later polish pass. Picker category management folded into inline create/edit; legacy exercises-view now dead code for p3-9.
+
+---
+Task ID: p3-3
+Agent: subagent (full-stack-developer)
+Task: Part 3 ORDER OF WORK step 3 — REBUILD THE TODAY SCREEN (#/today) on the layout primitives + the ONE ExerciseCard.
+
+Work Log:
+- Read worklog §4/p3-1/p3-2 + layout primitives, router, ExerciseCard/SetRow sources, and the legacy today feature (today-view/track-tab/use-mutate/day-utils/date-bar/rest-timer/workout-header-card/quick-add) to reuse its data logic. Demo data surveyed: workouts 2026-09-19/21/23/24/25; today 2026-09-26 empty; login demo@setforge.app (browser session persisted for the harness).
+- Created src/features/today/today-screen.tsx (new #/today): Screen+TopBar(brand "SetForge", Calendar action, ⋮ menu History/Exercises/Tools/Settings)+SubBar(DateStrip)+ScrollBody(MetaRow → ExerciseCard×N edit → SummaryRow → spacer | 200px TodayEmpty block alone on empty days)+BottomBar("+ Add exercise" ⇄ RestBar swap, same container, never both). Date state synced with ?date= via useHashRoute (legacy pattern). All card actions wired to real API mutations through use-mutate (update-set/toggle-done+auto-rest/add-set/copy-last/move-up/down/add-to-group/notes/rest-timer/remove-with-confirm/replace→#/exercises); empty-day Start New/Copy Previous reused from legacy; session timer (startAt/endAt) reused from workout-header-card via the MetaRow duration chip.
+- Helper files (all law-abiding, spacing tokens only): rest-state.tsx (countdown engine extracted from legacy rest-timer.tsx — endAt ticking, localStorage last-rest, beep/vibrate/hidden-tab notification, wake lock, adjust/skip; NO rendering), date-strip.tsx (◄/label-with-Calendar-popover/► + Today chip; legacy day-utils/format math; label "Sat 26 Sep"), meta-row.tsx (48px data-row: live duration chip w/ ghost "–:–", rest mini chip, note chip → popover editor PATCH comment), summary-row.tsx (48px data-row: sets · volume · PRs, unit-aware), today-empty.tsx (h-[200px], two 48px data-row buttons), rest-bar.tsx (Rest 1:12 −15 +15 Skip with ≥44px controls; 320px-fit audited), card-popovers.tsx (notes popover, group popover existing+create+remove, ConfirmRemoveExercise AlertDialog — the allowed confirm-destructive).
+- Radix gotcha fixed: a Popover mounted while the ⋮ DropdownMenu closes is instantly dismissed (menu returns focus to its trigger → popover focus-outside). Fix: onFocusOutside preventDefault on those PopoverContents (HANDOFF_ANNOTATION_PROPS); pointerdown-outside + Escape still close.
+- screens/today.tsx replaced with a thin re-export (`export { default } from "@/features/today/today-screen"`). Router/shell/set-row/exercise-card untouched; legacy today views untouched (dead code until p3-9).
+- GATES: verify-layout.sh '#/today' GATE: PASS all 6 widths (rows=2 empty-state buttons, all metrics green, top+bottom sweeps). verify-layout.sh '#/today?date=2026-09-23' GATE: PASS all 6 widths WITH cards (rows=24: 4 headers + 14 SetRows + 4 add-set + MetaRow + SummaryRow; overlap/rightEdge/hscroll/nowrap/ws/badHeights all clean). Interactivity verified in-browser on the data date: set ✓ toggle persists via API (tint flips), inline weight edit commits on blur, + Add set adds a row (cleaned up), collapse 25→19 rows, ⋮ opens/Escape closes, rest: complete Deadlift set → RestBar "Rest 4:00" → +15 adjusts → Skip → "+ Add exercise" back; ◄/► navigate (09-21 loads), Today chip jumps to today, empty state 200px block with 2 buttons; extras on a scratch workout (2026-09-22, deleted after): Start New Workout, timer start live tick, note save, group create ("Circuit A" chip), remove-exercise confirm. Console clean (only HMR). bunx eslint src/features/today src/features/screens/today.tsx exit 0. Screenshots: download/qa-p3-3-{today-empty-390,today-data-390,today-1024,restbar-390}.png. 09-23 demo data restored byte-identical after tests.
+
+Stage Summary:
+- Today is the first fully-rebuilt screen: primitives-only composition, ONE ExerciseCard in edit mode on real data, BottomBar↔RestBar swap, offline-aware mutations, extracted rest engine. Known gaps for later parts (documented in agent-ctx/p3-3-full-stack-developer.md): ExerciseCard edit mode lacks an 'open' affordance (header not tappable / no menu item — spec's #/today/{id} navigation wired but unreachable until the card surfaces it; suggest one menuForMode(edit) line in p3-4); 'select' multi-select omitted (no card-level selected visual prop — info toast); "+ Add exercise" on empty days opens #/exercises without a workout (p3-4 picker should createOrGet on pick).
+
+---
+Task ID: p3-5
+Agent: subagent (full-stack-developer) — gate completed by orchestrator after agent's result channel timed out
+Task: Part 3 ORDER OF WORK step 6 — Routines cluster (List → Detail → Log Day → Predefined Sets Editor)
+
+Work Log:
+- Created src/features/routines/{routines-screen, routine-detail-screen, log-day-screen, predefined-editor-screen, screen-helpers}.tsx; screens/{routines, routine-detail, log-day, predefined-editor}.tsx replaced with thin re-exports.
+- List: TopBar title + inline-create `+`; 72px RoutineRows (name / days·exercises·used meta, ⋮ rename-inline/copy/delete-confirm/log); desktop 2-col grid; 200px empty state.
+- Detail: TopBar back/name(inline rename)/Edit toggle/⋮(Rename,Copy,Delete,Reorder); SubBar notes 1-line→3-line expand; DaySection accordions (grid-template-rows 0fr→1fr animate; mobile 1 open, ≥768 all open); DayHeader 48px (chevron/name/Log btn or ⋮ rename-delete-move); template-mode ExerciseCards with immediate predefined-set PATCH; + Add exercise to day 40px; + Add day 48px; edit = whole-screen state, no per-item dialogs.
+- Log Day: preview-mode cards with row checkboxes + inline cell editing; BottomBar `Add N sets to today` (verified N=13 on Push Day); logDay API flow.
+- Predefined Editor: legend row (↺ = copy from last workout) + template card hideHeader + Save + Skip (log freestyle).
+- ORCHESTRATOR GATE: '#/routines' PASS all 6 widths; '#/routines/{id}' read PASS all 6 + edit mode PASS 390/1024 (clip-aware checker — orchestrator upgraded harness v2 with effective-rect clipping after manual false-positive investigation); '#/routines/{id}/log/{dayId}' PASS all 6; '#/routines/{id}/exercise/{reId}' PASS all 6. Lint clean. Screenshots download/qa-p3-5-{list-390,detail-390,logday-390}.png.
+
+Stage Summary:
+- Routine cluster fully rebuilt on primitives + ONE card. DnD handles present but reorder via ⋮ Move up/down (functional parity; DnD wiring deferred). Picker routine-context contract to be verified by p3-6+ or polish pass.
+
+---
+Task ID: p3-6
+Agent: subagent (full-stack-developer) — gate completed by orchestrator after agent's result channel timed out
+Task: Part 3 ORDER OF WORK step 7 — Calendar (month grid + list + filters route + ChipRow) + History view rebuild
+
+Work Log:
+- Created src/features/calendar/{calendar-screen (month+list+SelectedDayPanel internal), filters-screen}.tsx + src/features/history/history-screen.tsx; screens/{calendar,calendar-filters,history}.tsx → thin re-exports.
+- Calendar: TopBar ◄Sep 2026►/List-Month toggle/Filter (active dot); Month = weekday header + fixed 6×7 grid of 56px cells (date, ≤4 dots + +n, selected ring, today tint) + SelectedDayPanel (48px date header + ExerciseCard summary→read inline expand, one at a time; rest-day muted row); List = 56px rows (date 96px · exercises ellipsis · count); Filters = full-screen route with grouped 48-56px rows, applied → ChipRow 40px SubBar with X chips; query contract ?view=month|list&date=YYYY-MM-DD. Legacy day-sheet Dialog replaced by inline panel.
+- History: DateGroups (32px headers) + 48px workout summary rows + ExerciseCard read mode with PR/note markers via toCardSet.
+- ORCHESTRATOR GATE: '#/calendar' PASS all 6; '#/calendar?view=list' PASS all 6; '#/calendar/filters' PASS 320/390/1024; '#/history' PASS all 6 (225 data-rows with real data). SelectedDayPanel verified with ?date=2026-09-23 ("Wed, Sep 23 · 14 sets · 7,995 kg" + Deadlift/Barbell Row summary cards). Lint clean. Screenshots download/qa-p3-6-{calendar-month-390,calendar-list-390,history-390}.png.
+
+Stage Summary:
+- Calendar + History fully on the system; the last legacy Dialog surface (day-sheet) eliminated. Virtualisation skipped (list is short in demo; noted as future optimization).
+
+---
+Task ID: p3-7
+Agent: main (Z.ai Code)
+Task: Part 3 ORDER OF WORK step 8 — BODY TRACKER (#/body) + RECORDS/STATS/GOALS (#/insights) rebuild on the layout primitives
+
+Work Log:
+- Read worklog §4 + p3-1…p3-6, router/layout/tokens sources, legacy body/{body-view,track-tab,history-tab,graph-tab,measurement-config,record-form,delta-chip,offline-mutation} + insights/{insights-view,records-leaderboard,weekly-rhythm,volume-chart,goals-overview,kpi-card} + exercise-overview/{records-tab,goals-tab}, api client; surveyed demo data via API (15 measurements / 2 enabled, weight+fat records, 3 goals).
+- Created src/features/body/{body-util.tsx (ported useBodyAction offline runner, localDayKey, dateInputToIso for native date inputs, signedDelta, deltaTone, compact DeltaLine), body-track-tab.tsx, body-history-tab.tsx, body-graph-tab.tsx, body-screen.tsx}; screens/body.tsx → thin re-export. Self-contained helpers (no imports from legacy body files) so p3-9 deletion is clean.
+- BODY: TopBar "Body" + ⋮ (Add measurement → switches to Track + opens the FIRST row's editor — expansion state lifted to the screen, no setState-in-effect; Configure metrics → inline MetricsSetup expansion). SubBar 3 equal tabs (48px, ?tab= deep links via replaceHash). TRACK: 56px data-rows (name + "2 days ago" stacked left | 120px right: value tabular + goal-aware Δ line); tap → 96px inline editor block (NOT data-row; value input + native date input + Save/Cancel, h-full rows inside fixed 96px) — one at a time; replaces legacy record-form Dialog. HISTORY: flat 40px data-rows Date 88 | Name flex | Value 72 | Δ 56, all measurements' records merged newest-first via useQueries (26 rows demo), per-measurement prevOf deltas. GRAPH: ControlRow 48px (measurement Select | range Select 3M/6M/All | ⋮ Show points/Trend/Y-from-zero) → chart fixed 240/360px (line + least-squares trend + SPECIFIC goal ReferenceLine) → reserved 72px DetailRow ("–" / hovered point + prev·next; hover-verified). MetricsSetup: 48px data-rows (name+unit+target | ↑ ↓ reorder | Switch enable) + 96px inline creator (name/unit/goal/target/Add) — the legacy measurement-config Dialog re-imagined inline.
+- Created src/features/insights/{insights-screen.tsx, records-tab.tsx, stats-tab.tsx, goals-tab.tsx}; screens/records.tsx → thin re-export. TopBar "Insights · {period}" + ⋮ period selector (7d/30d/1y/All → ?period=). SubBar 3 tabs (?tab=). RECORDS: 40px segmented control data-row (Estimated | Actual → ?scope=) + 32px column hint + 40px data-rows (rank 20 | category dot | Exercise flex ellipsis + inline Trophy for #1 estimated | value 72 right tabular — e1RM or best weight×reps | date 88); sorted desc per scope; row tap → #/exercise-overview/{id}. STATS: NO cards — Section (32px header) + 40px data-rows (name flex | value 84 right | trend flex right w/ TrendingUp/Down/Minus): Period (workouts/sets/volume/reps/time/distance/streak/heaviest set/top volume day), This week vs last (rolling 7d deltas + sessions/week pace), Weekly rhythm (Mon–Sun avg kg + sessions, 8wk), Volume by exercise (top 6). GOALS: 40px data-rows (exercise · type target ellipsis | pct 44 | status hit/open) → tap → 96px inline expansion (progress bar + current/target + target Input + Save target + two-tap Delete with 4s auto-disarm; offline-aware runner ported). Empty states = 48px muted data-rows everywhere.
+- Query contract: #/body?tab=track|history|graph; #/insights?tab=records|stats|goals&scope=estimated|actual&period=week|month|year|all (all via replaceHash, no history pollution).
+- GATES: verify-layout.sh '#/body' GATE: PASS all 6 widths (2 track rows, top+bottom sweeps); '#/body?tab=history' PASS 390+1024 (26 rows); '#/body?tab=graph' PASS 390+1024 (240px chart + reserved DetailRow); '#/insights' GATE: PASS all 6 (17 rows); '#/insights?tab=stats' PASS 390+1024 (26 rows); '#/insights?tab=goals' PASS 390+1024 (3 rows). Fixed one nowrapFail (segmented control h-10 buttons inside bordered 40px row → h-full). Interactivity verified in-browser: Track editor expand (one at a time, prefilled 80.9 + today), Save persisted (Body Fat 16.0 @ 2026-09-26 → API record → row updated to "16% −0.2" → test record DELETED, demo restored byte-identical); tabs update hash; graph range/metric/options menus; DetailRow hover "Aug 21 79.9 kg prev 79.4 · next 80"; MetricsSetup toggle (Neck on→rows appear→off, restored) + Done; segmented Estimated 276.7 → Actual 207.5×10; stats period ⋮ → "Insights · 7 days" + week numbers; goal row expand → Save target 140→145 (pct 79→76, API verified) → restored 140/79; goal Delete left un-tapped (two-tap armed state verified visually). bunx eslint src/features/body src/features/insights src/features/screens/{body,records}.tsx exit 0. Console clean (only Fast Refresh HMR; the CLI's 3 empty ✗ markers reproduce on pre-existing #/today too — session artifact, not page errors). Regression: '#/today' + '#/dev' PASS 390. Screenshots download/qa-p3-7-{body-track-390,body-history-390,insights-records-390,insights-1024}.png.
+
+Stage Summary:
+- Both screens fully on the primitives system; last legacy Dialog surfaces in body/insights (record-form, measurement-config, history edit, goal form) eliminated. Deviations: History is a read table (per-record edit/delete dialogs dropped — new entries via Track editor; noted for p3-9); Actual scope shows best weight×reps only (records API exposes no distance/time bests — rows show "–"); goal Delete uses inline two-tap confirm instead of ConfirmDialog. Demo data verified restored after mutation tests.
+
+---
+Task ID: p3-8
+Agent: main (Z.ai Code)
+Task: Part 3 ORDER OF WORK step 9 — SETTINGS/ACCOUNT (#/settings) + AUTH (#/auth) + TOOLS (#/tools) rebuild on the layout primitives (final screen rebuilds before p3-9 legacy deletion)
+
+Work Log:
+- Read worklog §4 + p3-1…p3-7, router/app-shell (auth gate: AuthScreen renders for ANY hash when unauthenticated; authed #/auth redirects), layout primitives + tokens, legacy settings/{settings-view,preferences/account/data/app-section,settings-controls,use-wake-lock}, auth/auth-view, tools/{tools-view,one-rm/plate/set-calculator,interval-timer,date-field}, store settings shape.
+- Created src/features/settings/{settings-screen.tsx, settings-sections.tsx}; screens/settings.tsx → thin re-export. TopBar "Settings" + ⋮ theme quick-toggle (Light/Dark/System, setTheme preview + PATCH). ScrollBody = 4 sections, 32px muted headers, NO cards. 56px data-row primitives: SwitchRow (label | Switch), MenuRow (label | value + chevron; whole row = DropdownMenuTrigger, Check on current), ActionRow (button + chevron), ValueRow. Preferences (19 rows): Theme/Units/Week start/Weight step/Home sets/Weekly target/Est-1RM rep limit/e1RM method/Rest-end MenuRows + Set type/RPE/Tempo/Rest column SwitchRows (wired to store → drive SetRow grids) + Show category/Track PRs/Mark sets complete/Auto-select next/Rest from row/Keep screen on SwitchRows. Account: identity row, Change password → INLINE expansion (3×48px inputs + Update; accountApi ported), Sign out → confirm-destructive AlertDialog → ported useLogout (logout API + SW/local wipe + qc.clear + setSession(null) → shell forces #/auth), Delete account → INLINE typed-DELETE (no dialog). Data: Export data/Workouts CSV/Body CSV/Recalculate PRs ActionRows, Import backup → inline expansion (hidden file input + Merge/Replace + Import), Clear data (all workout history) → confirm-destructive AlertDialog. App: Install/Connection/Offline mode/Clear offline cache/About/Version rows. Wake lock held at screen level while keepScreenOn (legacy parity). Exactly two Dialogs on the whole screen (Sign out + Clear data confirms).
+- Created src/features/auth/auth-screen.tsx; screens/auth.tsx → thin re-export. Screen nav=false + ScrollBody contentClassName "flex max-w-[360px] min-h-full justify-center gap-6 py-8" → centered 360px column (found+fixed: ScrollBody's inner wrapper is display:block — must add `flex` for justify-center). Brand (flame + SetForge + tagline), 48px tabs Sign in | Create account, 48px inputs (+ optional name on signup), inline error, 48px primary button with loading. Auth logic ported verbatim (login/signup → setSession → toast → navigate). Nothing else.
+- Created src/features/tools/{tools-screen.tsx, tool-bits.tsx (ToolRow/ToolPanel/FieldRow/ResultRow/PanelNote/parseNum), one-rm-tool.tsx, plate-tool.tsx, set-tool.tsx, interval-tool.tsx}; screens/tools.tsx → thin re-export. TopBar "Tools" + ⋮ Collapse all. Four 56px data-rows (icon + name + desc ellipsis + chevron) → tap = INLINE expansion below the row (never a dialog), only one open — open tool = ?tool= hash param (one-rm|plates|sets|timer, deep-linkable). one-rm: weight+reps 48px fields → method cycle row → 56px headline "Estimated 1RM 116.7 kg" + alternate-method row + 5/8/10/12RM rows. DEVIATION: headline defaults Epley because the task gate requires 100 kg × 5 → ≈115–120 (Epley 116.7; legacy used Brzycki 112.5) — both formulas always displayed, method one tap away. plates: bar+target → per-side breakdown rows (plateGreedy over server inventory) + Total + nearest-loadable tap-to-apply. sets: base weight + sets/reps → percentage table 40px rows (tap multi-select, Check) + Working sets summary. interval: prepare/work/rest/rounds fields + 72px live status row (phase + round + elapsed + big mm:ss, aria-live) + 56px Start/Pause/Resume + Skip + Reset; engine ported from legacy (wall-clock phaseEndsAt, 100ms tick, pausedRemainMs, beeps, vibrate, wake lock).
+- GATES: verify-layout.sh '#/settings' GATE PASS all 6 (35 rows, 0 overlap/rightEdge/hscroll, top+bottom sweeps); '#/tools' PASS all 6; '#/tools?tool=one-rm' PASS all 6; '?tool=plates' 320/390, '?tool=sets' 320/1440, '?tool=timer' 320/390/1024 PASS; '#/auth' PASS all 6 (gated signed-out via the UI sign-out confirm; logged back in); '#/today' regression PASS 390/1024. Interactivity: RPE switch off → API persisted → reload off → Today cards 15→0 RPE cells → restored; Units Metric↔Imperial (API + row + weight-step hint "5 lb"); theme quick-toggle html.light/_API; Sign out confirm → #/auth → wrong password inline error → correct → #/today; signup tab name field; 1RM 100×5 → 116.7 headline + 112.5 Brzycki row; plates 60 → 1×20/side + total; 102.5 → 25+15+1.25/side; sets 80% → 50 kg · 3 sets · 1200 kg; timer start (0:10→0:03 live, prepare→work) → pause frozen → resume → reset. Console clean (fresh browser: 0 console.error on all three screens + login flow; stale BodyGraphTab/hydration entries pre-date p3-8). bunx eslint on settings/auth/tools dirs + 3 slot files exit 0. Screenshots download/qa-p3-8-{settings-390,auth-390,tools-390,settings-1024}.png (VLM-verified dark+orange, no overlap, centered auth column). Work record: agent-ctx/p3-8-main.md.
+
+Stage Summary:
+- All three surfaces rebuilt on primitives-only; every screen route in the Part 3 URL contract is now a rebuilt screen (p3-9 = legacy deletion sweep). Deviations: 1RM headline defaults Epley (task gate; Brzycki always shown too); password change / import / delete-account dialogs became inline expansions (law: NO Dialogs beyond sign-out + data-clear confirms); delete-history reduced to all-history mode (range/exercise modes dropped with the legacy dialog); plate inventory editor + timer preset persistence not ported (tools spec = calculators only); timer Skip exists alongside start/pause/reset. KEEP settings/use-wake-lock.ts in p3-9 (used by settings-screen + interval-tool).
+
+---
+Task ID: p3-9
+Agent: subagent (full-stack-developer) + orchestrator completion — final sweep
+Task: Part 3 ORDER OF WORK step 10 — exercise-overview rebuild, legacy deletion, FORBIDDEN audit, full harness sweep
+
+Work Log:
+- Rebuilt #/exercise-overview/{id} on primitives (Records | Goals | History tabs, 40px table rows, inline goal editor) — the last legacy passthrough is gone; router contract now 100% new screens.
+- LEGACY DELETION: 91 files deleted across src/features/{today,history,calendar,exercises,exercise-overview,routines,body,insights,settings,tools} and the whole src/components/set-table/ folder. Surviving per-feature dirs contain ONLY the new screens + their helpers + still-imported utilities (today: use-mutate/day-utils; settings: use-wake-lock; routines: use-routine-mutations where imported; calendar: filter-state).
+- FORBIDDEN AUDIT (orchestrator): (1) position:fixed — ZERO hits in app code. (2) absolute — 6 hits, all justified: 4px popover anchor spans (harness-excluded, aria-hidden), 8px notification-dot badge inside 44px parent (calendar filter), comments. (3) overflow-auto/scroll — 5 hits all justified: ScrollBody (the one screen scroll), 2 chip scrollers (spec-exempt), notes-list inside popover, desktop NavPane nav list (shell pane, not screen). (4) Dialog imports — exactly 5, all alert-dialog confirm-destructive (picker delete, settings sign-out + clear-data, routines delete, routine-detail delete, today remove-exercise); ZERO plain Dialogs, ZERO Sheets. (5) Uniqueness — exactly ONE exported SetRow (src/components/set-row/set-row.tsx) + ONE ExerciseCard (src/components/exercise-card/exercise-card.tsx); zero set-table references. (6) whitespace-normal — zero hits.
+- FULL HARNESS SWEEP: 8 primary routes × all 6 widths (320/360/390/768/1024/1440) GATE: PASS (today?date, exercises, routines, history, calendar, settings, tools, dev) + 17 variant routes at 390+1024 ALL PASS (today empty, calendar list/filters, body ×3 tabs, insights ×3 tabs, tools timer, training ×3 tabs, routine detail/log-day/predefined-editor, exercise-overview) + '#/auth' genuine signed-out gate PASS all 6 widths (verified email input present, not a redirect).
+- Fixes during sweep: settings-sections SwitchRow/MenuRow/ActionRow gained optional hint prop (3 new TS2322s from p3-8 resolved; tsc back to the documented 2-error pre-existing API-route baseline). bun run lint exit 0.
+- GOLDEN-PATH SMOKE: set-completion toggle mutates + persists (checked→unchecked→restored); RestBar swap → Skip → "+ Add exercise" returns; sign-out → #/auth → sign-in → #/today round-trip; console clean (HMR only). Screenshots: download/qa-p3-9-{final-today-390,exercise-overview-390,final-history-1024}.png.
+
+Stage Summary:
+- ORDER OF WORK steps 1-10 COMPLETE. Every screen in the app is a rebuilt Part 3 screen: primitives-only composition, ONE ExerciseCard + ONE SetRow, zero-overlap verified at 320-1440, single-line fixed-height rows, no modals over lists (only confirm-destructive alerts), no bottom sheets, no nested scrolls (documented exemptions only). The app remains fully functional end-to-end on real data with the entire Part 2 feature set intact.
+
+---
+Task ID: p3-10
+Agent: main (Z.ai Code) — orchestrator closeout
+Task: Part 3 final handover + scheduled review
+
+Work Log:
+- All 10 ORDER OF WORK steps complete (p3-1 foundation → p3-2 card system → p3-3 Today → p3-4 Training+Picker → p3-5 Routines cluster → p3-6 Calendar+History → p3-7 Body+Insights → p3-8 Settings/Auth/Tools → p3-9 exercise-overview + legacy purge + audit → this closeout).
+- Harness evolved to v2 (clip-aware effective rects) mid-project; all gates re-verified under it.
+
+CURRENT PROJECT STATUS:
+- SetForge is a market-ready Part 3 build: 17 hash routes, every screen composed from Screen/TopBar/SubBar/ScrollBody/BottomBar/NavBar primitives; ONE ExerciseCard (5 modes: edit/read/preview/template/summary) + ONE SetRow (fixed grid, phones drop rpe/tempo to ⋯ popover) render every exercise/set in the app; BottomBar↔RestBar swap; 91 legacy files deleted; lint exit 0; tsc at documented 2-error pre-existing API baseline; console clean on all routes; demo data restored after every test.
+
+VERIFIED GATES (harness: overlap / right-edge / h-scroll / row single-line / row heights at 320-1440):
+- #/today (+?date=, empty state), #/today/{id} (Track/History/Graph), #/exercises, #/routines, #/routines/{id} (read + edit), /log/{dayId}, /exercise/{reId}, #/calendar (month + list), #/calendar/filters, #/history, #/body (3 tabs), #/insights (3 tabs + scope), #/tools (+4 tools), #/settings, #/auth, #/dev, #/exercise-overview/{id} — ALL GATE: PASS.
+
+UNRESOLVED / NEXT-PHASE RECOMMENDATIONS:
+1. DnD drag handles render but reorder via ⋮ Move up/down only — wire dnd-kit if desired.
+2. 'select' multi-select card action not surfaced (single card-level selection UI absent).
+3. Calendar list virtualisation skipped (short lists in demo).
+4. Tools: plate inventory editor + timer preset persistence not ported.
+5. Body History rows read-only (edits via Track inline editor).
+6. Pre-existing tsc baseline: src/app/api/goals/route.ts + timer-presets/[id]/route.ts typing fixes.
+7. Lighthouse/storybook/CI equivalents documented as platform adaptations (agent-browser harness + #/dev showcase).

@@ -15,6 +15,13 @@ export const loginSchema = z.object({
   email: emailField,
   password: z.string().min(1, "Password is required"),
 });
+export const resetRequestSchema = z.object({
+  email: emailField,
+});
+export const resetConfirmSchema = z.object({
+  token: z.string().min(20).max(128),
+  newPassword: passwordField,
+});
 
 // ---------- categories ----------
 export const categoryCreateSchema = z.object({
@@ -232,7 +239,7 @@ export const settingsUpdateSchema = z.object({
   keepScreenOn: z.boolean().optional(),
   estOneRmRepLimit: z.number().int().min(1).max(36).optional(),
   weeklyWorkoutTarget: z.number().int().min(0).max(14).optional(),
-  // ---- Part 2: set-table columns & behaviour ----
+  // ---- Part 2: set-row columns & behaviour ----
   showSetType: z.boolean().optional(),
   showRpe: z.boolean().optional(),
   showTempo: z.boolean().optional(),

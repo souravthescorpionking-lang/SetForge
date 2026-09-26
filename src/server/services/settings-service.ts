@@ -26,7 +26,7 @@ export async function updateSettings(
     keepScreenOn: boolean;
     estOneRmRepLimit: number;
     weeklyWorkoutTarget: number;
-    // ---- Part 2: set-table columns & behaviour ----
+    // ---- Part 2: set-row columns & behaviour ----
     showSetType: boolean;
     showRpe: boolean;
     showTempo: boolean;
