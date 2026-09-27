@@ -68,7 +68,12 @@ export default function AuthScreen() {
         const session =
           mode === "login"
             ? await authApi.login({ email, password })
-            : await authApi.signup({ email, password, name: name || undefined });
+            : await authApi.signup({
+                email,
+                password,
+                name: name || undefined,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              });
         setSession(session);
         toast.success(mode === "login" ? "Welcome back!" : "Account created — let's forge! 🔥");
         navigate("/today");

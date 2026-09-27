@@ -161,7 +161,7 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
   const save = () => {
     // Every edit already persisted — Save confirms and returns.
     toast.success("Saved");
-    navigate(`/routines/${routineId}`);
+    navigate(`/programs/${routineId}`);
   };
 
   const skipFreestyle = async () => {
@@ -204,7 +204,7 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
-              onClick={() => navigate(`/routines/${routineId}`)}
+              onClick={() => navigate(`/programs/${routineId}`)}
               aria-label="Back to routine"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -248,7 +248,7 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
         ) : !located || !re || !day ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Exercise not found in this routine</p>
-            <Button type="button" variant="outline" onClick={() => navigate(`/routines/${routineId}`)}>
+            <Button type="button" variant="outline" onClick={() => navigate(`/programs/${routineId}`)}>
               Back to routine
             </Button>
           </div>

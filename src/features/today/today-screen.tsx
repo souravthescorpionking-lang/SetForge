@@ -40,12 +40,13 @@ import {
 import { CalendarDays, Dumbbell, History, MoreVertical, Settings, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/client/store";
-import { ApiError, workoutsApi, type SetInput } from "@/lib/client/api";
+import { ApiError, routinesApi, workoutsApi, type SetInput } from "@/lib/client/api";
 import { qk, useInvalidate, useOnline, useWorkoutByDate } from "@/lib/client/query";
 import { addDaysKey, todayKey } from "@/lib/client/format";
 import { formatDuration } from "@/lib/formulas";
 import { useHashRoute } from "@/features/shell/router";
 import { defaultUnitFor, exerciseUnit } from "@/features/exercises/labels";
+import { useSessionFromWorkout } from "@/features/routines/session-dialog";
 import type { SetDTO, WorkoutExerciseDTO, WorkoutGroupDTO } from "@/lib/types";
 import { useMutate } from "./use-mutate";
 import { useRestState } from "./rest-state";
@@ -53,7 +54,7 @@ import { DateStrip } from "./date-strip";
 import { MetaRow } from "./meta-row";
 import { SummaryRow } from "./summary-row";
 import { TodayEmpty } from "./today-empty";
-import { AddExerciseBar, RestBar } from "./rest-bar";
+import { AddExerciseBar, FinishBar, FinishedBar, RestBar } from "./rest-bar";
 import {
   ConfirmRemoveExercise,
   ExerciseGroupPopover,
@@ -86,6 +87,7 @@ export default function TodayScreen() {
   const online = useOnline();
   const mutate = useMutate();
   const rest = useRestState();
+  const sessionFromWorkout = useSessionFromWorkout();
 
   // ---------- date state (syncs with the ?date= query param) ----------
   const routeDate = route.name === "today" ? route.query.get("date") : null;
@@ -114,6 +116,20 @@ export default function TodayScreen() {
   // ---------- data ----------
   const { data, isLoading } = useWorkoutByDate(dateKey);
   const workout = data?.workout ?? null;
+
+  // routines cache — resolves the workout's source chip (routine · day names)
+  const routinesQuery = useQuery({ queryKey: qk.routines, queryFn: () => routinesApi.list() });
+  const source = useMemo(() => {
+    if (!workout?.sourceRoutineId) return null;
+    if (workout.sourceType !== "ROUTINE_DAY" && workout.sourceType !== "SESSION") return null;
+    const r = routinesQuery.data?.routines.find((x) => x.id === workout.sourceRoutineId);
+    if (!r) return null;
+    if (workout.sourceType === "SESSION") {
+      return { label: `Session · ${r.name}`, routineId: r.id };
+    }
+    const day = r.days.find((d) => d.id === workout.sourceDayId);
+    return { label: day ? `${r.name} · ${day.name}` : r.name, routineId: r.id };
+  }, [workout, routinesQuery.data]);
 
   // does any workout exist before this date? (enables "Copy Previous")
   const previousWorkouts = useQuery({
@@ -327,6 +343,56 @@ export default function TodayScreen() {
     toast.success("Exercise removed");
   };
 
+  // ---------- Part 5: finish / undo-finish ----------
+  const finishWorkout = async () => {
+    if (!workout || !online) {
+      if (!online) toast.info("Finishing needs a connection");
+      return;
+    }
+    try {
+      const res = await workoutsApi.finish(workout.id);
+      invalidate.workout();
+      invalidate.dashboard();
+      invalidate.schedule();
+      invalidate.programs();
+      // "Day X up next" — index comes from the routine days (fallback: name)
+      let nextLabel = "Done";
+      if (res.nextDay) {
+        const routine = routinesQuery.data?.routines.find(
+          (r) => r.id === workout.sourceRoutineId,
+        );
+        const idx = routine?.days.findIndex((d) => d.id === res.nextDay?.id) ?? -1;
+        nextLabel = idx >= 0 ? `Day ${idx + 1} up next` : `${res.nextDay.name} up next`;
+      }
+      toast.success(`Workout finished · ${nextLabel}`, {
+        duration: 10_000,
+        action: {
+          label: "Undo",
+          onClick: () => void undoFinish(workout.id),
+        },
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not finish workout");
+    }
+  };
+
+  const undoFinish = async (workoutId: string) => {
+    try {
+      await workoutsApi.undoFinish(workoutId);
+      invalidate.workout();
+      invalidate.dashboard();
+      invalidate.schedule();
+      invalidate.programs();
+      toast.success("Finish undone — keep logging");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        toast.info("Too late to undo (past the 10s window)");
+      } else {
+        toast.error(e instanceof Error ? e.message : "Could not undo");
+      }
+    }
+  };
+
   // ---------- card mapping ----------
   const visibleColumns: CardVisibleColumns = {
     setType: settings?.showSetType ?? true,
@@ -441,7 +507,14 @@ export default function TodayScreen() {
                     <MoreVertical className="h-5 w-5" aria-hidden />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent align="end" className="w-52">
+                  {workout && workout.exercises.length > 0 ? (
+                    <DropdownMenuItem
+                      onClick={() => sessionFromWorkout.openFor(workout.id, dateKey)}
+                    >
+                      <Dumbbell className="h-4 w-4" aria-hidden /> Save as session
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem onClick={() => navigate("/history")}>
                     <History className="h-4 w-4" aria-hidden /> History
                   </DropdownMenuItem>
@@ -469,6 +542,15 @@ export default function TodayScreen() {
               onAdjust={rest.adjust}
               onSkip={rest.skip}
             />
+          ) : workout?.finishedAt ? (
+            // finished — single disabled confirmation row
+            <FinishedBar />
+          ) : workout && workout.exercises.length > 0 ? (
+            // logging in progress — two equal actions
+            <FinishBar
+              onAdd={() => navigate(`/exercises?date=${dateKey}`)}
+              onFinish={() => void finishWorkout()}
+            />
           ) : (
             <AddExerciseBar onAdd={() => navigate(`/exercises?date=${dateKey}`)} />
           )}
@@ -489,6 +571,7 @@ export default function TodayScreen() {
           <>
             <MetaRow
               workout={workout}
+              source={source}
               restRemainingSec={rest.remainingSec}
               onToggleTimer={() => void toggleTimer()}
             />
@@ -541,6 +624,8 @@ export default function TodayScreen() {
                 if (id) await removeExercise(id);
               }}
             />
+
+            {sessionFromWorkout.dialog}
           </>
         )}
       </ScrollBody>

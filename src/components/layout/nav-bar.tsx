@@ -4,9 +4,10 @@
 // hidden ≥lg (desktop uses NavPane instead). A plain flex sibling inside the
 // screen stack (never position:fixed), so it can never cover content.
 //
-// 6 destinations: Today · Calendar · Routines · Body · Insights · Settings.
-// Active tab = orange tint. Every item is a full 64px cell (≥44px touch
-// target) with a single-line, non-wrapping label.
+// Part 5: 5 destinations — Home · Calendar · Programs · Body · More
+// (grid-cols-5; secondary destinations live behind #/more). Active tab =
+// orange tint. Every item is a full 64px cell (≥44px touch target) with a
+// single-line, non-wrapping label.
 
 import { cn } from "@/lib/utils";
 import {
@@ -14,8 +15,7 @@ import {
   CalendarDays,
   Repeat2,
   Ruler,
-  BarChart3,
-  Settings,
+  MoreHorizontal,
 } from "lucide-react";
 import { useHashSegment } from "./use-hash-segment";
 
@@ -28,12 +28,11 @@ interface NavDestination {
 }
 
 const DESTINATIONS: readonly NavDestination[] = [
-  { key: "today", label: "Today", hash: "#/today", icon: Flame },
+  { key: "home", label: "Home", hash: "#/home", icon: Flame },
   { key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays },
-  { key: "routines", label: "Routines", hash: "#/routines", icon: Repeat2 },
+  { key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2 },
   { key: "body", label: "Body", hash: "#/body", icon: Ruler },
-  { key: "insights", label: "Insights", hash: "#/insights", icon: BarChart3 },
-  { key: "settings", label: "Settings", hash: "#/settings", icon: Settings },
+  { key: "more", label: "More", hash: "#/more", icon: MoreHorizontal },
 ];
 
 export function NavBar() {
@@ -43,7 +42,7 @@ export function NavBar() {
       aria-label="Primary"
       className="flex-none border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
-      <div className="grid h-16 grid-cols-6">
+      <div className="grid h-16 grid-cols-5">
         {DESTINATIONS.map((d) => {
           const active = segment === d.key;
           const Icon = d.icon;

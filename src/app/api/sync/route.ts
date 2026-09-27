@@ -4,15 +4,19 @@
 import { NextRequest } from "next/server";
 import { handler, requireUser } from "@/server/http";
 import { db } from "@/lib/db";
-import { mapWorkout } from "@/server/mappers";
+import { mapWorkout, mapScheduleEntry } from "@/server/mappers";
 import { workoutInclude } from "@/server/services/workout-service";
+import { applyProgramRules } from "@/server/services/program-service";
 
 export const GET = handler(async (req: NextRequest) => {
   const user = await requireUser();
   const sinceParam = new URL(req.url).searchParams.get("since");
   const since = sinceParam ? new Date(sinceParam) : new Date(0);
 
-  const [workouts, measurementRecords, exercises] = await Promise.all([
+  // converge the program cursor before pulling (REST catch-up, midnight rules)
+  await applyProgramRules(user.id);
+
+  const [workouts, measurementRecords, exercises, scheduleEntries, activeRoutine] = await Promise.all([
     db.workout.findMany({
       where: { userId: user.id, updatedAt: { gt: since } },
       include: workoutInclude,
@@ -26,6 +30,12 @@ export const GET = handler(async (req: NextRequest) => {
       where: { userId: user.id, updatedAt: { gt: since } },
       include: { category: true },
     }),
+    db.scheduleEntry.findMany({
+      where: { userId: user.id, updatedAt: { gt: since }, deletedAt: null },
+      include: { routine: true, day: true },
+      orderBy: { updatedAt: "asc" },
+    }),
+    db.activeRoutine.findUnique({ where: { userId: user.id }, include: { routine: true } }),
   ]);
 
   return {
@@ -39,5 +49,16 @@ export const GET = handler(async (req: NextRequest) => {
       comment: r.comment ?? null,
     })),
     exerciseIdsChanged: exercises.map((e) => e.id),
+    scheduleEntries: scheduleEntries.map(mapScheduleEntry),
+    activeRoutine: activeRoutine
+      ? {
+          routineId: activeRoutine.routineId,
+          routineName: activeRoutine.routine.name,
+          cursorDayIndex: activeRoutine.cursorDayIndex,
+          startedAt: activeRoutine.startedAt.toISOString(),
+          lastAdvancedAt: activeRoutine.lastAdvancedAt?.toISOString() ?? null,
+          lastAdvancedForDate: activeRoutine.lastAdvancedForDate,
+        }
+      : null,
   };
 });

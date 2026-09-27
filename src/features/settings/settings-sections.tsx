@@ -48,6 +48,7 @@ import { useApp } from "@/lib/client/store";
 import { todayKey } from "@/lib/client/format";
 import { wipeLocalData } from "@/lib/client/offline";
 import { clearSwCaches, isStandalone, useInstallPrompt } from "@/components/shared/pwa";
+import { armDailyReminder, requestReminderPermission } from "@/lib/client/notifications";
 import type { SettingsDTO } from "@/lib/types";
 import { toast } from "sonner";
 import { Check, ChevronRight, Loader2, LogOut, Trash2, TriangleAlert } from "lucide-react";
@@ -912,6 +913,115 @@ export function AppSection() {
       />
       <ValueRow label="About" value="SetForge · offline-first workout tracker" valueClassName="text-xs" />
       <ValueRow label="Version" value={APP_VERSION} />
+    </section>
+  );
+}
+
+// ── Part 5: Programs & scheduling section ────────────────────────────────────
+
+const COMMON_TIMEZONES = [
+  "UTC",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Paris",
+  "Europe/Moscow",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Sao_Paulo",
+  "Asia/Kolkata",
+  "Asia/Dubai",
+  "Asia/Singapore",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+const REMINDER_TIMES = ["06:00", "07:00", "08:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
+
+export function ProgramsSection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  const browserTz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+
+  if (!settings) return null;
+
+  const patch = (p: Partial<SettingsDTO>) => {
+    void updateSettings(p).catch(() => undefined);
+  };
+
+  const tzOptions = Array.from(new Set([browserTz, settings.timezone || "UTC", ...COMMON_TIMEZONES]));
+  const reminderValue = settings.reminderTime ?? "off";
+
+  const enableReminder = async (time: string) => {
+    const granted = await requestReminderPermission();
+    if (!granted) {
+      toast.error("Notifications blocked", {
+        description: "Allow notifications for this site in your browser to get the daily reminder.",
+      });
+      return;
+    }
+    patch({ reminderTime: time });
+    toast.success(`Daily reminder set for ${time}`);
+  };
+
+  return (
+    <section aria-label="Programs" className="flex flex-col">
+      <SectionHeader title="Programs" />
+      <MenuRow
+        label="Timezone"
+        hint="Day rollover"
+        value={settings.timezone || "UTC"}
+        options={tzOptions.map((tz) => ({ value: tz, label: tz.split("/").pop()?.replace(/_/g, " ") ?? tz }))}
+        onSelect={(v) => patch({ timezone: v })}
+      />
+      <SwitchRow
+        label="Auto-advance rest days"
+        hint="After midnight"
+        checked={settings.autoAdvanceRest}
+        onCheckedChange={(v) => patch({ autoAdvanceRest: v })}
+      />
+      <SwitchRow
+        label="Scheduling moves cursor"
+        hint="Logging a scheduled day advances the program"
+        checked={settings.scheduleMovesCursor}
+        onCheckedChange={(v) => patch({ scheduleMovesCursor: v })}
+      />
+      <MenuRow
+        label="Advance trigger"
+        hint="When the program day rolls over"
+        value={settings.advanceTrigger}
+        options={[
+          { value: "FINISH_OR_MIDNIGHT", label: "Finish or midnight" },
+          { value: "FIRST_SET", label: "First set" },
+        ]}
+        onSelect={(v) => patch({ advanceTrigger: v })}
+      />
+      <SwitchRow
+        label="Show projected days"
+        hint="Calendar ghosts of upcoming program days"
+        checked={settings.showProjectedDays}
+        onCheckedChange={(v) => patch({ showProjectedDays: v })}
+      />
+      <MenuRow
+        label="Daily reminder"
+        hint={reminderValue === "off" ? "Off" : `Fires at ${settings.reminderTime}`}
+        value={reminderValue}
+        options={[
+          { value: "off", label: "Off" },
+          ...REMINDER_TIMES.map((t) => ({ value: t, label: t })),
+        ]}
+        onSelect={(v) => {
+          if (v === "off") {
+            patch({ reminderTime: null });
+            toast.success("Daily reminder off");
+            return;
+          }
+          void enableReminder(String(v));
+        }}
+      />
     </section>
   );
 }

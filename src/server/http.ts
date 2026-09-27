@@ -22,7 +22,7 @@ export const unauthorized = (message = "Authentication required") =>
   new HttpError(401, "UNAUTHORIZED", message);
 export const forbidden = (message = "Not allowed") => new HttpError(403, "FORBIDDEN", message);
 export const notFound = (message = "Not found") => new HttpError(404, "NOT_FOUND", message);
-export const conflict = (message = "Conflict") => new HttpError(409, "CONFLICT", message);
+export const conflict = (message = "Conflict", details?: unknown) => new HttpError(409, "CONFLICT", message, details);
 
 export function errorBody(code: string, message: string, details?: unknown) {
   return { error: { code, message, ...(details !== undefined ? { details } : {}) } };

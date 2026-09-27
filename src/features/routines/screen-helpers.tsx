@@ -35,6 +35,12 @@ export function usedAgo(iso: string | null | undefined): string {
   return `used ${Math.floor(days / 365)}y ago`;
 }
 
+/** "used {n}d ago" from a YYYY-MM-DD day key (ProgramSummaryDTO.lastUsedAt). */
+export function usedAgoFromDayKey(dayKey: string | null | undefined): string {
+  if (!dayKey) return "never used";
+  return usedAgo(`${dayKey}T12:00:00.000Z`); // midday UTC — stable day rounding
+}
+
 /** Most recent lastPerformed across every exercise of a routine (approximates "last trained"). */
 export function routineUsedIso(
   routine: RoutineDTO,
@@ -222,6 +228,41 @@ export function useRoutineRun() {
       } catch (e) {
         toast.error(errorMessage(e));
         return false;
+      }
+    },
+    [online, invalidate],
+  );
+
+  return { online, run, invalidate };
+}
+
+// ---------- Part 5: offline-aware program/schedule mutations ----------
+
+/**
+ * Same contract as useRoutineRun, but for Part 5 program + schedule
+ * mutations: invalidates the programs/dashboard/schedule query families and
+ * RETURNS the API result (callers need cursor/day payloads for toasts).
+ * Offline → the descriptor queues in the shared outbox and null comes back.
+ */
+export function useProgramRun() {
+  const online = useOnline();
+  const invalidate = useInvalidate();
+
+  const run = useCallback(
+    async <T,>(fn: () => Promise<T>, queue: QueueDescriptor): Promise<T | null> => {
+      if (!online) {
+        queueMutation(queue.path, queue.method, queue.body, queue.label);
+        toast.info(`${queue.label} — saved offline, will sync when reconnected`);
+        return null;
+      }
+      try {
+        const result = await fn();
+        invalidate.programs();
+        invalidate.schedule();
+        return result;
+      } catch (e) {
+        toast.error(errorMessage(e));
+        return null;
       }
     },
     [online, invalidate],

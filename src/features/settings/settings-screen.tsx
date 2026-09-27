@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Check, Monitor, Moon, Sun, SunMoon } from "lucide-react";
 import { useApp } from "@/lib/client/store";
 import { useWakeLock } from "./use-wake-lock";
-import { PreferencesSection, AccountSection, DataSection, AppSection } from "./settings-sections";
+import { PreferencesSection, ProgramsSection, AccountSection, DataSection, AppSection } from "./settings-sections";
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -77,6 +77,7 @@ export default function SettingsScreen() {
         {settings ? (
           <>
             <PreferencesSection />
+            <ProgramsSection />
             <AccountSection />
             <DataSection />
             <AppSection />

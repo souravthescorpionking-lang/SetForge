@@ -188,8 +188,203 @@ async function ensureSystemUnits(): Promise<Map<string, string>> {
   return have;
 }
 
+// ---------- Part 5: seeded program/session templates ----------
+//
+// Templates reference exercises by name (resolved against the user's seeded
+// catalogue). Set templates: 3× blank (copy-previous) + a warm-up row on main
+// compounds (reps pre-filled, weight left blank).
+
+type TemplateSet = {
+  weight?: number | null;
+  reps?: number | null;
+  distance?: number | null;
+  timeSec?: number | null;
+  setType?: string | null;
+  rpe?: number | null;
+  tempo?: string | null;
+  restPlannedSec?: number | null;
+};
+type TemplateExercise = { name: string; sets: TemplateSet[] };
+type TemplateDay = { name: string; dayType: string; exercises: TemplateExercise[] };
+type TemplateProgram = { name: string; notes: string | null; kind: string; days: TemplateDay[] };
+
+const blank3: TemplateSet[] = [{}, {}, {}];
+const warmup: TemplateSet = { reps: 10, setType: "WARMUP", restPlannedSec: 60 };
+const compound = (): TemplateSet[] => [warmup, {}, {}, {}];
+
+const PROGRAM_TEMPLATES: TemplateProgram[] = [
+  {
+    name: "Push / Pull / Legs",
+    notes: "Classic 6-day split with rotating rest days.",
+    kind: "ROUTINE",
+    days: [
+      {
+        name: "Push",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Bench Press", sets: compound() },
+          { name: "Overhead Press", sets: compound() },
+          { name: "Incline Dumbbell Press", sets: blank3 },
+          { name: "Lateral Raise", sets: blank3 },
+          { name: "Cable Pushdown", sets: blank3 },
+        ],
+      },
+      {
+        name: "Pull",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Row", sets: compound() },
+          { name: "Lat Pulldown", sets: blank3 },
+          { name: "Seated Cable Row", sets: blank3 },
+          { name: "Face Pull", sets: blank3 },
+          { name: "Barbell Curl", sets: blank3 },
+        ],
+      },
+      {
+        name: "Legs",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Squat", sets: compound() },
+          { name: "Romanian Deadlift", sets: blank3 },
+          { name: "Leg Press", sets: blank3 },
+          { name: "Lying Leg Curl", sets: blank3 },
+          { name: "Standing Calf Raise", sets: blank3 },
+        ],
+      },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Push", dayType: "WORKOUT", exercises: [] },
+      { name: "Pull", dayType: "WORKOUT", exercises: [] },
+      { name: "Legs", dayType: "WORKOUT", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+    ],
+  },
+  {
+    name: "Upper / Lower",
+    notes: "4 training days per week.",
+    kind: "ROUTINE",
+    days: [
+      {
+        name: "Upper",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Bench Press", sets: compound() },
+          { name: "Barbell Row", sets: compound() },
+          { name: "Overhead Press", sets: blank3 },
+          { name: "Lat Pulldown", sets: blank3 },
+          { name: "Barbell Curl", sets: blank3 },
+          { name: "Skull Crusher", sets: blank3 },
+        ],
+      },
+      {
+        name: "Lower",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Squat", sets: compound() },
+          { name: "Romanian Deadlift", sets: blank3 },
+          { name: "Leg Press", sets: blank3 },
+          { name: "Seated Leg Curl", sets: blank3 },
+          { name: "Standing Calf Raise", sets: blank3 },
+        ],
+      },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Upper", dayType: "WORKOUT", exercises: [] },
+      { name: "Lower", dayType: "WORKOUT", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+    ],
+  },
+  {
+    name: "Full Body 3×",
+    notes: "Three full-body sessions per week.",
+    kind: "ROUTINE",
+    days: [
+      {
+        name: "Full Body A",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Squat", sets: compound() },
+          { name: "Barbell Bench Press", sets: compound() },
+          { name: "Barbell Row", sets: blank3 },
+          { name: "Lat Pulldown", sets: blank3 },
+        ],
+      },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Full Body B", dayType: "WORKOUT", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Full Body C", dayType: "WORKOUT", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+      { name: "Rest", dayType: "REST", exercises: [] },
+    ],
+  },
+  {
+    name: "Quick Push",
+    notes: null,
+    kind: "SESSION",
+    days: [
+      {
+        name: "Quick Push",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Bench Press", sets: compound() },
+          { name: "Overhead Press", sets: blank3 },
+          { name: "Cable Pushdown", sets: blank3 },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Quick Pull",
+    notes: null,
+    kind: "SESSION",
+    days: [
+      {
+        name: "Quick Pull",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Lat Pulldown", sets: blank3 },
+          { name: "Seated Cable Row", sets: blank3 },
+          { name: "Barbell Curl", sets: blank3 },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Quick Legs",
+    notes: null,
+    kind: "SESSION",
+    days: [
+      {
+        name: "Quick Legs",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Squat", sets: compound() },
+          { name: "Leg Press", sets: blank3 },
+          { name: "Lying Leg Curl", sets: blank3 },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Core 15",
+    notes: "15-minute core circuit.",
+    kind: "SESSION",
+    days: [
+      {
+        name: "Core 15",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Plank", sets: [{ timeSec: 45 }, { timeSec: 45 }, { timeSec: 60 }] },
+          { name: "Crunch", sets: blank3 },
+          { name: "Hanging Leg Raise", sets: blank3 },
+          { name: "Russian Twist", sets: blank3 },
+        ],
+      },
+    ],
+  },
+];
+
 /** Per-user defaults, created inside the signup transaction. */
-export async function buildPerUserSeed(userId: string) {
+export async function buildPerUserSeed(userId: string, timezone?: string) {
   const categories = SEED_CATEGORIES.map((c, i) => ({
     id: uuid7(),
     userId,
@@ -229,6 +424,12 @@ export async function buildPerUserSeed(userId: string) {
     autoRestFromRow: true,
     restEndBehaviour: "NOTIFY_AND_FOCUS_NEXT",
     e1rmMethod: "BRZYCKI",
+    timezone: timezone || "UTC",
+    autoAdvanceRest: true,
+    scheduleMovesCursor: true,
+    advanceTrigger: "FINISH_OR_MIDNIGHT",
+    showProjectedDays: false,
+    reminderTime: null,
   };
 
   const plates = [
@@ -268,5 +469,39 @@ export async function buildPerUserSeed(userId: string) {
     sortOrder: i,
   }));
 
-  return { categories, exercises, settings, plates, measurements };
+  // program/session templates — exercise ids resolved from the seeded catalogue
+  const exerciseIdByName = new Map(exercises.map((e) => [e.name, e.id]));
+  const programs = PROGRAM_TEMPLATES.map((t, pi) => ({
+    id: uuid7(),
+    name: t.name,
+    notes: t.notes,
+    kind: t.kind,
+    sortOrder: pi,
+    days: t.days.map((d, di) => ({
+      id: uuid7(),
+      name: d.name,
+      dayType: d.dayType,
+      sortOrder: di,
+      exercises: d.exercises
+        .filter((e) => exerciseIdByName.has(e.name))
+        .map((e, ei) => ({
+          id: uuid7(),
+          exerciseId: exerciseIdByName.get(e.name)!,
+          sortOrder: ei,
+          sets: e.sets.map((ps) => ({
+            id: uuid7(),
+            weight: ps.weight ?? null,
+            reps: ps.reps ?? null,
+            distance: ps.distance ?? null,
+            timeSec: ps.timeSec ?? null,
+            setType: ps.setType ?? null,
+            rpe: ps.rpe ?? null,
+            tempo: ps.tempo ?? null,
+            restPlannedSec: ps.restPlannedSec ?? null,
+          })),
+        })),
+    })),
+  }));
+
+  return { categories, exercises, settings, plates, measurements, programs };
 }

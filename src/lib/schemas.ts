@@ -2,6 +2,11 @@
 import { z } from "zod";
 import { EXERCISE_TYPES, GOAL_TYPES, GRAPH_METRICS, MEASUREMENT_GOAL_TYPES, REST_END_BEHAVIOURS, E1RM_METHODS, SET_TYPES, TEMPO_REGEX } from "./constants";
 
+// ---- Part 5 enum-ish constants (declared before use) ----
+export const ROUTINE_KINDS = ["ROUTINE", "SESSION"] as const;
+export const DAY_TYPES = ["WORKOUT", "REST"] as const;
+export const ADVANCE_TRIGGERS = ["FINISH_OR_MIDNIGHT", "FIRST_SET"] as const;
+
 export const emailField = z.email("Enter a valid email").transform((v) => v.trim().toLowerCase());
 export const passwordField = z.string().min(8, "At least 8 characters").max(128);
 
@@ -10,6 +15,7 @@ export const signupSchema = z.object({
   email: emailField,
   password: passwordField,
   name: z.string().trim().min(1).max(80).optional(),
+  timezone: z.string().trim().min(1).max(64).optional(), // IANA tz from the browser
 });
 export const loginSchema = z.object({
   email: emailField,
@@ -169,13 +175,18 @@ export const goalUpdateSchema = goalBaseSchema.partial().omit({ exerciseId: true
 export const routineCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   notes: z.string().max(2000).nullable().optional(),
+  kind: z.enum(ROUTINE_KINDS).default("ROUTINE"),
 });
 export const routineUpdateSchema = routineCreateSchema.partial().extend({
   sortOrder: z.number().int().min(0).optional(),
 });
-export const routineDayCreateSchema = z.object({ name: z.string().trim().min(1).max(80) });
+export const routineDayCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  dayType: z.enum(DAY_TYPES).default("WORKOUT"),
+});
 export const routineDayUpdateSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
+  dayType: z.enum(DAY_TYPES).optional(),
   sortOrder: z.number().int().min(0).optional(),
 });
 export const routineExerciseCreateSchema = z.object({ exerciseId: z.string().min(1) });
@@ -226,6 +237,25 @@ export const measurementRecordUpdateSchema = z.object({
 export const unitCreateSchema = z.object({ name: z.string().trim().min(1).max(20) });
 
 // ---------- settings / plates / account ----------
+// ---------- Part 5 settings sub-schemas (defined before use) ----------
+const timezoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((v) => {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: v });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Unknown timezone");
+const reminderTimeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM")
+  .nullable();
+
 export const settingsUpdateSchema = z.object({
   theme: z.enum(["light", "dark", "system"]).optional(),
   unitSystem: z.enum(["metric", "imperial"]).optional(),
@@ -247,6 +277,13 @@ export const settingsUpdateSchema = z.object({
   autoRestFromRow: z.boolean().optional(),
   restEndBehaviour: z.enum(REST_END_BEHAVIOURS).optional(),
   e1rmMethod: z.enum(E1RM_METHODS).optional(),
+  // ---- Part 5 ----
+  timezone: timezoneSchema.optional(),
+  autoAdvanceRest: z.boolean().optional(),
+  scheduleMovesCursor: z.boolean().optional(),
+  advanceTrigger: z.enum(ADVANCE_TRIGGERS).optional(),
+  showProjectedDays: z.boolean().optional(),
+  reminderTime: reminderTimeSchema.optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),
@@ -304,3 +341,44 @@ export const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
+
+// ===================== Part 5: programs, sessions, scheduling =====================
+
+export const routineKindSchema = z.object({
+  kind: z.enum(ROUTINE_KINDS).default("ROUTINE"),
+});
+export const routineDayTypeSchema = z.object({ dayType: z.enum(DAY_TYPES) });
+
+export const programFollowSchema = z.object({
+  startDayIndex: z.number().int().min(0).optional(),
+});
+export const cursorAdvanceSchema = z.object({ n: z.number().int().min(1).max(366).default(1) });
+export const cursorJumpSchema = z.object({ dayIndex: z.number().int().min(0) });
+
+export const startDaySchema = z.object({
+  dayId: z.string().min(1).optional(), // defaults to cursor day / single session day
+  date: isoDate.optional(), // defaults to local today (server timezone fallback)
+});
+
+export const scheduleCreateSchema = z.object({
+  date: isoDate,
+  routineId: z.string().min(1),
+  dayId: z.string().min(1).optional(),
+  note: z.string().max(500).nullable().optional(),
+  replace: z.boolean().optional(), // destructive replace of existing PLANNED
+});
+export const scheduleUpdateSchema = z.object({
+  date: isoDate.optional(),
+  status: z.enum(["PLANNED", "SKIPPED"]).optional(), // reopen / skip; DONE only via logging
+  note: z.string().max(500).nullable().optional(),
+});
+export const scheduleQuerySchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+
+export const sessionFromWorkoutSchema = z.object({
+  workoutId: z.string().min(1),
+  name: z.string().trim().min(1).max(80).optional(),
+});
+

@@ -23,16 +23,19 @@ import type { SessionDTO } from "@/lib/types";
 import { replaceHash, useHashRoute, type Route } from "./router";
 
 // Screen slots — the router imports ONLY from src/features/screens/*.
+import HomeScreen from "@/features/screens/home";
 import TodayScreen from "@/features/screens/today";
 import TrainingScreen from "@/features/screens/training";
 import CalendarScreen from "@/features/screens/calendar";
 import CalendarFiltersScreen from "@/features/screens/calendar-filters";
 import HistoryScreen from "@/features/screens/history";
 import ExercisePickerScreen from "@/features/screens/picker";
-import RoutinesScreen from "@/features/screens/routines";
-import RoutineDetailScreen from "@/features/screens/routine-detail";
+import ProgramsScreen from "@/features/screens/programs";
+import ProgramDetailScreen from "@/features/screens/program-detail";
 import LogDayScreen from "@/features/screens/log-day";
 import PredefinedEditorScreen from "@/features/screens/predefined-editor";
+import SchedulePickScreen from "@/features/screens/schedule-pick";
+import MoreScreen from "@/features/screens/more";
 import BodyScreen from "@/features/screens/body";
 import RecordsScreen from "@/features/screens/records";
 import ToolsScreen from "@/features/screens/tools";
@@ -58,7 +61,7 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
     if (!session) {
       if (route.name !== "auth") replaceHash("#/auth");
     } else if (route.name === "auth") {
-      replaceHash("#/today");
+      replaceHash("#/home");
     }
   }, [session, route.name]);
 
@@ -114,6 +117,8 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
 
 function renderScreen(route: Route): ReactNode {
   switch (route.name) {
+    case "home":
+      return <HomeScreen />;
     case "today":
       return <TodayScreen />;
     case "training":
@@ -126,16 +131,20 @@ function renderScreen(route: Route): ReactNode {
       return <HistoryScreen />;
     case "exercises":
       return <ExercisePickerScreen />;
-    case "routines":
-      return <RoutinesScreen />;
-    case "routine-detail":
-      return <RoutineDetailScreen routineId={route.params.routineId} />;
+    case "programs":
+      return <ProgramsScreen />;
+    case "program-detail":
+      return <ProgramDetailScreen routineId={route.params.routineId} />;
     case "log-day":
       return <LogDayScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
     case "predefined-editor":
       return (
         <PredefinedEditorScreen routineId={route.params.routineId} reId={route.params.reId} />
       );
+    case "schedule-pick":
+      return <SchedulePickScreen />;
+    case "more":
+      return <MoreScreen />;
     case "body":
       return <BodyScreen />;
     case "insights":
@@ -148,8 +157,8 @@ function renderScreen(route: Route): ReactNode {
       return <HelpScreen />;
     case "auth":
       // Authenticated visit of #/auth — the redirect effect is in flight;
-      // render Today for that single frame.
-      return <TodayScreen />;
+      // render Home for that single frame.
+      return <HomeScreen />;
     case "dev":
       return <DevShowcaseScreen />;
     case "exercise-overview":

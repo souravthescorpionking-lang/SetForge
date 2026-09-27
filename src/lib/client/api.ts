@@ -5,14 +5,18 @@
 import type {
   BackupDTO,
   CategoryDTO,
+  DashboardDTO,
   ExerciseDTO,
   GoalDTO,
   GraphDTO,
   MeasurementDTO,
   MeasurementRecordDTO,
   PlateDTO,
+  ProgramSummaryDTO,
+  ProjectedDayDTO,
   RecordsDTO,
   RoutineDTO,
+  ScheduleEntryDTO,
   SessionDTO,
   SetDTO,
   SettingsDTO,
@@ -73,7 +77,7 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 // ===================== Auth =====================
 
 export const authApi = {
-  signup: (data: { email: string; password: string; name?: string }) =>
+  signup: (data: { email: string; password: string; name?: string; timezone?: string }) =>
     request<SessionDTO>("/api/auth/signup", { method: "POST", body: body(data) }),
   login: (data: { email: string; password: string }) =>
     request<SessionDTO>("/api/auth/login", { method: "POST", body: body(data) }),
@@ -180,6 +184,15 @@ export const workoutsApi = {
     request<WorkoutDTO>(`/api/workouts/${id}/copy`, { method: "POST", body: body(data) }),
   move: (id: string, data: { toDate: string; workoutExerciseIds?: string[] }) =>
     request<WorkoutDTO>(`/api/workouts/${id}/move`, { method: "POST", body: body(data) }),
+
+  // ---- Part 5: finish / undo-finish ----
+  finish: (id: string) =>
+    request<{ workoutId: string; finishedAt: string; advanced: boolean; nextDay: { id: string; name: string; dayType: string } | null }>(
+      `/api/workouts/${id}/finish`,
+      { method: "POST" },
+    ),
+  undoFinish: (id: string) =>
+    request<{ ok: true }>(`/api/workouts/${id}/finish`, { method: "DELETE" }),
 
   addExercise: (workoutId: string, exerciseId: string) =>
     request<{ workoutExerciseId: string; exerciseId: string; sets: SetDTO[] }>(
@@ -297,7 +310,7 @@ export type PredefinedSetInput = {
 export const routinesApi = {
   list: () => request<{ routines: RoutineDTO[] }>("/api/routines"),
   get: (id: string) => request<RoutineDTO>(`/api/routines/${id}`),
-  create: (data: { name: string; notes?: string | null }) =>
+  create: (data: { name: string; notes?: string | null; kind?: "ROUTINE" | "SESSION" }) =>
     request<RoutineDTO>("/api/routines", { method: "POST", body: body(data) }),
   update: (id: string, data: { name?: string; notes?: string | null; sortOrder?: number }) =>
     request<RoutineDTO>(`/api/routines/${id}`, { method: "PATCH", body: body(data) }),
@@ -306,9 +319,16 @@ export const routinesApi = {
   logDay: (id: string, data: { dayId: string; date: string }) =>
     request<WorkoutDTO>(`/api/routines/${id}/log`, { method: "POST", body: body(data) }),
 
-  addDay: (routineId: string, name: string) =>
-    request<RoutineDTO>(`/api/routines/${routineId}/days`, { method: "POST", body: body({ name }) }),
-  updateDay: (routineId: string, dayId: string, data: { name?: string; sortOrder?: number }) =>
+  addDay: (routineId: string, name: string, dayType?: "WORKOUT" | "REST") =>
+    request<RoutineDTO>(`/api/routines/${routineId}/days`, {
+      method: "POST",
+      body: body({ name, ...(dayType ? { dayType } : {}) }),
+    }),
+  updateDay: (
+    routineId: string,
+    dayId: string,
+    data: { name?: string; sortOrder?: number; dayType?: "WORKOUT" | "REST" },
+  ) =>
     request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}`, { method: "PATCH", body: body(data) }),
   removeDay: (routineId: string, dayId: string) =>
     request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}`, { method: "DELETE" }),
@@ -345,6 +365,79 @@ export const routinesApi = {
     request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}/sets/${setId}`, {
       method: "DELETE",
     }),
+};
+
+// ===================== Part 5: Programs / Sessions / Schedule / Dashboard =====================
+
+/** Cursor ops return the new cursor position + day shape. */
+export type CursorResult = { dayIndex: number; day: { id: string; name: string; dayType: string } };
+
+export const programsApi = {
+  /** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION (omit = all). */
+  list: (kind?: "ROUTINE" | "SESSION") =>
+    request<ProgramSummaryDTO[]>(`/api/programs${qs({ kind })}`),
+  follow: (routineId: string, startDayIndex?: number) =>
+    request<{ routineId: string; dayIndex: number; day: { id: string; name: string; dayType: string } }>(
+      `/api/programs/${routineId}/follow`,
+      { method: "POST", body: body({ ...(startDayIndex != null ? { startDayIndex } : {}) }) },
+    ),
+  unfollow: () => request<{ ok: true }>("/api/programs/follow", { method: "DELETE" }),
+  advanceCursor: (n = 1) =>
+    request<CursorResult>("/api/programs/cursor/advance", { method: "POST", body: body({ n }) }),
+  skipCursorDay: () =>
+    request<{ skipped: { id: string; name: string; dayType: string }; dayIndex: number; day: { id: string; name: string; dayType: string } }>(
+      "/api/programs/cursor/skip",
+      { method: "POST" },
+    ),
+  jumpCursor: (dayIndex: number) =>
+    request<CursorResult>("/api/programs/cursor/jump", {
+      method: "POST",
+      body: body({ dayIndex }),
+    }),
+  markRestDone: () =>
+    request<CursorResult>("/api/programs/cursor/rest-done", { method: "POST" }),
+  /** Atomic day start: workout + predefined sets + provenance + schedule DONE entry. */
+  startDay: (routineId: string, data: { dayId?: string; date?: string } = {}) =>
+    request<WorkoutDTO>(`/api/programs/${routineId}/start-day`, {
+      method: "POST",
+      body: body(data),
+    }),
+};
+
+export const dashboardApi = {
+  get: () => request<DashboardDTO>("/api/dashboard"),
+};
+
+export const sessionsApi = {
+  /** Promote a logged workout into a reusable SESSION-kind routine. */
+  fromWorkout: (workoutId: string, name?: string) =>
+    request<RoutineDTO>("/api/sessions/from-workout", {
+      method: "POST",
+      body: body({ workoutId, ...(name ? { name } : {}) }),
+    }),
+};
+
+export type ScheduleCreateInput = {
+  date: string; // YYYY-MM-DD
+  routineId: string;
+  dayId?: string;
+  note?: string | null;
+  replace?: boolean;
+};
+
+export type ScheduleListResult = {
+  entries: ScheduleEntryDTO[];
+  projected: ProjectedDayDTO[];
+};
+
+export const scheduleApi = {
+  list: (params?: { from?: string; to?: string }) =>
+    request<ScheduleListResult>(`/api/schedule${qs(params ?? {})}`),
+  create: (data: ScheduleCreateInput) =>
+    request<ScheduleEntryDTO>("/api/schedule", { method: "POST", body: body(data) }),
+  update: (id: string, data: { date?: string; status?: "PLANNED" | "SKIPPED"; note?: string | null }) =>
+    request<ScheduleEntryDTO>(`/api/schedule/${id}`, { method: "PUT", body: body(data) }),
+  remove: (id: string) => request<{ ok: true }>(`/api/schedule/${id}`, { method: "DELETE" }),
 };
 
 // ===================== Measurements =====================

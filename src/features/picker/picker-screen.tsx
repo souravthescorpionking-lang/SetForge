@@ -120,7 +120,7 @@ export default function PickerScreen() {
   const routineCtxDayId = route.name === "exercises" ? route.query.get("dayId") : null;
   const routineMode = routineCtx === "routine" && !!routineCtxId && !!routineCtxDayId;
   const pickMode = !replaceWeId && !multiMode && (routineMode || !!(routeDate && DATE_RE.test(routeDate)));
-  const backHref = routineMode ? `/routines/${routineCtxId}` : dateKey === todayKey() ? "/today" : `/today?date=${dateKey}`;
+  const backHref = routineMode ? `/programs/${routineCtxId}` : dateKey === todayKey() ? "/today" : `/today?date=${dateKey}`;
   const todayHref = backHref;
 
   const { data: categories = [] } = useCategories();
@@ -249,7 +249,7 @@ export default function PickerScreen() {
         await routinesApi.addExercise(routineCtxId!, routineCtxDayId!, ex.id);
         invalidate.routines();
         toast.success(`${ex.name} added to the day`);
-        navigate(`/routines/${routineCtxId}`);
+        navigate(`/programs/${routineCtxId}`);
         return;
       }
       // createOrGet FIRST — days without a workout still get one (p3-3 gap #3)

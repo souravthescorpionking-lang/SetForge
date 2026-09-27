@@ -16,6 +16,7 @@ import type {
   PlateDTO,
   GoalDTO,
   RecordsDTO,
+  ScheduleEntryDTO,
 } from "@/lib/types";
 import { estOneRmByMethod } from "@/lib/formulas";
 import { dayKey } from "@/lib/dates";
@@ -30,6 +31,7 @@ import type {
   RoutineDay,
   RoutineExercise,
   PredefinedSet,
+  ScheduleEntry,
   Measurement,
   MeasurementRecord,
   Plate,
@@ -98,6 +100,11 @@ export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { e
     comment: w.comment ?? null,
     startAt: w.startAt?.toISOString() ?? null,
     endAt: w.endAt?.toISOString() ?? null,
+    sourceType: w.sourceType ?? "FREESTYLE",
+    sourceRoutineId: w.sourceRoutineId ?? null,
+    sourceDayId: w.sourceDayId ?? null,
+    scheduledStart: w.scheduledStart ?? false,
+    finishedAt: w.finishedAt?.toISOString() ?? null,
     groups: w.groups.map(mapGroup),
     exercises: w.exercises
       .slice()
@@ -192,6 +199,7 @@ export function mapRoutineDay(d: RoutineDay & { exercises: Array<RoutineExercise
     id: d.id,
     routineId: d.routineId,
     name: d.name,
+    dayType: d.dayType ?? "WORKOUT",
     sortOrder: d.sortOrder,
     exercises: d.exercises.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapRoutineExercise),
   };
@@ -202,6 +210,7 @@ export function mapRoutine(r: Routine & { days: Array<RoutineDay & { exercises: 
     id: r.id,
     name: r.name,
     notes: r.notes ?? null,
+    kind: r.kind ?? "ROUTINE",
     sortOrder: r.sortOrder,
     days: r.days.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapRoutineDay),
   };
@@ -316,4 +325,25 @@ export function mapRecords(
 
 export function graphPointDayKey(date: Date | string): string {
   return dayKey(date);
+}
+
+// ---------- Part 5: scheduling ----------
+
+/** Map a ScheduleEntry row (with routine + day joined) to a DTO. `status` is the
+ *  stored status — callers run `deriveEntryStatus` first for lazy transitions. */
+export function mapScheduleEntry(
+  e: ScheduleEntry & { routine: { name: string }; day?: { name: string } | null },
+): ScheduleEntryDTO {
+  return {
+    id: e.id,
+    date: dayKey(e.date),
+    sourceType: e.sourceType,
+    routineId: e.routineId,
+    dayId: e.dayId ?? null,
+    routineName: e.routine.name,
+    dayName: e.day?.name ?? null,
+    status: e.status,
+    workoutId: e.workoutId ?? null,
+    note: e.note ?? null,
+  };
 }

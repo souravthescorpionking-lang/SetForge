@@ -240,7 +240,7 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
-              onClick={() => navigate(`/routines/${routineId}`)}
+              onClick={() => navigate(`/programs/${routineId}`)}
               aria-label="Back to routine"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -279,7 +279,7 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
         ) : !routine || !day ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Day not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate("/routines")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/programs")}>
               Back to routines
             </Button>
           </div>
@@ -289,7 +289,7 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate(`/routines/${routineId}`)}
+              onClick={() => navigate(`/programs/${routineId}`)}
             >
               Edit the routine
             </Button>

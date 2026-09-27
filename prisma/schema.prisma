@@ -33,6 +33,8 @@ model User {
   timerPresets TimerPreset[]
   sessions     Session[]
   resetTokens  PasswordResetToken[]
+  activeRoutine ActiveRoutine?
+  scheduleEntries ScheduleEntry[]
 }
 
 model Session {
@@ -93,6 +95,13 @@ model UserSettings {
   autoRestFromRow       Boolean @default(true) // ✓ starts the row's planned rest
   restEndBehaviour      String  @default("NOTIFY_AND_FOCUS_NEXT") // NOTIFY | NOTIFY_AND_FOCUS_NEXT
   e1rmMethod            String  @default("BRZYCKI") // BRZYCKI | RPE | EPLEY
+  // ---- Part 5: programs, sessions, scheduling ----
+  timezone              String  @default("UTC") // IANA tz; client sends browser tz at signup
+  autoAdvanceRest       Boolean @default(true) // REST cursor day auto-advances after local midnight
+  scheduleMovesCursor   Boolean @default(true) // logging a scheduled active-routine day advances cursor
+  advanceTrigger        String  @default("FINISH_OR_MIDNIGHT") // FINISH_OR_MIDNIGHT | FIRST_SET
+  showProjectedDays     Boolean @default(false) // calendar ghosts upcoming cursor days
+  reminderTime          String? // "HH:MM" local daily reminder (null = off)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -159,14 +168,24 @@ model Workout {
   comment   String?
   startAt   DateTime?
   endAt     DateTime?
+  // ---- Part 5: provenance ----
+  sourceType      String    @default("FREESTYLE") // ROUTINE_DAY | SESSION | FREESTYLE | COPY
+  sourceRoutine   Routine?  @relation("SourceRoutine", fields: [sourceRoutineId], references: [id], onDelete: SetNull)
+  sourceRoutineId String? // routine/session the workout was started from (kept, routine delete → null)
+  sourceDay       RoutineDay? @relation("SourceDay", fields: [sourceDayId], references: [id], onDelete: SetNull)
+  sourceDayId     String? // routine day it was started from
+  scheduledStart  Boolean   @default(false) // true = started from a PLANNED schedule entry
+  finishedAt      DateTime? // set by the Finish action
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   exercises WorkoutExercise[]
   groups    WorkoutGroup[]
+  scheduleEntries ScheduleEntry[]
 
   @@unique([userId, date])
   @@index([userId, date])
+  @@index([userId, sourceRoutineId])
 }
 
 model WorkoutGroup {
@@ -255,6 +274,7 @@ model Routine {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   notes     String?
+  kind      String    @default("ROUTINE") // ROUTINE (multi-day program) | SESSION (single-day)
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -262,6 +282,9 @@ model Routine {
 
   days RoutineDay[]
   groups RoutineGroup[]
+  activeFor ActiveRoutine?
+  scheduleEntries ScheduleEntry[]
+  sourceWorkouts Workout[] @relation("SourceRoutine")
 
   @@index([userId])
 }
@@ -272,11 +295,14 @@ model RoutineDay {
   routineId  String
   routine    Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
   name       String
+  dayType    String   @default("WORKOUT") // WORKOUT | REST
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   exercises RoutineExercise[]
+  scheduleEntries ScheduleEntry[]
+  sourceWorkouts Workout[] @relation("SourceDay")
 
   @@index([routineId])
 }
@@ -330,6 +356,49 @@ model PredefinedSet {
   updatedAt         DateTime        @updatedAt
 
   @@index([routineExerciseId])
+}
+
+// ---------- Programs & scheduling (Part 5) ----------
+
+// Cursor into the followed program. One per user. `cursorDayIndex` is a 0-based
+// index into the routine's days (ordered by sortOrder); the server owns it.
+model ActiveRoutine {
+  id                  String    @id
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routineId           String    @unique
+  routine             Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  cursorDayIndex      Int       @default(0)
+  startedAt           DateTime  @default(now())
+  lastAdvancedAt      DateTime?
+  lastAdvancedForDate String? // local YYYY-MM-DD of the last advance (idempotency for date-based advances)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// Calendar scheduling. One PLANNED entry per (user, date); DONE entries are
+// unlimited. Status is derived lazily on read (no cron).
+model ScheduleEntry {
+  id         String    @id
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       DateTime // UTC midnight of the scheduled day
+  sourceType String // ROUTINE_DAY | SESSION
+  routineId  String
+  routine    Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  dayId      String?
+  day        RoutineDay? @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  status     String    @default("PLANNED") // PLANNED | DONE | SKIPPED | MISSED
+  workoutId  String?
+  workout    Workout?  @relation(fields: [workoutId], references: [id], onDelete: SetNull)
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@index([userId, date])
 }
 
 // ---------- Goals ----------

@@ -14,7 +14,7 @@ import { buildPerUserSeed } from "../seed";
 import { conflict, unauthorized, badRequest } from "../http";
 import { getEnv } from "../env";
 
-export async function signup(input: { email: string; password: string; name?: string }) {
+export async function signup(input: { email: string; password: string; name?: string; timezone?: string }) {
   const email = normaliseEmail(input.email);
   const existing = await db.user.findUnique({ where: { email } });
   if (existing) throw conflict("An account with this email already exists");
@@ -29,12 +29,44 @@ export async function signup(input: { email: string; password: string; name?: st
         passwordHash: await hashPassword(input.password),
       },
     });
-    const seed = await buildPerUserSeed(userId);
+    const seed = await buildPerUserSeed(userId, input.timezone);
     await tx.userSettings.create({ data: seed.settings });
     await tx.category.createMany({ data: seed.categories });
     await tx.exercise.createMany({ data: seed.exercises });
     await tx.plate.createMany({ data: seed.plates });
     await tx.measurement.createMany({ data: seed.measurements });
+    // Part 5: seeded program/session templates
+    for (const r of seed.programs) {
+      await tx.routine.create({ data: { id: r.id, userId, name: r.name, notes: r.notes ?? null, kind: r.kind, sortOrder: r.sortOrder } });
+      for (const d of r.days) {
+        await tx.routineDay.create({
+          data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: d.sortOrder },
+        });
+        for (const re of d.exercises) {
+          await tx.routineExercise.create({
+            data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
+          });
+          if (re.sets.length > 0) {
+            await tx.predefinedSet.createMany({
+              data: re.sets.map((ps, i) => ({
+                id: ps.id,
+                routineExerciseId: re.id,
+                weight: ps.weight ?? null,
+                reps: ps.reps ?? null,
+                distance: ps.distance ?? null,
+                timeSec: ps.timeSec ?? null,
+                setType: ps.setType ?? null,
+                rpe: ps.rpe ?? null,
+                tempo: ps.tempo ?? null,
+                restPlannedSec: ps.restPlannedSec ?? null,
+                sortOrder: i,
+              })),
+            });
+          }
+        }
+      }
+    }
+
     return user;
   });
   console.log(`[auth] signup: ${email}`);

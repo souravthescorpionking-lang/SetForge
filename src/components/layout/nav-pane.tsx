@@ -3,9 +3,10 @@
 // NavPane — desktop-only (≥lg) left pane. Exactly 360px wide, plain flex
 // sibling of the screen pane in the shell (never fixed/absolute).
 //
-// Contents: 56px brand header → 48px-row nav list with ALL 9 destinations
-// (active state orange) → user chip pinned at the bottom. The chip links to
-// #/settings where account/sign-out lives.
+// Part 5 destinations: Home · Today · Calendar · Programs · Body · Insights ·
+// History · Exercises · Tools · Settings · Help (48px rows, active state
+// orange) + user chip pinned at the bottom. The chip links to #/settings
+// where account/sign-out lives.
 
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -19,6 +20,7 @@ import {
   BarChart3,
   Calculator,
   Settings,
+  CircleHelp,
   ChevronRight,
 } from "lucide-react";
 import type { SessionDTO } from "@/lib/types";
@@ -32,15 +34,17 @@ interface PaneDestination {
 }
 
 const DESTINATIONS: readonly PaneDestination[] = [
-  { key: "today", label: "Today", hash: "#/today", icon: Flame },
+  { key: "home", label: "Home", hash: "#/home", icon: Flame },
+  { key: "today", label: "Today", hash: "#/today", icon: Dumbbell },
   { key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays },
-  { key: "history", label: "History", hash: "#/history", icon: History },
-  { key: "exercises", label: "Exercises", hash: "#/exercises", icon: Dumbbell },
-  { key: "routines", label: "Routines", hash: "#/routines", icon: Repeat2 },
+  { key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2 },
   { key: "body", label: "Body", hash: "#/body", icon: Ruler },
   { key: "insights", label: "Insights", hash: "#/insights", icon: BarChart3 },
+  { key: "history", label: "History", hash: "#/history", icon: History },
+  { key: "exercises", label: "Exercises", hash: "#/exercises", icon: Dumbbell },
   { key: "tools", label: "Tools", hash: "#/tools", icon: Calculator },
   { key: "settings", label: "Settings", hash: "#/settings", icon: Settings },
+  { key: "help", label: "Help", hash: "#/help", icon: CircleHelp },
 ];
 
 export interface NavPaneProps {
@@ -69,7 +73,7 @@ export function NavPane({ session }: NavPaneProps) {
         <span className="text-lg font-black leading-none tracking-tight">SetForge</span>
       </div>
 
-      {/* Nav list — 48px rows, all 9 destinations */}
+      {/* Nav list — 48px rows, all destinations */}
       <nav className="min-h-0 flex-1 overflow-y-auto py-2" aria-label="Main">
         {DESTINATIONS.map((d) => {
           const active = segment === d.key;

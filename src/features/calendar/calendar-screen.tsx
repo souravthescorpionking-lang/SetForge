@@ -31,11 +31,12 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, LayoutGrid, List, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
-import { qk } from "@/lib/client/query";
+import { qk, useSchedule } from "@/lib/client/query";
 import { exercisesApi, workoutsApi } from "@/lib/client/api";
 import { todayKey } from "@/lib/client/format";
 import { replaceHash, useHashRoute } from "@/features/shell/router";
 import type { CardVisibleColumns } from "@/components/exercise-card/exercise-card";
+import type { ProjectedDayDTO, ScheduleEntryDTO } from "@/lib/types";
 import { MonthView } from "./month-view";
 import { ListView } from "./list-view";
 import { SelectedDayPanel } from "./selected-day-panel";
@@ -103,6 +104,23 @@ export default function CalendarScreen() {
     queryFn: () => workoutsApi.list({ from: fromKey, to: toKey }),
   });
   const byDay = useMemo(() => indexByDay(monthQuery.data?.workouts ?? []), [monthQuery.data]);
+
+  // Part 5: schedule entries + projected ghosts for the visible month
+  const scheduleQuery = useSchedule(fromKey, toKey);
+  const entryByDay = useMemo(() => {
+    const m = new Map<string, ScheduleEntryDTO>();
+    for (const e of scheduleQuery.data?.entries ?? []) {
+      const prev = m.get(e.date);
+      // prefer PLANNED entries when several land on one day
+      if (!prev || (e.status === "PLANNED" && prev.status !== "PLANNED")) m.set(e.date, e);
+    }
+    return m;
+  }, [scheduleQuery.data]);
+  const projectedByDay = useMemo(() => {
+    const m = new Map<string, ProjectedDayDTO>();
+    for (const p of scheduleQuery.data?.projected ?? []) m.set(p.date, p);
+    return m;
+  }, [scheduleQuery.data]);
 
   const allQuery = useQuery({
     queryKey: qk.workoutList({}),
@@ -249,6 +267,8 @@ export default function CalendarScreen() {
               anchor={anchor}
               weekStart={weekStart}
               byDay={byDay}
+              entryByDay={entryByDay}
+              projectedByDay={projectedByDay}
               selectedDay={selectedDay}
               loading={monthQuery.isLoading}
               onSelect={selectDay}
@@ -256,6 +276,7 @@ export default function CalendarScreen() {
             <SelectedDayPanel
               dayKey={selectedDay}
               summary={byDay.get(selectedDay)}
+              entry={entryByDay.get(selectedDay)}
               visibleColumns={visibleColumns}
             />
           </>

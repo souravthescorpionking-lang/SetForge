@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useApp } from "@/lib/client/store";
 import { QueryProvider } from "@/lib/client/query";
 import { flushOutbox, isOnline, outboxCount } from "@/lib/client/offline";
+import { armDailyReminder, rearmOnVisible } from "@/lib/client/notifications";
 import { PwaBridge } from "@/components/shared/pwa";
 import { AppShell } from "@/features/shell/app-shell";
 import type { SessionDTO } from "@/lib/types";
@@ -43,6 +44,20 @@ function AppInner({ initialSession }: { initialSession: SessionDTO | null }) {
   useEffect(() => {
     if (settings?.theme) setTheme(settings.theme);
   }, [settings?.theme, setTheme]);
+
+  // Part 5: arm/disarm the daily workout reminder whenever settings change
+  useEffect(() => {
+    armDailyReminder(settings?.reminderTime ?? null);
+  }, [settings?.reminderTime]);
+
+  // re-arm the reminder timer when the tab becomes visible again
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") rearmOnVisible();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   // offline outbox flush on reconnect
   useEffect(() => {

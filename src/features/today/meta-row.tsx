@@ -1,21 +1,24 @@
 "use client";
 
-// MetaRow — the 48px data-row above the exercise cards: duration chip (live
-// elapsed session timer, reusing the legacy workout-header-card logic — tap to
-// start/stop/restart), rest chip (live countdown mini while rest runs), note
-// chip (anchored popover editor for the workout comment; ghost "Add note").
-// All chips single-line; the row uses the rowTall token (48px, nowrap).
+// MetaRow — the 48px data-row above the exercise cards: source chip (Part 5
+// provenance: "PPL · Push" or "Session · Quick Pull" — tap → the program),
+// duration chip (live elapsed session timer, reusing the legacy
+// workout-header-card logic — tap to start/stop/restart), rest chip (live
+// countdown mini while rest runs), note chip (anchored popover editor for the
+// workout comment; ghost "Add note"). All chips single-line; the row uses
+// the rowTall token (48px, nowrap).
 
 import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { MessageSquareText, Play, Square, Timer } from "lucide-react";
+import { ChevronRight, MessageSquareText, Play, Square, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { rowTall } from "@/lib/ui/tokens";
 import { formatDuration } from "@/lib/formulas";
 import { workoutsApi } from "@/lib/client/api";
+import { useApp } from "@/lib/client/store";
 import type { WorkoutDTO } from "@/lib/types";
 import { useMutate } from "./use-mutate";
 
@@ -34,16 +37,20 @@ const chipBase =
 
 export function MetaRow({
   workout,
+  source,
   restRemainingSec,
   onToggleTimer,
 }: {
   workout: WorkoutDTO;
+  /** Part 5 provenance chip: "Routine · Day" or "Session · Name" (null = none). */
+  source?: { label: string; routineId: string } | null;
   /** Live rest countdown seconds (null while idle). */
   restRemainingSec: number | null;
   /** Start/stop/restart the session timer (legacy toggleTimer logic). */
   onToggleTimer: () => void;
 }) {
   const mutate = useMutate();
+  const navigate = useApp((s) => s.navigate);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
 
@@ -79,6 +86,23 @@ export function MetaRow({
 
   return (
     <div data-row className={cn(rowTall, "gap-2 px-1")}>
+      {/* Part 5: provenance source chip — tap → the program */}
+      {source ? (
+        <button
+          type="button"
+          onClick={() => navigate(`/programs/${source.routineId}`)}
+          aria-label={`From program ${source.label}`}
+          title={`From program ${source.label}`}
+          className={cn(
+            chipBase,
+            "flex-none border-primary/40 bg-primary/5 text-primary hover:bg-primary/10",
+          )}
+        >
+          <ChevronRight className="h-3.5 w-3.5 flex-none" aria-hidden />
+          <span className="max-w-[140px] truncate">{source.label}</span>
+        </button>
+      ) : null}
+
       {/* duration — live elapsed session timer */}
       <button
         type="button"

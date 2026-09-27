@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "./store";
-import { categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi } from "./api";
+import { categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi } from "./api";
 
 export const qk = {
   categories: ["categories"] as const,
@@ -28,6 +28,10 @@ export const qk = {
   plates: (unitSystem?: string) => ["plates", unitSystem ?? "all"] as const,
   lastSets: (exerciseId: string, before?: string) => ["last-sets", exerciseId, before ?? ""] as const,
   timerPresets: ["timer-presets"] as const,
+  // ---- Part 5: programs / sessions / schedule / dashboard ----
+  dashboard: ["dashboard"] as const,
+  programs: (kind?: string) => ["programs", kind ?? "all"] as const,
+  schedule: (from: string, to: string) => ["schedule", from, to] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -77,6 +81,29 @@ export function useTimerPresets() {
   return useQuery({ queryKey: qk.timerPresets, queryFn: () => timerPresetsApi.list() });
 }
 
+// ---------- Part 5 shared hooks ----------
+
+/** Home dashboard payload (15s staleTime — cheap enough to revalidate often). */
+export function useDashboard() {
+  return useQuery({ queryKey: qk.dashboard, queryFn: () => dashboardApi.get(), staleTime: 15_000 });
+}
+
+/** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION. */
+export function usePrograms(kind?: "ROUTINE" | "SESSION") {
+  return useQuery({
+    queryKey: qk.programs(kind),
+    queryFn: () => programsApi.list(kind),
+  });
+}
+
+/** Schedule entries + projected ghosts for a [from, to] window. */
+export function useSchedule(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.schedule(from, to),
+    queryFn: () => scheduleApi.list({ from, to }),
+  });
+}
+
 export function useInvalidate() {
   const qc = useQueryClient();
   return {
@@ -110,6 +137,16 @@ export function useInvalidate() {
     goals: () => qc.invalidateQueries({ queryKey: ["goals"] }),
     plates: () => qc.invalidateQueries({ queryKey: ["plates"] }),
     timerPresets: () => qc.invalidateQueries({ queryKey: ["timer-presets"] }),
+    // ---- Part 5 ----
+    dashboard: () => qc.invalidateQueries({ queryKey: qk.dashboard }),
+    programs: () => {
+      qc.invalidateQueries({ queryKey: ["programs"] });
+      qc.invalidateQueries({ queryKey: qk.dashboard });
+    },
+    schedule: () => {
+      qc.invalidateQueries({ queryKey: ["schedule"] });
+      qc.invalidateQueries({ queryKey: qk.dashboard });
+    },
     all: () => qc.invalidateQueries(),
   };
 }

@@ -1,18 +1,21 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Part 3 hash router — the URL contract (braces = params):
+// Part 5 hash router — the URL contract (braces = params):
 //
+//   #/home                           → screens/home           (—)   NEW default
 //   #/today                          → screens/today          (—)
 //   #/today/{exerciseId}             → screens/training       { exerciseId }
 //   #/calendar                       → screens/calendar       (—)
 //   #/calendar/filters               → screens/calendar-filters (—)
 //   #/history                        → screens/history        (—)
 //   #/exercises                      → screens/picker         (—)
-//   #/routines                       → screens/routines       (—)
-//   #/routines/{id}                  → screens/routine-detail { routineId }
-//   #/routines/{id}/log/{dayId}      → screens/log-day        { routineId, dayId }
-//   #/routines/{id}/exercise/{reId}  → screens/predefined-editor { routineId, reId }
+//   #/programs                       → screens/programs       (—)   NEW
+//   #/programs/{id}                  → screens/program-detail { routineId }
+//   #/programs/{id}/log/{dayId}      → screens/log-day        { routineId, dayId }
+//   #/programs/{id}/exercise/{reId}  → screens/predefined-editor { routineId, reId }
+//   #/schedule/pick?date=YYYY-MM-DD  → screens/schedule-pick  (—)   NEW
+//   #/more                           → screens/more           (—)   NEW
 //   #/body                           → screens/body           (—)
 //   #/insights                       → screens/records        (—)
 //   #/tools                          → screens/tools          (—)
@@ -20,27 +23,31 @@
 //   #/help                           → screens/help           (—)
 //   #/auth                           → screens/auth           (—)
 //   #/dev                            → screens/dev-showcase   (—)
-//
 //   #/exercise-overview/{id}         → screens/exercise-overview { exerciseId }
 //
-// Unknown hash → redirect to #/today. Query strings (?a=b) are preserved and
-// exposed on Route.query. The router imports ONLY from src/features/screens/*
-// so later agents replace screen files without touching this router.
+// LEGACY redirects (location.replace — no history pollution):
+//   #/routines…  → #/programs…  (path-for-path)   ·  "" or "#/" → #/home
+//   Any other unknown hash → #/home. Query strings (?a=b) are preserved and
+//   exposed on Route.query. The router imports ONLY from src/features/screens/*
+// so screen files can be replaced without touching this router.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from "react";
 
 export type RouteName =
+  | "home"
   | "today"
   | "training"
   | "calendar"
   | "calendar-filters"
   | "history"
   | "exercises"
-  | "routines"
-  | "routine-detail"
+  | "programs"
+  | "program-detail"
   | "log-day"
   | "predefined-editor"
+  | "schedule-pick"
+  | "more"
   | "body"
   | "insights"
   | "tools"
@@ -54,27 +61,30 @@ export type RouteName =
 export type RouteParams = {
   /** #/today/{exerciseId} */
   exerciseId?: string;
-  /** #/routines/{id} (+ nested log-day / predefined-editor) */
+  /** #/programs/{id} (+ nested log-day / predefined-editor) */
   routineId?: string;
-  /** #/routines/{id}/log/{dayId} */
+  /** #/programs/{id}/log/{dayId} */
   dayId?: string;
-  /** #/routines/{id}/exercise/{reId} */
+  /** #/programs/{id}/exercise/{reId} */
   reId?: string;
 };
 
 type RouteMeta = { query: URLSearchParams; hash: string };
 
 export type Route =
+  | ({ name: "home" } & RouteMeta)
   | ({ name: "today" } & RouteMeta)
   | ({ name: "training"; params: RouteParams & { exerciseId: string } } & RouteMeta)
   | ({ name: "calendar" } & RouteMeta)
   | ({ name: "calendar-filters" } & RouteMeta)
   | ({ name: "history" } & RouteMeta)
   | ({ name: "exercises" } & RouteMeta)
-  | ({ name: "routines" } & RouteMeta)
-  | ({ name: "routine-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "programs" } & RouteMeta)
+  | ({ name: "program-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
   | ({ name: "log-day"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
   | ({ name: "predefined-editor"; params: RouteParams & { routineId: string; reId: string } } & RouteMeta)
+  | ({ name: "schedule-pick" } & RouteMeta)
+  | ({ name: "more" } & RouteMeta)
   | ({ name: "body" } & RouteMeta)
   | ({ name: "insights" } & RouteMeta)
   | ({ name: "tools" } & RouteMeta)
@@ -84,16 +94,33 @@ export type Route =
   | ({ name: "dev" } & RouteMeta)
   | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta);
 
-/** Route used before the real hash is read (and on the server): #/today. */
+/** Route used before the real hash is read (and on the server): #/home. */
 export const HOME_ROUTE: Route = {
-  name: "today",
+  name: "home",
   query: new URLSearchParams(),
   hash: "",
 };
 
 /**
+ * Legacy/empty hash → its modern equivalent. Returns null when the hash is
+ * already canonical (no rewrite needed). Pure function.
+ */
+export function canonicalHash(hash: string): string | null {
+  const raw = hash.replace(/^#/, "");
+  const [pathPart, queryPart] = raw.split("?");
+  const query = queryPart ? `?${queryPart}` : "";
+  const segs = (pathPart ?? "").split("/").filter(Boolean);
+  if (segs.length === 0) return `#/home${query}`;
+  if (segs[0] === "routines") {
+    const rest = segs.slice(1);
+    return `#/programs${rest.length > 0 ? `/${rest.join("/")}` : ""}${query}`;
+  }
+  return null;
+}
+
+/**
  * Parse a location.hash into a Route. Returns null for hashes that match no
- * pattern in the URL contract (caller redirects those to #/today).
+ * pattern in the URL contract (caller redirects those to #/home).
  * Pure function — safe on the server (pass "" for the SSR default).
  */
 export function parseRoute(hash: string): Route | null {
@@ -106,6 +133,11 @@ export function parseRoute(hash: string): Route | null {
 
   switch (head) {
     case "":
+    case "home":
+      if (segs.length === 0) return { name: "home", ...meta };
+      if (segs.length === 1) return { name: "home", ...meta };
+      return null;
+
     case "today":
       if (segs.length === 0) return { name: "today", ...meta };
       if (segs.length === 1) return { name: "today", ...meta };
@@ -123,10 +155,14 @@ export function parseRoute(hash: string): Route | null {
     case "exercises":
       return segs.length === 1 ? { name: "exercises", ...meta } : null;
 
+    case "programs":
     case "routines": {
-      if (segs.length === 1) return { name: "routines", ...meta };
+      // "routines" parses identically (deep links written before Part 5 that
+      // slip through the canonical rewrite still resolve; useHashRoute
+      // additionally replaces the URL so the address bar shows #/programs).
+      if (segs.length === 1) return { name: "programs", ...meta };
       const id = segs[1];
-      if (segs.length === 2 && id) return { name: "routine-detail", params: { routineId: id }, ...meta };
+      if (segs.length === 2 && id) return { name: "program-detail", params: { routineId: id }, ...meta };
       const leaf = segs[2];
       const leafId = segs[3];
       if (segs.length === 4 && id && leaf === "log" && leafId) {
@@ -137,6 +173,13 @@ export function parseRoute(hash: string): Route | null {
       }
       return null;
     }
+
+    case "schedule":
+      if (segs.length === 2 && segs[1] === "pick") return { name: "schedule-pick", ...meta };
+      return null;
+
+    case "more":
+      return segs.length === 1 ? { name: "more", ...meta } : null;
 
     case "body":
       return segs.length === 1 ? { name: "body", ...meta } : null;
@@ -178,7 +221,8 @@ function sameRoute(a: Route, b: Route): boolean {
  * Hash-route state hook. Listens to hashchange (browser back/forward work;
  * deep links resolve via the mount effect). Initial state is the home route on
  * both server and first client render (hydration-safe); the real hash is
- * applied immediately after mount. Unknown hashes redirect to #/today with
+ * applied immediately after mount. Legacy #/routines* hashes are rewritten to
+ * their #/programs* equivalents and unknown hashes to #/home — both via
  * location.replace (no history pollution).
  */
 export function useHashRoute(): Route {
@@ -186,11 +230,14 @@ export function useHashRoute(): Route {
 
   useEffect(() => {
     const apply = () => {
+      const rewritten = canonicalHash(window.location.hash);
+      if (rewritten != null) {
+        window.location.replace(`${window.location.pathname}${window.location.search}${rewritten}`);
+        return; // the replace triggers another hashchange → parsed next tick
+      }
       const parsed = parseRoute(window.location.hash);
       if (!parsed) {
-        window.location.replace(
-          `${window.location.pathname}${window.location.search}#/today`,
-        );
+        window.location.replace(`${window.location.pathname}${window.location.search}#/home`);
         return;
       }
       setRoute((prev) => (sameRoute(prev, parsed) ? prev : parsed));

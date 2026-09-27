@@ -7,7 +7,7 @@ import { mapWorkout, mapSet, mapGroup, mapWorkoutSummary } from "../mappers";
 import { badRequest, notFound, conflict } from "../http";
 import type { Prisma } from "@prisma/client";
 
-const workoutInclude = {
+export const workoutInclude = {
   exercises: {
     orderBy: { sortOrder: "asc" as const },
     include: {
@@ -494,7 +494,7 @@ export async function copyWorkout(
   targetWorkoutId: string,
   input: { fromDate?: string; setIds?: string[] },
 ) {
-  const target = await db.workout.findFirst({ where: { id: targetWorkoutId, userId } });
+  const target = await db.workout.findFirst({ where: { id: targetWorkoutId, userId }, include: workoutInclude });
   if (!target) throw notFound("Workout not found");
 
   let source: WorkoutFull | null = null;
@@ -643,5 +643,4 @@ function dayKeyIso(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-export { workoutInclude };
 export type { WorkoutFull };

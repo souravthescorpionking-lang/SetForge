@@ -1,11 +1,12 @@
 "use client";
 
 // BottomBar contents for the Today screen. The BottomBar CONTAINER is always
-// the same 56px primitive — its CONTENT swaps between the add button and the
-// RestBar while a rest countdown runs (never both, never stacked).
+// the same 56px primitive — its CONTENT swaps between the add button, the
+// add+finish pair, the finished row and the RestBar while a rest countdown
+// runs (never more than one of them).
 
 import { Button } from "@/components/ui/button";
-import { Minus, Plus, SkipForward, Timer } from "lucide-react";
+import { Check, Flag, Minus, Plus, SkipForward, Timer } from "lucide-react";
 
 /** Default content: full-width "+ Add exercise". */
 export function AddExerciseBar({ onAdd }: { onAdd: () => void }) {
@@ -18,6 +19,46 @@ export function AddExerciseBar({ onAdd }: { onAdd: () => void }) {
     >
       <Plus className="h-5 w-5" aria-hidden />
       Add exercise
+    </Button>
+  );
+}
+
+/**
+ * Logging-in-progress content: two EQUAL 48px actions, 8px gap —
+ * `+ Add exercise` | `Finish`.
+ */
+export function FinishBar({ onAdd, onFinish }: { onAdd: () => void; onFinish: () => void }) {
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 min-w-0 flex-1 gap-2 whitespace-nowrap text-sm font-bold"
+        onClick={onAdd}
+        aria-label="Add an exercise to this workout"
+      >
+        <Plus className="h-5 w-5" aria-hidden />
+        Add exercise
+      </Button>
+      <Button
+        type="button"
+        className="h-11 min-w-0 flex-1 gap-2 whitespace-nowrap text-sm font-bold"
+        onClick={onFinish}
+        aria-label="Finish this workout"
+      >
+        <Flag className="h-5 w-5" aria-hidden />
+        Finish
+      </Button>
+    </>
+  );
+}
+
+/** Finished content: single disabled confirmation row. */
+export function FinishedBar() {
+  return (
+    <Button type="button" variant="secondary" disabled className="h-11 w-full gap-2 text-sm font-bold">
+      <Check className="h-5 w-5" aria-hidden />
+      Finished ✓
     </Button>
   );
 }

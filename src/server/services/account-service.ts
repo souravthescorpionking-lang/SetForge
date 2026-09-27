@@ -71,6 +71,12 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       autoRestFromRow: settings.autoRestFromRow,
       restEndBehaviour: settings.restEndBehaviour,
       e1rmMethod: settings.e1rmMethod,
+      timezone: settings.timezone,
+      autoAdvanceRest: settings.autoAdvanceRest,
+      scheduleMovesCursor: settings.scheduleMovesCursor,
+      advanceTrigger: settings.advanceTrigger,
+      showProjectedDays: settings.showProjectedDays,
+      reminderTime: settings.reminderTime,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({

@@ -49,21 +49,30 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   ArrowDown,
   ArrowUp,
+  CalendarClock,
+  Check,
   ChevronDown,
   ChevronLeft,
   Copy,
+  Dumbbell,
   Layers,
+  Moon,
   MoreVertical,
   Pencil,
+  Play,
   Plus,
+  SkipForward,
   StickyNote,
   Trash2,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/client/store";
-import { routinesApi } from "@/lib/client/api";
-import { qk, useInvalidate, useOnline } from "@/lib/client/query";
+import { programsApi, routinesApi } from "@/lib/client/api";
+import { qk, useDashboard, useInvalidate, useOnline } from "@/lib/client/query";
+import { useHashRoute } from "@/features/shell/router";
+import { formatDayLabel } from "@/lib/client/format";
+import { DatePickerDialog, useScheduleCreate } from "@/features/schedule/schedule-shared";
 import type { CardAction, CardSet, CardVisibleColumns } from "@/components/exercise-card/exercise-card";
 import { ExerciseCard } from "@/components/exercise-card/exercise-card";
 import { useViewportWidth } from "@/components/set-row/viewport";
@@ -78,6 +87,7 @@ import {
   toCardExercise,
   useDayReorder,
   useLastSetsPrefill,
+  useProgramRun,
   useRoutineRun,
 } from "./screen-helpers";
 import { cn } from "@/lib/utils";
@@ -163,7 +173,10 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
   const invalidate = useInvalidate();
   const online = useOnline();
   const { run } = useRoutineRun();
+  const { run: programRun } = useProgramRun();
   const prefillFor = useLastSetsPrefill();
+  const route = useHashRoute();
+  const scheduleCreate = useScheduleCreate();
 
   // ---------- data ----------
   const { data: routine, isLoading, error } = useQuery({
@@ -171,6 +184,12 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
     queryFn: () => routinesApi.get(routineId),
     retry: 1,
   });
+
+  // follow state (cursor strip) — the dashboard carries the active program
+  const { data: dashboardData } = useDashboard();
+  const active = dashboardData?.active ?? null;
+  const followed = active && active.routineId === routineId ? active : null;
+  const isSession = (routine?.kind ?? "ROUTINE") === "SESSION";
 
   const days = useMemo(
     () => (routine ? [...routine.days].sort((a, b) => a.sortOrder - b.sortOrder) : []),
@@ -191,6 +210,14 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
   const [notesReId, setNotesReId] = useState<string | null>(null);
+
+  // Part 5 state: cursor jump list / day scheduling / session start
+  const [jumpOpen, setJumpOpen] = useState(
+    () => route.query.get("jump") === "1" && route.name === "program-detail",
+  );
+  const [scheduleDay, setScheduleDay] = useState<RoutineDayDTO | null>(null);
+  const [sessionScheduleOpen, setSessionScheduleOpen] = useState(false);
+  const [startBusy, setStartBusy] = useState(false);
 
   const effectiveOpen = (dayId: string) =>
     isWide ? true : (openDayId ?? days[0]?.id ?? "") === dayId;
@@ -249,8 +276,9 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
       label: `Deleted ${routine?.name ?? "routine"}`,
     });
     if (ok) {
+      invalidate.programs();
       toast.success(`Deleted “${routine?.name ?? "routine"}”`);
-      navigate("/routines");
+      navigate("/programs");
     }
   };
 
@@ -296,6 +324,87 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
     } catch (e) {
       toast.error(errorMessage(e));
     }
+  };
+
+  // ---------- Part 5: cursor / day-type / scheduling mutations ----------
+
+  const jumpToDay = async (dayIndex: number) => {
+    const res = await programRun(
+      () => programsApi.jumpCursor(dayIndex),
+      { path: "/api/programs/cursor/jump", method: "POST", body: { dayIndex }, label: "Cursor moved" },
+    );
+    if (res) toast.success(`Day ${res.dayIndex + 1} · ${res.day.name}`);
+  };
+
+  const prevCursorDay = () => {
+    if (!followed) return;
+    const n = followed.dayCount;
+    const i = followed.cursorDayIndex;
+    void jumpToDay((i - 1 + n) % n);
+  };
+
+  const skipCursorDay = async () => {
+    const res = await programRun(
+      () => programsApi.skipCursorDay(),
+      { path: "/api/programs/cursor/skip", method: "POST", label: "Day skipped" },
+    );
+    if (res) toast.success(`Skipped ${res.skipped.name} · ${res.day.name} up next`);
+  };
+
+  const toggleDayType = async (day: RoutineDayDTO, dayType: "WORKOUT" | "REST") => {
+    if ((day.dayType ?? "WORKOUT") === dayType) return;
+    const ok = await run(
+      () => routinesApi.updateDay(routineId, day.id, { dayType }),
+      {
+        path: `/api/routines/${routineId}/days/${day.id}`,
+        method: "PATCH",
+        body: { dayType },
+        label: "Day type changed",
+      },
+    );
+    if (ok) {
+      invalidate.programs();
+      toast.success(`${day.name} → ${dayType === "REST" ? "rest day" : "workout day"}`);
+    }
+  };
+
+  const startSessionToday = async () => {
+    if (!online) {
+      toast.info("Starting a session needs a connection");
+      return;
+    }
+    setStartBusy(true);
+    try {
+      await programsApi.startDay(routineId);
+      invalidate.workout();
+      invalidate.dashboard();
+      invalidate.schedule();
+      toast.success(`Started ${routine?.name ?? "session"}`);
+      navigate("/today");
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setStartBusy(false);
+    }
+  };
+
+  const scheduleRoutineDay = (day: RoutineDayDTO, dateKey: string) => {
+    if (!routine) return;
+    void scheduleCreate.create({
+      date: dateKey,
+      routineId,
+      dayId: day.id,
+      toastLabel: `Scheduled ${routine.name} · ${day.name} for ${formatDayLabel(dateKey)}`,
+    });
+  };
+
+  const scheduleSession = (dateKey: string) => {
+    if (!routine) return;
+    void scheduleCreate.create({
+      date: dateKey,
+      routineId,
+      toastLabel: `Scheduled ${routine.name} for ${formatDayLabel(dateKey)}`,
+    });
   };
 
   // ---------- card (template) mutations ----------
@@ -440,8 +549,17 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
   const renderDayHeader = (day: RoutineDayDTO, index: number) => {
     const open = effectiveOpen(day.id);
     const renaming = editing && renamingDayId === day.id;
+    const isRest = (day.dayType ?? "WORKOUT") === "REST";
+    const isCursorDay = !!followed && index === followed.cursorDayIndex;
     return (
-      <div data-row className="flex h-12 items-center gap-1 overflow-hidden whitespace-nowrap pl-2 pr-1">
+      <div
+        data-row
+        className="relative flex h-14 items-center gap-1 overflow-hidden whitespace-nowrap pl-3 pr-1"
+      >
+        {/* 4px cursor accent bar — the followed program's current day */}
+        {isCursorDay ? (
+          <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -467,10 +585,92 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
             className="h-10 min-w-0 flex-1"
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{day.name}</span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-semibold leading-none",
+              isRest && "text-muted-foreground",
+            )}
+          >
+            {isRest ? (
+              <Moon className="mr-1 inline h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+            ) : null}
+            {day.name}
+          </span>
         )}
-        {editing ? (
-          <span className="flex flex-none">
+        {isCursorDay ? (
+          <span className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/5 px-2 text-[10px] font-bold uppercase leading-none text-primary">
+            Today
+          </span>
+        ) : null}
+        {editing && !isSession ? (
+          <>
+            {/* day type segmented control (edit mode, routines only) */}
+            <div
+              role="radiogroup"
+              aria-label={`Day type for ${day.name}`}
+              className="mr-1 flex h-11 w-[88px] flex-none items-center gap-0.5 rounded-lg border bg-background p-0.5"
+            >
+              {(["WORKOUT", "REST"] as const).map((t) => {
+                const selected = (day.dayType ?? "WORKOUT") === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={`${t === "WORKOUT" ? "Workout" : "Rest"} day`}
+                    onClick={() => void toggleDayType(day, t)}
+                    className={cn(
+                      "h-10 min-w-0 flex-1 rounded-md text-[11px] font-bold leading-none transition-colors",
+                      selected
+                        ? t === "WORKOUT"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-accent",
+                    )}
+                  >
+                    {t === "WORKOUT" ? "Workout" : "Rest"}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="flex flex-none">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-11 w-11 p-0"
+                    aria-label={`Actions for ${day.name}`}
+                  >
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => setRenamingDayId(day.id)}>
+                    <Pencil className="h-4 w-4" aria-hidden /> Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={index === 0} onClick={() => void reorderDay(days, index, -1)}>
+                    <ArrowUp className="h-4 w-4" aria-hidden /> Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={index === days.length - 1}
+                    onClick={() => void reorderDay(days, index, 1)}
+                  >
+                    <ArrowDown className="h-4 w-4" aria-hidden /> Move down
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setDeleteDay(day)}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </>
+        ) : editing ? (
+          <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -486,41 +686,53 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 <DropdownMenuItem onClick={() => setRenamingDayId(day.id)}>
                   <Pencil className="h-4 w-4" aria-hidden /> Rename
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled={index === 0} onClick={() => void reorderDay(days, index, -1)}>
-                  <ArrowUp className="h-4 w-4" aria-hidden /> Move up
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={index === days.length - 1}
-                  onClick={() => void reorderDay(days, index, 1)}
-                >
-                  <ArrowDown className="h-4 w-4" aria-hidden /> Move down
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => setDeleteDay(day)}
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden /> Delete
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </span>
-        ) : (
-          <Button
-            type="button"
-            className="h-11 w-18 flex-none gap-1 px-0"
-            aria-label={`Log ${day.name} to today`}
-            onClick={() => navigate(`/routines/${routineId}/log/${day.id}`)}
-          >
-            <Zap className="h-4 w-4" aria-hidden />
-            Log
-          </Button>
+        ) : isSession ? null : (
+          <>
+            {!isRest ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-none gap-1 px-3 text-xs font-bold"
+                aria-label={`Schedule ${day.name}`}
+                onClick={() => setScheduleDay(day)}
+              >
+                <CalendarClock className="h-4 w-4" aria-hidden />
+                Schedule
+              </Button>
+            ) : null}
+            {!isRest ? (
+              <Button
+                type="button"
+                className="h-11 w-18 flex-none gap-1 px-0"
+                aria-label={`Log ${day.name} to today`}
+                onClick={() => navigate(`/programs/${routineId}/log/${day.id}`)}
+              >
+                <Zap className="h-4 w-4" aria-hidden />
+                Log
+              </Button>
+            ) : null}
+          </>
         )}
       </div>
     );
   };
 
   const renderDayBody = (day: RoutineDayDTO) => {
+    const isRest = (day.dayType ?? "WORKOUT") === "REST";
     const exercises = [...day.exercises].sort((a, b) => a.sortOrder - b.sortOrder);
+    if (isRest) {
+      return (
+        <div
+          data-row
+          className="flex h-10 items-center overflow-hidden whitespace-nowrap px-3 text-sm text-muted-foreground"
+        >
+          Rest day — nothing to log
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col gap-2 p-2">
         {exercises.map((re) => {
@@ -580,8 +792,8 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
-              onClick={() => navigate("/routines")}
-              aria-label="Back to routines"
+              onClick={() => navigate("/programs")}
+              aria-label="Back to programs"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -670,7 +882,73 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
         />
       }
       subBar={
-        notesVisible ? (
+        isSession && routine ? (
+          // SESSION: two equal actions — Start today | Schedule
+          <SubBar>
+            <div className="flex h-11 w-full items-center gap-2">
+              <Button
+                type="button"
+                className="h-11 min-w-0 flex-1 gap-1.5 whitespace-nowrap text-sm font-bold"
+                disabled={startBusy}
+                aria-label={`Start ${routine.name} today`}
+                onClick={() => void startSessionToday()}
+              >
+                <Play className="h-4 w-4" aria-hidden />
+                {startBusy ? "Starting…" : "Start today"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 min-w-0 flex-1 gap-1.5 whitespace-nowrap text-sm font-semibold"
+                aria-label={`Schedule ${routine.name}`}
+                onClick={() => setSessionScheduleOpen(true)}
+              >
+                <CalendarClock className="h-4 w-4" aria-hidden />
+                Schedule
+              </Button>
+            </div>
+          </SubBar>
+        ) : followed ? (
+          // ROUTINE + followed: the cursor strip (Day i/n · name · ◀ · Skip · Jump…)
+          <SubBar>
+            <div
+              data-row
+              aria-label="Program cursor"
+              className="flex h-11 w-full items-center gap-2 overflow-hidden whitespace-nowrap"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">
+                Day {followed.cursorDayIndex + 1}/{followed.dayCount} · {followed.dayName}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-11 flex-none px-0"
+                aria-label="Previous day"
+                onClick={prevCursorDay}
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-none gap-1 whitespace-nowrap px-3 text-xs font-bold"
+                onClick={() => void skipCursorDay()}
+              >
+                Skip
+                <SkipForward className="h-4 w-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant={jumpOpen ? "default" : "outline"}
+                aria-pressed={jumpOpen}
+                className="h-11 flex-none whitespace-nowrap px-3 text-xs font-bold"
+                onClick={() => setJumpOpen((o) => !o)}
+              >
+                Jump…
+              </Button>
+            </div>
+          </SubBar>
+        ) : notesVisible ? (
           <SubBar>
             <button
               type="button"
@@ -704,8 +982,8 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
         {error ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Routine not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate("/routines")}>
-              Back to routines
+            <Button type="button" variant="outline" onClick={() => navigate("/programs")}>
+              Back to programs
             </Button>
           </div>
         ) : isLoading ? (
@@ -714,8 +992,104 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
             <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
             <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
           </div>
+        ) : routine && jumpOpen && followed ? (
+          // ---------- Jump list — REPLACES the day sections ----------
+          <div className="flex flex-col gap-2" aria-label="Jump to day">
+            <p className="flex h-8 flex-none items-center overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <span className="truncate">Jump to day</span>
+            </p>
+            {days.map((day, index) => {
+              const isRest = (day.dayType ?? "WORKOUT") === "REST";
+              const isCurrent = index === followed.cursorDayIndex;
+              return (
+                <button
+                  key={day.id}
+                  type="button"
+                  data-row
+                  aria-label={`Jump to Day ${index + 1} · ${day.name}`}
+                  aria-current={isCurrent ? "true" : undefined}
+                  onClick={() => {
+                    setJumpOpen(false);
+                    void jumpToDay(index);
+                  }}
+                  className={cn(
+                    "flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-3 text-left text-sm transition-colors",
+                    isCurrent
+                      ? "border-primary/60 bg-primary/10"
+                      : "border-border bg-card hover:border-primary/40 hover:bg-accent/40",
+                    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  )}
+                >
+                  <span className="w-14 flex-none text-xs font-semibold text-muted-foreground">
+                    Day {index + 1}
+                  </span>
+                  {isRest ? (
+                    <Moon className="h-4 w-4 flex-none text-muted-foreground/70" aria-hidden />
+                  ) : (
+                    <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
+                  )}
+                  <span className={cn("min-w-0 flex-1 truncate font-medium", isRest && "text-muted-foreground")}>
+                    {day.name}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex h-6 flex-none items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+                      isRest
+                        ? "border-border text-muted-foreground"
+                        : "border-primary/40 text-primary",
+                    )}
+                  >
+                    {isRest ? "Rest" : "Workout"}
+                  </span>
+                  {isCurrent ? (
+                    <Check className="h-4 w-4 flex-none text-primary" aria-label="Current day" />
+                  ) : null}
+                </button>
+              );
+            })}
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 flex-none"
+              onClick={() => setJumpOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
         ) : routine ? (
           <>
+            {followed && notesVisible ? (
+              // notes relocate into the body while the cursor strip owns the SubBar
+              <button
+                type="button"
+                data-row
+                className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3 text-left transition-colors hover:bg-accent/40"
+                aria-label={editing ? "Routine notes editor below" : "Expand routine notes"}
+                aria-expanded={editing ? true : notesOpen}
+                onClick={() => {
+                  if (!editing) setNotesOpen((o) => !o);
+                }}
+              >
+                <StickyNote className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {editing
+                    ? routine.notes?.trim()
+                      ? "Notes — editing below"
+                      : "Tap the field below to add notes"
+                    : routine.notes}
+                </span>
+                {editing ? null : (
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 flex-none text-muted-foreground transition-transform",
+                      notesOpen ? "" : "-rotate-90",
+                    )}
+                    aria-hidden
+                  />
+                )}
+              </button>
+            ) : null}
+
             {editing ? (
               <textarea
                 aria-label="Routine notes"
@@ -744,7 +1118,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 <p className="max-w-[280px] text-center text-xs text-muted-foreground">
                   Split this routine into training days, then log a whole day in one tap.
                 </p>
-                {editing ? (
+                {editing && !isSession ? (
                   <Button type="button" className="gap-1.5" onClick={() => void addDay()}>
                     <Plus className="h-4 w-4" aria-hidden /> Add first day
                   </Button>
@@ -764,7 +1138,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               </div>
             ) : null}
 
-            {editing ? (
+            {editing && !isSession ? (
               <button
                 type="button"
                 data-row
@@ -779,6 +1153,27 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
             <div className="h-4 flex-none" aria-hidden />
           </>
         ) : null}
+
+        {/* Part 5 date pickers: day scheduling (routines) + whole-session scheduling */}
+        <DatePickerDialog
+          open={scheduleDay != null}
+          onOpenChange={(o) => !o && setScheduleDay(null)}
+          title={`Schedule ${scheduleDay?.name ?? "day"}`}
+          description={`Which date should ${routine?.name ?? "this routine"} · ${scheduleDay?.name ?? "this day"} land on?`}
+          onSelect={(dayKey) => {
+            const day = scheduleDay;
+            setScheduleDay(null);
+            if (day) scheduleRoutineDay(day, dayKey);
+          }}
+        />
+        <DatePickerDialog
+          open={sessionScheduleOpen}
+          onOpenChange={setSessionScheduleOpen}
+          title={`Schedule ${routine?.name ?? "session"}`}
+          description="Pick the date for this session."
+          onSelect={(dayKey) => scheduleSession(dayKey)}
+        />
+        {scheduleCreate.conflictDialog}
       </ScrollBody>
 
       {/* confirm-destructive: routine delete */}

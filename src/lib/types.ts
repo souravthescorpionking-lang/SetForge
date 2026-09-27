@@ -24,6 +24,13 @@ export type SettingsDTO = {
   autoRestFromRow: boolean;
   restEndBehaviour: string; // NOTIFY | NOTIFY_AND_FOCUS_NEXT
   e1rmMethod: string; // BRZYCKI | RPE | EPLEY
+  // ---- Part 5: programs, sessions, scheduling ----
+  timezone: string; // IANA tz
+  autoAdvanceRest: boolean;
+  scheduleMovesCursor: boolean;
+  advanceTrigger: string; // FINISH_OR_MIDNIGHT | FIRST_SET
+  showProjectedDays: boolean;
+  reminderTime: string | null; // "HH:MM" or null = off
 };
 
 export type SessionDTO = { user: UserDTO; settings: SettingsDTO };
@@ -113,6 +120,12 @@ export type WorkoutDTO = {
   comment: string | null;
   startAt: string | null;
   endAt: string | null;
+  // ---- Part 5: provenance ----
+  sourceType: string; // ROUTINE_DAY | SESSION | FREESTYLE | COPY
+  sourceRoutineId: string | null;
+  sourceDayId: string | null;
+  scheduledStart: boolean;
+  finishedAt: string | null;
   exercises: WorkoutExerciseDTO[];
   groups: WorkoutGroupDTO[];
 };
@@ -200,6 +213,7 @@ export type RoutineDayDTO = {
   id: string;
   routineId: string;
   name: string;
+  dayType: string; // WORKOUT | REST
   sortOrder: number;
   exercises: RoutineExerciseDTO[];
 };
@@ -208,6 +222,7 @@ export type RoutineDTO = {
   id: string;
   name: string;
   notes: string | null;
+  kind: string; // ROUTINE | SESSION
   sortOrder: number;
   days: RoutineDayDTO[];
 };
@@ -342,4 +357,89 @@ export type BackupDTO = {
     targetDistance: number | null;
     targetTimeSec: number | null;
   }>;
+};
+
+// ===================== Part 5: Programs, Sessions, Scheduling =====================
+
+export type ScheduleEntryDTO = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  sourceType: string; // ROUTINE_DAY | SESSION
+  routineId: string;
+  dayId: string | null;
+  routineName: string;
+  dayName: string | null;
+  status: string; // PLANNED | DONE | SKIPPED | MISSED (lazily derived)
+  workoutId: string | null;
+  note: string | null;
+};
+
+/** Ghost "projected" day for the calendar (showProjectedDays setting). */
+export type ProjectedDayDTO = {
+  date: string; // YYYY-MM-DD
+  routineId: string;
+  dayId: string;
+  dayName: string;
+  dayType: string; // WORKOUT | REST
+};
+
+export type ActiveRoutineDTO = {
+  routineId: string;
+  routineName: string;
+  routineKind: string;
+  cursorDayIndex: number;
+  dayCount: number;
+  dayId: string;
+  dayName: string;
+  dayType: string; // WORKOUT | REST
+  startedAt: string;
+};
+
+/** One row in the programs list with follow/usage metadata. */
+export type ProgramSummaryDTO = {
+  id: string;
+  name: string;
+  notes: string | null;
+  kind: string; // ROUTINE | SESSION
+  dayCount: number;
+  restCount: number;
+  exerciseCount: number;
+  lastUsedAt: string | null; // ISO date of last provenance workout
+  isFollowed: boolean;
+  cursor?: { dayIndex: number; dayCount: number } | null;
+};
+
+export type DashboardTodayDTO = {
+  date: string; // YYYY-MM-DD local
+  kind: "WORKOUT" | "REST" | "NONE";
+  scheduled: ScheduleEntryDTO | null; // today's PLANNED entry (if any)
+  routine: { id: string; name: string; kind: string } | null;
+  day: { id: string; name: string; dayType: string; index: number; count: number } | null;
+};
+
+export type DashboardUpcomingDayDTO = {
+  date: string; // YYYY-MM-DD
+  kind: "SCHEDULED" | "WORKOUT" | "REST" | "NONE";
+  label: string | null; // scheduled name or projected day name
+  entry: ScheduleEntryDTO | null;
+};
+
+export type DashboardDTO = {
+  today: DashboardTodayDTO;
+  active: ActiveRoutineDTO | null;
+  upcoming: DashboardUpcomingDayDTO[];
+  stats: {
+    weekSets: number;
+    weekVolume: number;
+    streakDays: number;
+    weekWorkouts: number;
+    weeklyWorkoutTarget: number;
+  };
+  quickSessions: ProgramSummaryDTO[];
+  todayWorkout: {
+    id: string;
+    finishedAt: string | null;
+    setCount: number;
+    completedCount: number;
+  } | null;
 };
