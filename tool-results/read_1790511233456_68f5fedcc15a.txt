@@ -1,0 +1,505 @@
+     1→# APP-A — SetForge: Deep Feature Inventory (read-only audit)
+     2→
+     3→Audit date: 2026-09-27 (repo time). Method: full read of router, all 21 screen slots,
+     4→all feature modules, layout primitives, shared components, client libs, server auth/http,
+     5→prisma schema, PWA assets. Every claim carries file evidence (path:line where useful).
+     6→
+     7→---
+     8→
+     9→## A0 Meta
+    10→
+    11→- **App name / brand**: SetForge — "Forge every set. Track every rep." (src/features/auth/auth-screen.tsx:130). Flame logo (lucide `Flame`, src/features/auth/auth-screen.tsx:119; public/logo.svg; icons 192/512/maskable).
+    12→- **Repo path**: /home/z/my-project (package.json name is scaffold-y: `nextjs_tailwind_shadcn_ts`, version 1.0.0 — src/features/settings/settings-sections.tsx:58 exports APP_VERSION "1.0.0").
+    13→- **Stack (package.json:21-102)**: next ^16.1.1 (App Router), react ^19, typescript ^5, prisma + @prisma/client ^6.11.1 (SQLite datasource — prisma/schema.prisma:11), tailwindcss ^4 + @tailwindcss/postcss, TanStack Query ^5.82, zustand ^5.0.6, zod ^4.0.2, sonner ^2.0.6, recharts ^2.15.4, hash-wasm (Argon2id), nodemailer, next-themes, uuid, react-hook-form, date-fns, framer-motion ^12.23.2 and @dnd-kit/* **declared but NOT imported anywhere in src/** (verified by grep — see A6/A12), next-intl declared but unused (English-only strings).
+    14→- **How it runs**: `next dev -p 3000` → http://localhost:3000 (package.json:6). Prod: standalone build via `bun .next/standalone/server.js` (package.json:7-8), Docker path documented in README §4.
+    15→- **git HEAD**: `c4f29ea576cf1e08908de93b44f65e852146971a`. Last 3 subjects are opaque UUIDs (not descriptive): `c4f29ea 63ba81df-…`, `8f58080 bea243d9-…`, `4576b1e 32c0a5d2-…`. `git status --short` shows modified `db/custom.db` + QA pngs under download/.
+    16→- **README summary** (README.md): offline-first multi-user workout tracker PWA; env table (DATABASE_URL, AUTH_SECRET, EMAIL_SERVER, RATE_LIMIT_*), provider-portable SQLite↔Postgres with db:deploy/export/import/copy/switch-check CLI; Docker + Vercel deploy; security §5 (Argon2id, opaque sessions, CSP/HSTS headers, Zod everywhere, ownership 404s, 1MB/50MB body caps); password-reset §6; in-app help + shortcuts §7; QA scripts §8.
+    17→- **CHANGELOG summary** (CHANGELOG.md): v1.0.0 2026-09-27 — Parts 1-2 core (auth, 60+ Zod routes, set model N/W/D/F/A, PRs, goals, body, plates, interval timer, JSON backup/import, CSV, offline outbox, PWA); Part 3 full-screen rework (Screen→TopBar→SubBar→ScrollBody→BottomBar→NavBar laws, ONE ExerciseCard + ONE SetRow, 91 legacy files deleted); Part 4 security/portability/a11y/QA/docs. Known limitations listed (Google OAuth reserved, drag handles not wired, calendar list not virtualised, CSP unsafe-eval, no quick-add grammar).
+    18→
+    19→---
+    20→
+    21→## A1 Navigation & Screens
+    22→
+    23→**Router** (src/features/shell/router.ts): client-side hash router, single Next route `/` (src/app/page.tsx). Route union lines 37-58; URL contract comment lines 4-33; parseRoute 126-214; legacy `#/routines*` → `#/programs*` rewrite via location.replace (canonicalHash 108-119, useHashRoute 228-251); unknown hash → `#/home`.
+    24→
+    25→**Screens (21 total)** — enumerated from router.ts:37-58 + app-shell.tsx:118-167 + src/features/screens/* (each slot is a thin re-export):
+    26→
+    27→| # | Route | Screen slot file | Implementation | Purpose | Layout regions |
+    28→|---|-------|------------------|----------------|---------|----------------|
+    29→| 1 | `#/home` | screens/home.tsx | features/home/home-screen.tsx | Dashboard: today's program card, upcoming strip, quick sessions, weekly stats, today's workout | TopBar + ScrollBody (+NavBar) |
+    30→| 2 | `#/today` | screens/today.tsx | features/today/today-screen.tsx:482-633 | Day workout log (ExerciseCards in edit mode) | TopBar + SubBar(DateStrip) + ScrollBody + BottomBar(Add/Finish/Rest swap) |
+    31→| 3 | `#/today/{exerciseId}` | screens/training.tsx | features/training/training-screen.tsx:451-689 | Per-exercise focus: Track / History / Graph | TopBar + SubBar(tabs) + ScrollBody + conditional BottomBar(Rest/Save-set) |
+    32→| 4 | `#/calendar` | screens/calendar.tsx | features/calendar/calendar-screen.tsx:157-295 | Month grid + selected-day panel / List view | TopBar(month paging+view toggle+filters) + optional SubBar(filter chips) + ScrollBody |
+    33→| 5 | `#/calendar/filters` | screens/calendar-filters.tsx | features/calendar/filters-screen.tsx | Full-screen calendar filters | TopBar(back+Reset) + ScrollBody |
+    34→| 6 | `#/history` | screens/history.tsx | features/history/history-screen.tsx:79-153 | Month-grouped workout timeline | TopBar(⋮ Filters/Export) + ScrollBody |
+    35→| 7 | `#/exercises` | screens/picker.tsx | features/picker/picker-screen.tsx:448-587 | Exercise library picker (pick / replace / multi / routine-day / browse modes) | TopBar(search) + SubBar(chip scroller) + ScrollBody + conditional BottomBar(Add N) |
+    36→| 8 | `#/programs` | screens/programs.tsx | features/routines/routines-screen.tsx:356-555 | Programs list: Routines \| Sessions tabs | TopBar(+ New menu) + SubBar(tabs) + ScrollBody (2-col grid ≥lg) |
+    37→| 9 | `#/programs/{id}` | screens/program-detail.tsx | features/routines/routine-detail-screen.tsx:785-1233 | Routine detail: day accordion, edit mode, cursor strip, scheduling | TopBar(rename/Edit toggle/⋮) + conditional SubBar(cursor strip / session actions / notes) + ScrollBody |
+    38→| 10 | `#/programs/{id}/log/{dayId}` | screens/log-day.tsx | features/routines/log-day-screen.tsx:233-319 | Log a routine day to today (preview mode w/ set selection) | TopBar + ScrollBody + BottomBar(Add N sets) |
+    39→| 11 | `#/programs/{id}/exercise/{reId}` | screens/predefined-editor.tsx | features/routines/predefined-editor-screen.tsx:197-278 | Predefined-set template editor | TopBar(back/Save) + ScrollBody + BottomBar(Skip/log freestyle) |
+    40→| 12 | `#/schedule/pick?date=` | screens/schedule-pick.tsx | features/schedule/schedule-pick-screen.tsx:81-279 | Schedule a routine day / session for a date | TopBar(back) + SubBar(Routines\|Sessions) + ScrollBody(accordion) |
+    41→| 13 | `#/more` | screens/more.tsx | features/more/more-screen.tsx:31-67 | Secondary destinations hub (6 rows) | TopBar + ScrollBody |
+    42→| 14 | `#/body` | screens/body.tsx | features/body/body-screen.tsx:96-165 | Body measurements: Track / History / Graph | TopBar(⋮) + SubBar(tabs) + ScrollBody |
+    43→| 15 | `#/insights` | screens/records.tsx | features/insights/insights-screen.tsx:66-135 | Records / Stats / Goals | TopBar(⋮ period) + SubBar(tabs) + ScrollBody |
+    44→| 16 | `#/tools` | screens/tools.tsx | features/tools/tools-screen.tsx:55-106 | 4 inline tool calculators/timer | TopBar(⋮ collapse all) + ScrollBody |
+    45→| 17 | `#/settings` | screens/settings.tsx | features/settings/settings-screen.tsx:50-95 | All settings sections | TopBar(⋮ theme) + ScrollBody |
+    46→| 18 | `#/help` | screens/help.tsx | features/help/help-screen.tsx:73-127 | Feature tour, shortcuts, offline, data docs | TopBar(back) + ScrollBody |
+    47→| 19 | `#/auth` | screens/auth.tsx | features/auth/auth-screen.tsx:107-281 | Login / signup / password reset (nav=false) | ScrollBody only (Screen nav={false}, auth-screen.tsx:108) |
+    48→| 20 | `#/dev` | screens/dev-showcase.tsx | features/screens/dev-showcase.tsx | Static component showcase (ExerciseCard/SetRow all modes; console.log actions) | TopBar + ScrollBody |
+    49→| 21 | `#/exercise-overview/{id}` | screens/exercise-overview.tsx | features/exercise-overview/exercise-overview-screen.tsx:137-257 | Exercise records / goals / history | TopBar(back/⋮) + SubBar(tabs) + ScrollBody |
+    50→
+    51→**Total: 21 screens** (20 authenticated + auth; `#/auth` renders Home for one frame when already authed — app-shell.tsx:158-161).
+    52→
+    53→**Layout system** (src/components/layout/): `Screen` = vertical stack TopBar(56) → [SubBar(48)] → ScrollBody → [BottomBar(56)] → NavBar(64) (screen.tsx:30-39); bars are plain flex siblings, never fixed (top-bar.tsx:19, sub-bar.tsx:14, bottom-bar.tsx:15); ScrollBody is the only vertical scroller, content column max-w 720px (mobile) / 1100px ≥lg (scroll-body.tsx:29-37).
+    54→
+    55→**Desktop vs mobile**: mobile/tablet = bottom NavBar with 5 tabs Home·Calendar·Programs·Body·More (nav-bar.tsx:30-36, `lg:hidden`, 64px + safe-area); desktop (≥lg) = left NavPane 360px with 11 destinations Home·Today·Calendar·Programs·Body·Insights·History·Exercises·Tools·Settings·Help + brand header + user chip → #/settings (nav-pane.tsx:36-48, 67-131). Shell switches at `lg:flex-row` (app-shell.tsx:111). Auth screen hides NavBar entirely (auth-screen.tsx:108). Screens also adapt: Programs 2-col grid ≥lg (routines-screen.tsx:418), chart boxes 240px → 360px ≥lg (training-screen.tsx:1053), SetRow grid drops RPE/tempo tracks <468px (set-row.tsx:70,109-110).
+    56→
+    57→---
+    58→
+    59→## A2 API Endpoints
+    60→
+    61→73 route.ts files under src/app/api/** (104 exported endpoint methods; health uses `export async function GET`, all others `export const X = handler(...)`). Every handler wraps logic in `handler()` from src/server/http.ts:34-56 (JSON envelope, Zod→400, HttpError map).
+    62→
+    63→| File | Method(s) | Purpose |
+    64→|---|---|---|
+    65→| api/health/route.ts | GET | Liveness: db + migrations + version + latency (README §4) |
+    66→| api/auth/login/route.ts | POST | Credentials login (rate-limited, scrypt→Argon2 migration) |
+    67→| api/auth/signup/route.ts | POST | Create account + seed defaults + timezone |
+    68→| api/auth/logout/route.ts | POST | Destroy session |
+    69→| api/auth/session/route.ts | GET | Current session/settings (SSR boot) |
+    70→| api/auth/reset/route.ts | POST | Request reset link (always 200, token hashed, 1h TTL) |
+    71→| api/auth/reset/confirm/route.ts | POST | Confirm reset (single-use token, revoke sessions) |
+    72→| api/dashboard/route.ts | GET | Home dashboard payload (today, upcoming, stats, quickSessions, todayWorkout) |
+    73→| api/workouts/route.ts | GET, POST | List summaries (from/to filters) / createOrGet by date |
+    74→| api/workouts/[id]/route.ts | GET, PATCH, DELETE | Workout detail / patch (comment, startAt/endAt) / delete |
+    75→| api/workouts/[id]/copy/route.ts | POST | Copy previous workout's exercises+sets into this date |
+    76→| api/workouts/[id]/finish/route.ts | POST, DELETE | Finish (+advance cursor) / undoFinish (revert cursor) |
+    77→| api/workouts/[id]/move/route.ts | POST | Move workout to another date |
+    78→| api/workouts/[id]/exercises/route.ts | POST | Add exercise to workout |
+    79→| api/workouts/[id]/exercises/order/route.ts | PUT | Reorder workout exercises |
+    80→| api/workouts/[id]/exercises/[weId]/route.ts | PATCH, DELETE | Patch exercise (groupId) / remove |
+    81→| api/workouts/[id]/exercises/[weId]/sets/route.ts | POST | Add set (PR detection, FIRST_SET advance hook) |
+    82→| api/workouts/[id]/exercises/[weId]/sets/[setId]/route.ts | PATCH, DELETE | Patch set / delete set |
+    83→| api/workouts/[id]/exercises/[weId]/sets/order/route.ts | PUT | Reorder sets |
+    84→| api/workouts/[id]/groups/route.ts | POST | Create superset group |
+    85→| api/workouts/[id]/groups/[groupId]/route.ts | PATCH, DELETE | Rename/recolor group / delete |
+    86→| api/exercises/route.ts | GET, POST | List (search/categoryId/favoritesOnly) / create custom exercise |
+    87→| api/exercises/[id]/route.ts | GET, PATCH, DELETE | Exercise detail / patch (favourite, notes, defaults, unit convert) / delete |
+    88→| api/exercises/[id]/history/route.ts | GET | Full set history (limit) |
+    89→| api/exercises/[id]/lastsets/route.ts | GET | Most recent session's sets before a date ("Last time") |
+    90→| api/exercises/[id]/records/route.ts | GET | Actual + estimated PRs + setCount |
+    91→| api/exercises/[id]/graph/route.ts | GET | Graph points (metric, from date) |
+    92→| api/routines/route.ts | GET, POST | List routines (full tree) / create (ROUTINE\|SESSION) |
+    93→| api/routines/[id]/route.ts | GET, PATCH, DELETE | Routine detail / rename+notes+kind / delete |
+    94→| api/routines/[id]/copy/route.ts | POST | Duplicate routine |
+    95→| api/routines/[id]/days/route.ts | POST | Add day |
+    96→| api/routines/[id]/days/[dayId]/route.ts | PATCH, DELETE | Rename / dayType toggle / delete day |
+    97→| api/routines/[id]/days/[dayId]/exercises/route.ts | POST | Add exercise to day |
+    98→| api/routines/[id]/days/[dayId]/exercises/order/route.ts | PUT | Reorder day exercises |
+    99→| api/routines/[id]/days/[dayId]/exercises/[reId]/route.ts | PATCH, DELETE | Patch / remove routine exercise |
+   100→| api/routines/[id]/days/[dayId]/exercises/[reId]/sets/route.ts | POST | Add predefined set |
+   101→| api/routines/[id]/days/[dayId]/exercises/[reId]/sets/[setId]/route.ts | PATCH, DELETE | Patch / delete predefined set |
+   102→| api/routines/[id]/log/route.ts | POST | Log day → today's workout (copy-previous blanks, provenance, entry link) |
+   103→| api/programs/route.ts | GET | Program summaries (kind filter, follow/cursor meta) |
+   104→| api/programs/[routineId]/follow/route.ts | POST | Follow program (cursor → Day 1) |
+   105→| api/programs/[routineId]/start-day/route.ts | POST | Start program day/session → workout (transaction) |
+   106→| api/programs/follow/route.ts | DELETE | Unfollow program |
+   107→| api/programs/cursor/advance/route.ts | POST | Advance cursor manually |
+   108→| api/programs/cursor/skip/route.ts | POST | Skip cursor day (SKIPPED audit entry) |
+   109→| api/programs/cursor/jump/route.ts | POST | Jump cursor to dayIndex |
+   110→| api/programs/cursor/rest-done/route.ts | POST | Mark REST day done |
+   111→| api/sessions/from-workout/route.ts | POST | Promote a workout into a reusable SESSION routine |
+   112→| api/schedule/route.ts | GET, POST | Schedule entries + projected days for range / create (409 conflict w/ details) |
+   113→| api/schedule/[id]/route.ts | PUT, DELETE | Move entry / remove entry |
+   114→| api/categories/route.ts | GET, POST | List / create category |
+   115→| api/categories/[id]/route.ts | PATCH, DELETE | Rename/recolor / delete |
+   116→| api/categories/reorder/route.ts | POST | Reorder categories |
+   117→| api/records/route.ts | GET | All records (per-exercise best + e1RM + setCount) |
+   118→| api/records/recalculate/route.ts | POST | Recompute all PRs |
+   119→| api/goals/route.ts | GET, POST | List / create goal |
+   120→| api/goals/[id]/route.ts | PATCH, DELETE | Update target / delete |
+   121→| api/stats/route.ts | GET | Period stats (workouts, sets, volume, reps, time, distance, streak, maxWeight, maxVolumeDay, perExercise) |
+   122→| api/measurements/route.ts | GET, POST | List / create metric |
+   123→| api/measurements/[id]/route.ts | PATCH, DELETE | Patch (isEnabled, goal) / delete metric |
+   124→| api/measurements/[id]/records/route.ts | GET, POST | Records of metric / add record (value+recordedAt) |
+   125→| api/measurements/[id]/records/[recId]/route.ts | PATCH, DELETE | Edit / delete record |
+   126→| api/measurements/reorder/route.ts | POST | Reorder metrics |
+   127→| api/units/route.ts | GET, POST | Measurement units (system + custom) |
+   128→| api/plates/route.ts | GET, PUT | Plate inventory per unit system / replace inventory |
+   129→| api/timer-presets/route.ts | GET, POST | Interval-timer presets list / create |
+   130→| api/timer-presets/[id]/route.ts | PATCH, DELETE | Rename/edit preset / delete |
+   131→| api/settings/route.ts | GET, PATCH | User settings read / patch (Zod, IANA tz, HH:MM reminder) |
+   132→| api/account/route.ts | DELETE | Delete account (cascades) |
+   133→| api/account/password/route.ts | POST | Change password (revokes sessions) |
+   134→| api/account/export/route.ts | GET | Full JSON backup |
+   135→| api/account/import/route.ts | POST | Import backup (replace\|merge, ≤50MB, own-backup only) |
+   136→| api/account/history/route.ts | DELETE | Delete workout history (modes) |
+   137→| api/sync/route.ts | GET | Pull-based delta sync since cursor (workouts, records, exercises, schedule, activeRoutine; applies program rules first) |
+   138→
+   139→**Count: 73 route files / 104 endpoint methods.** (Note: timer-presets CRUD exists end-to-end but no current screen consumes it — see A4 KNOWN.)
+   140→
+   141→---
+   142→
+   143→## A3 Data Model (prisma/schema.prisma)
+   144→
+   145→**26 models** (IDs UUIDv7 app-side, src/lib/uuid7.ts; enums stored as strings, Zod-validated):
+   146→
+   147→- **User** (17-38): email unique, name?, passwordHash?, relations to everything.
+   148→- **Session** (40-49): opaque token unique, expiresAt (30d TTL), userId idx.
+   149→- **VerificationToken** (51-57): next-auth-shaped (unused placeholder).
+   150→- **PasswordResetToken** (60-70): tokenHash (SHA-256), single-use usedAt, 1h TTL.
+   151→- **UserSettings** (74-107): theme, unitSystem, weekStart, defaultWeightIncrement, homeSetsShown, showCategory, trackPR, markSetsComplete, autoSelectNextSet, keepScreenOn, estOneRmRepLimit, weeklyWorkoutTarget, showSetType/showRpe/showTempo/showRest, autoRestFromRow, restEndBehaviour, e1rmMethod, timezone, autoAdvanceRest, scheduleMovesCursor, advanceTrigger, showProjectedDays, reminderTime?.
+   152→- **Category** (111-126): name, colour (#f97316 default), sortOrder, soft delete deletedAt, unique(userId,name).
+   153→- **Exercise** (128-159): categoryId, notes?, type (10 modalities), weightUnit?/weightIncrement?/restSec?/defaultGraph?/barWeight?/autoWarmup (flag; **not surfaced in current UI**), defaultSetType/defaultRpeTarget/defaultTempo, isFavorite, unique(userId,name).
+   154→- **Workout** (163-189): date (UTC midnight, unique per user/day), comment?, startAt?/endAt?, sourceType (ROUTINE_DAY|SESSION|FREESTYLE|COPY) + sourceRoutineId/sourceDayId (SetNull), scheduledStart, finishedAt.
+   155→- **WorkoutGroup** (191-203): superset name + colour.
+   156→- **WorkoutExercise** (205-222): sortOrder, groupId? (SetNull).
+   157→- **TrainingSet** (224-250): weight/reps/distance/timeSec?, comment?, isComplete, isWarmup (legacy mirror), setType (NORMAL|WARMUP|DROP|FAILURE|AMRAP), rpe?, tempo? ("3-1-1-0"), restPlannedSec?/restActualSec?, completedAt?, sortOrder.
+   158→- **PersonalRecord** (252-267): per (exerciseId, reps) unique — weight, setId?, date.
+   159→- **Routine** (271-290): kind ROUTINE|SESSION, notes?, sortOrder, soft delete.
+   160→- **RoutineDay** (292-308): name, dayType WORKOUT|REST, sortOrder.
+   161→- **RoutineGroup** (310-320): template superset group.
+   162→- **RoutineExercise** (322-339): dayId, exerciseId, sortOrder, groupId?.
+   163→- **PredefinedSet** (341-359): weight/reps/distance/timeSec?, setType?/rpe?/tempo?/restPlannedSec? (null = copy-previous).
+   164→- **ActiveRoutine** (365-379): userId unique, routineId unique, cursorDayIndex, startedAt, lastAdvancedAt, lastAdvancedForDate (idempotency anchor).
+   165→- **ScheduleEntry** (383-402): date, sourceType ROUTINE_DAY|SESSION, routineId, dayId?, status PLANNED|DONE|SKIPPED|MISSED (derived lazily), workoutId? (SetNull), note?, soft delete.
+   166→- **Goal** (406-421): exerciseId, type ONE_RM|MAX_WEIGHT|MAX_REPS|MAX_DISTANCE|MAX_TIME|VOLUME, target* fields.
+   167→- **MeasurementUnit** (425-433): system (userId null) or custom.
+   168→- **Measurement** (435-454): unitId, name, goalType INCREASE|DECREASE|SPECIFIC|NONE, targetValue?, isEnabled, isDefault, sortOrder.
+   169→- **MeasurementRecord** (456-468): value, recordedAt, comment?.
+   170→- **Plate** (472-484): weight, colour, count, isAvailable, unitSystem, sortOrder.
+   171→- **TimerPreset** (488-502): name unique/user, prepareSec/workSec/restSec/rounds defaults 10/30/15/8.
+   172→- **SystemMeta** (506-509): key-value (db markers).
+   173→
+   174→**Migrations: 9** (prisma/migrations/*: 20260925102615_init, 20260925143554_set_warmup_flag, 20260925164655_timer_presets_ex_auto_warmup, 20260926020000_weekly_workout_target, 20260926040000_part2_set_fields, 20260927000000_password_reset, 20260927010000_fk_cascade_cleanup, 20260927043600_part5_programs_sessions_schedule, 20260927044207_part5_workout_scheduled_start) + migration_lock.toml (10 dir entries).
+   175→
+   176→---
+   177→
+   178→## A4 Feature Inventory (flat, continuously numbered)
+   179→
+   180→### Auth (A-001 … A-010)
+   181→- **A-001** Email/password login with inline error + busy spinner — src/features/auth/auth-screen.tsx:67-79,240-249.
+   182→- **A-002** Sign-up incl. optional display name and automatic browser timezone capture — auth-screen.tsx:71-76 (Intl tz), api/auth/signup/route.ts.
+   183→- **A-003** Sign in / Create account segmented tabs — auth-screen.tsx:136-158.
+   184→- **A-004** "Forgot password?" reset request; always-200 (no account-existence leak); graceful "not configured on this server" notice when no SMTP — auth-screen.tsx:80-86,251-263; api/auth/reset/route.ts; README §6.
+   185→- **A-005** Password reset confirm via deep link `#/auth?reset=<token>` with new+repeat password — auth-screen.tsx:31-59,87-96,202-227.
+   186→- **A-006** Sign out with confirm dialog + full local wipe (localStorage `setforge:*` + SW caches + query cache) — settings-sections.tsx:338-352,497-522; lib/client/offline.ts:97-105.
+   187→- **A-007** Opaque 256-bit session tokens in DB, httpOnly/SameSite=Lax cookie, 30-day TTL — server/auth.ts:19,76-83,109-118.
+   188→- **A-008** Argon2id password hashing (OWASP params) with transparent legacy-scrypt re-hash on login — server/auth.ts:12-46.
+   189→- **A-009** Change password (min 8 chars, match check, revokes other sessions) — settings-sections.tsx:382-405,436-495.
+   190→- **A-010** Auth-gate routing: unauthenticated → #/auth forced; authenticated #/auth → #/home (replaceHash, no history pollution) — shell/app-shell.tsx:60-66,106-108.
+   191→
+   192→### Today / workout logging (A-011 … A-038)
+   193→- **A-011** Day workout view `#/today` with `?date=YYYY-MM-DD` deep link — today-screen.tsx:93-114.
+   194→- **A-012** DateStrip SubBar: ◄ day ► arrows, tappable label → calendar popover (react-day-picker), "Today" jump chip, 2px workout-exists dot — today/date-strip.tsx:27-113.
+   195→- **A-013** Empty-day state (200px block) with Start New Workout / Copy Previous Workout (guarded by hasPrevious query) — today/today-empty.tsx:26-60; today-screen.tsx:134-199.
+   196→- **A-014** One-tap-per-cell set logging via the single SetRow 40px CSS-grid (computed template, per-mode track removal) — components/set-row/set-row.tsx:64-119,882-953.
+   197→- **A-015** Modality-aware value fields (weight/reps, distance/time, … 10 types) — lib/constants.ts:20-35.
+   198→- **A-016** Set types N/W/D/F/A with colour badges; tap=cycle, hold(420ms)/right-click=picker popover; per-type descriptions — set-row.tsx:73,310-449; constants.ts:96-106.
+   199→- **A-017** Warm-up sets excluded from PRs, e1RM and volume; excluded from auto-rest — constants.ts:102; today-screen.tsx:282; summary-row.tsx:24.
+   200→- **A-018** RPE editor: 1-10 half-step chips (popover; moves into ⋯ popover <468px) — set-row.tsx:78-80,138-170,894.
+   201→- **A-019** Tempo editor: 4-segment ecc-pause-con-pause inputs with labels + validation regex — set-row.tsx:173-236; constants.ts:112-132.
+   202→- **A-020** Rest editor: presets 30/60/90/120/150/180s + custom seconds — set-row.tsx:76,237-290.
+   203→- **A-021** Focused-cell inline steppers [− value +] honouring per-exercise/settings increment — set-row.tsx:471,498-517.
+   204→- **A-022** Keyboard grid navigation: Enter/↓ next row, ↑ previous, Enter on last row adds a set and focuses it — set-row.tsx:519-565.
+   205→- **A-023** Copy-last ↺ glyph in blank template cells + "Copy last" button in ⋯ popover copies previous performed set (or last workout for templates) — set-row.tsx:569-580,827-830; today-screen.tsx:293-314; routines/screen-helpers.tsx:289-318.
+   206→- **A-024** ✓ complete toggle; ticking ✓ auto-starts rest countdown (warm-ups excluded; honours autoRestFromRow setting and set/exercise rest seconds) — today-screen.tsx:269-291.
+   207→- **A-025** RestBar swaps into the BottomBar while resting: big tabular countdown (aria-live timer), −15s/+15s, Skip — today/rest-bar.tsx:71-125; today-screen.tsx:537-557.
+   208→- **A-026** Rest engine: drift-immune endAt ticking (250ms), 880Hz beep (WebAudio), vibrate [180,90,180], OS notification when tab hidden, screen wake lock while running, last-duration persisted in localStorage — today/rest-state.tsx:16-22,25-47,49-57,59-68,76-84,113-143,164-183.
+   209→- **A-027** Add exercise: picker `?date=` createOrGets the workout first (works on empty days) — picker-screen.tsx:255-292.
+   210→- **A-028** Replace exercise flow: `?replace={weId}` banner, picks swap, removes old + adds new + carries over logged sets — picker-screen.tsx:114,258-283,517-527.
+   211→- **A-029** Superset groups: popover listing groups (colour dot + checkmark), create-new, remove-from-group; group colour bar + chip on cards — today/card-popovers.tsx:89-217; exercise-card.tsx:216-223.
+   212→- **A-030** Reorder exercises via ⋮ Move up/down (swaps + PUT order) — today-screen.tsx:316-334.
+   213→- **A-031** Workout note: MetaRow chip → anchored popover textarea (⌘/Ctrl+Enter saves) — today/meta-row.tsx:140-188.
+   214→- **A-032** Workout session timer: Start/Stop/Restart chip with live 1Hz elapsed duration — meta-row.tsx:26-33,57-130.
+   215→- **A-033** Day summary row `N sets · volume kg · N PRs` (performed, non-warmup volume) — today/summary-row.tsx:23-44.
+   216→- **A-034** Finish workout → finishedAt + cursor advance; toast "Workout finished · Day N up next" with **Undo action** (10s toast window, 120s server window; undo reverts finishedAt + cursor) — today-screen.tsx:347-394; server/services/program-service.ts:601-630; api/workouts/[id]/finish/route.ts (POST+DELETE).
+   217→- **A-035** "Save as session" — promote today's workout to reusable SESSION routine via name dialog prefilled `Session · d MMM` — routines/session-dialog.tsx:25-123; api/sessions/from-workout/route.ts.
+   218→- **A-036** Remove exercise confirm-destructive AlertDialog ("cannot be undone") — card-popovers.tsx:221-257.
+   219→- **A-037** Read-only exercise notes popover (library notes; hint that per-set notes live in ⋯) — card-popovers.tsx:51-85.
+   220→- **A-038** Offline-aware mutations: every set/exercise mutation runs online or queues an outbox descriptor and toasts "Saved offline — will sync when back online" — today/use-mutate.ts:23-48; lib/client/offline.ts:46-57.
+   221→
+   222→### Training focus screen (A-039 … A-044)
+   223→- **A-039** Per-exercise focus `#/today/{exerciseId}` with Track|History|Graph tabs deep-linkable via `?tab=`; resolves workout-exercise id first, library id second (offers "Add to this workout") — training-screen.tsx:4-31,164-203,592-614,738-769.
+   224→- **A-040** "Last time" previous-performance card (read-collapsed, expandable) from lastsets API — training-screen.tsx:205-211,771-792.
+   225→- **A-041** History tab: date-grouped cards; tap toggles single card into inline edit mode (ring highlight) — training-screen.tsx:808-917.
+   226→- **A-042** Graph tab: metric select (type-filtered), range 3M/6M/All, ⋮ options (Show points / Trend line / Y from zero), fixed 240/360px chart, reserved 72px DetailRow with prev·next values; least-squares trend line — training-screen.tsx:931-1129.
+   227→- **A-043** Rest timer override popover from ⋮: presets 30-180s grid + custom seconds — training-screen.tsx:1160-1233.
+   228→- **A-044** Mobile keyboard bar: full-width "Save set" BottomBar while a SetRow input is focused (<lg), blurring to commit — training-screen.tsx:232-250,615-640.
+   229→
+   230→### Exercises (A-045 … A-054)
+   231→- **A-045** Library picker `#/exercises` with 250ms debounced server-side search (`/api/exercises?search=`) — picker-screen.tsx:136-156; api/exercises/route.ts:10-19.
+   232→- **A-046** Horizontal chip scroller (the one allowed extra scroll container): All · Favorites · Recent · per-category chips with colour dots; clipped chips visibility-hidden for overflow audits — picker-screen.tsx:594-695.
+   233→- **A-047** Grouped sections in All: Favorites, Recent (top 5), per-category, "No category"; sticky 32px headers with counts — picker-screen.tsx:171-209,560-577.
+   234→- **A-048** Row meta `sets · days-since` (e.g. `12 · 3d`, today/mo/y) computed from records API + lastPerformed — picker-screen.tsx:92-103,159-169.
+   235→- **A-049** Custom exercise create/edit **inline block** (never a dialog): name, category, modality (10 types), unit (Default/kg/lbs with convert-on-change), weight increment — picker-screen.tsx:703-828.
+   236→- **A-050** Exercise delete confirm-destructive ("Deletes all history, PRs and goals…") — picker-screen.tsx:834-869.
+   237→- **A-051** Favourites: star toggle per row + ⋮ item, **optimistic** cache flip with rollback on failure; amber filled star — picker-screen.tsx:380-395; exercises/use-favourite.ts:10-39.
+   238→- **A-052** Exercise overview `#/exercise-overview/{id}` with Records|Goals|History tabs (`?tab=`), smart back (history vs #/exercises) — exercise-overview-screen.tsx:87-128,197-219.
+   239→- **A-053** Records tab: Bests (best weight, best volume set, estimated 1RM, best distance/time), Rep records per-reps actual PRs with **superseded dimming** + explainer copy, Estimated maxes nRM rows; cardio fallback note — exercise-overview-screen.tsx:296-457.
+   240→- **A-054** Per-exercise goals: inline 96px creator (6 goal types, unit-aware placeholder) + 96px expansion (progress bar w/ emerald when hit, current/target, target editor, two-tap delete w/ 4s auto-disarm) — exercise-overview-screen.tsx:463-782.
+   241→
+   242→### Routines / Programs / Sessions / Schedule (A-055 … A-068)
+   243→- **A-055** Programs list `#/programs` with Routines|Sessions tabs (`?tab=` deep link from Home) — routines-screen.tsx:71-79,394-415.
+   244→- **A-056** New routine / new session via inline name input row (legacy InlineInput) — routines-screen.tsx:419-444,116-130.
+   245→- **A-057** Follow / Following button (88px; disabled+tooltip "Needs at least one workout day"); switching follows shows destructive confirm "Unfollow X and start Y from Day 1?" — routines-screen.tsx:169-175,230-305,511-537.
+   246→- **A-058** Program duplicate (Copy) + delete confirm (logged workouts stay) — routines-screen.tsx:132-154,483-508.
+   247→- **A-059** Session rows with Start button (atomic start-day → #/today) and set-count meta — routines-screen.tsx:177-192,307-350.
+   248→- **A-060** Routine detail `#/programs/{id}`: day accordion (mobile: one day open; ≥768: all open; 0fr→1fr grid-template-rows animation), whole-screen Edit⇄Done mode, tap-title inline rename — routine-detail-screen.tsx:95-119,166-228,786-883.
+   249→- **A-061** Day CRUD in edit mode: add day (auto-name "Day N", auto-rename), rename, move up/down, WORKOUT|REST segmented day-type toggle, delete confirm; REST days render "Rest day — nothing to log" — routine-detail-screen.tsx:285-327,549-721,723-735,1205-1231.
+   250→- **A-062** Predefined set templates: template-mode cards, blank cells = ↺ copy-from-last-workout, immediate persist per edit, add/remove set — routine-detail-screen.tsx:425-492; predefined-editor-screen.tsx:67-128.
+   251→- **A-063** Log day `#/programs/{id}/log/{dayId}`: preview cards with per-set checkboxes (default all selected), inline value drafts, "log as completed" drafts, `Add N sets to today`; guards pre-existing exercises and count-mismatched copy-previous — log-day-screen.tsx:82-162,224-230.
+   252→- **A-064** Predefined editor screen + "Skip (log freestyle)" — adds bare exercise to today — predefined-editor-screen.tsx:161-187,227-240.
+   253→- **A-065** Program cursor strip (SubBar): `Day i/n · name`, ◀ previous (wraps), Skip (audit), Jump… inline day list (replaces sections; current day highlighted, REST labelled) — routine-detail-screen.tsx:331-352,912-950,995-1058.
+   254→- **A-066** Scheduling with conflict handling: DatePickerDialog (past disabled) → create; 409 CONFLICT renders Replace AlertDialog → retry replace:true; success toast with **Undo** (deletes entry); shared across 5 surfaces — schedule/schedule-shared.tsx:56-96,124-230; api/schedule/route.ts.
+   255→- **A-067** Schedule picker `#/schedule/pick?date=`: routines accordion (day rows, REST disabled) + sessions list; creates entry then history.back — schedule-pick-screen.tsx:37-100.
+   256→- **A-068** Seeded program templates at signup: Push/Pull/Legs (8d), Upper/Lower (7d), Full Body 3× (7d) + Quick Push/Pull/Legs + Core 15 sessions; compounds get WARMUP row (reps 10, 60s rest) + 3 blank copy-previous sets — server/seed.ts:191-260+; worklog Part 5.
+   257→
+   258→### Home dashboard (A-069 … A-075)
+   259→- **A-069** `#/home` dashboard (default route; "" or "#/" → #/home) composed of 5 fixed sections — home-screen.tsx:40-76; router.ts:113.
+   260→- **A-070** TodayCard 3 fixed-height states: A workout day (168px, 4px source bar, ⋮ Skip day/Jump/Schedule instead/Unfollow confirm, ≤3 exercise names, `12 sets · ~45 min` estimate, Start→`Continue · n/m`→`Finished ✓`+Log another session), B rest day (120px, Mark rest done | Train anyway), C no program (Choose program); Scheduled chip — home/today-card.tsx:160-338,98.
+   261→- **A-071** Upcoming strip: 7 equal day chips (weekday+date+label; Scheduled outlined orange) → `#/calendar?date=` — home/upcoming-strip.tsx:24-72.
+   262→- **A-072** Quick sessions row: up to 3 session chips, one-tap start — home/quick-start-row.tsx:22-87.
+   263→- **A-073** Weekly stats row (sets · volume · streak) + optional weekly-target progress bar with "n/target · x to go" (emerald when hit) — home/stats-row.tsx:40-94.
+   264→- **A-074** Today's workout section: summary-mode ExerciseCards in max-h-96 slim-scroll or "Nothing logged yet" row — home/today-workout-section.tsx:54-87.
+   265→- **A-075** Dashboard freshness: 15s staleTime + refetch at local midnight (re-arming timer), on visibilitychange→visible and on window online — home/use-dashboard.ts:30-59.
+   266→
+   267→### Calendar (A-076 … A-082)
+   268→- **A-076** Month grid: fixed 6×7 × 56px cells, weekday header (weekStart setting), date dots ≤3 + "+n" from workout categories, today = orange number, selected = orange ring, label tap = jump to current month — calendar/month-view.tsx:63-198; calendar-screen.tsx:157-193.
+   269→- **A-077** Schedule status dots: PLANNED outlined orange · DONE filled orange · MISSED muted grey · SKIPPED dashed ring (title tooltips) — month-view.tsx:47-61,168-192.
+   270→- **A-078** Projected program-day "ghosts" (10px day-name under date, gated by showProjectedDays setting) — month-view.tsx:159-166; settings-sections.tsx:1002-1007.
+   271→- **A-079** List view (`?view=list`): month-grouped 56px rows (date | exercise names "·" | set count), names resolved via shared byDate cache with category fallback — calendar/list-view.tsx:51-123.
+   272→- **A-080** SelectedDayPanel: computed header `Thu 25 Sep · 4 sets · 5,400 kg` (distance fallback for cardio), schedule row (today+) with ⋮ Start now/Move…/Skip/Remove confirm + status chip + Reopen for DONE/MISSED/SKIPPED, summary cards expandable inline to read SetRows — calendar/selected-day-panel.tsx:100-120,112-119 (status chips), rest of file.
+   273→- **A-081** Filters screen `#/calendar/filters`: category checkboxes + Match Any/All radios, inline exercise search picker, threshold inputs (weight/reps/distance/time ≥, enabled once exercise picked), Reset — calendar/filters-screen.tsx:89-120+.
+   274→- **A-082** Shared filter store (sessionStorage `setforge:calendar-filters`, useSyncExternalStore observable) + applied-filter chip row SubBar + orange dot badge on the filter button — calendar/filter-store.ts:1-40; filter-state.ts:8-60; calendar-screen.tsx:235-260.
+   275→
+   276→### History (A-083 … A-084)
+   277→- **A-083** History `#/history`: month separators + WorkoutBlocks (48px summary row volume·sets·duration, cardio distance fallback; comment shown in date header) — history-screen.tsx:60-153; workout-block.tsx:61-69.
+   278→- **A-084** Expandable read-mode cards (tap → SetRows inline; PR trophy + note markers per set); ⋮ Filters + Export→ Settings·Data pointer — workout-block.tsx:9-17; history-screen.tsx:84-110.
+   279→
+   280→### Insights (A-085 … A-088)
+   281→- **A-085** Records tab: Estimated|Actual segmented scope (`?scope=`), leaderboard rows (rank, category dot, exercise, value, date) deep-linking to exercise overview — insights/records-tab.tsx:24-60.
+   282→- **A-086** Stats tab: Period rows (workouts w/ streak, sets/workout, volume/workout, reps, time h:mm, distance, streak+best, heaviest set, top volume day), This week vs last (trend arrows + % deltas, "new this week"), Weekly rhythm (avg volume per weekday over 8 weeks), Volume by exercise (top 6) — insights/stats-tab.tsx:84-214.
+   283→- **A-087** Stats period selector (⋮ menu): 7 days / 30 days / 1 year / All time (`?period=`; title shows selected) — insights-screen.tsx:40-64,83-95.
+   284→- **A-088** Goals tab: rows (goal + target, %, hit/open trophy), 96px inline expansion (progress bar, current/target, target editor, two-tap delete) — insights/goals-tab.tsx:1-40+.
+   285→
+   286→### Body (A-089 … A-093)
+   287→- **A-089** Body `#/body` Track|History|Graph tabs (`?tab=`) — body-screen.tsx:52-88.
+   288→- **A-090** Track tab: 56px rows (name, "3d ago", latest value + Δ line vs goal) expanding to 96px inline editor (value + native date input + Save/Cancel) — body/body-track-tab.tsx:35-110,114-180.
+   289→- **A-091** Configure metrics inline block: enable toggles, reorder arrows, inline creator (name + unit select from units API + goal type INCREASE/DECREASE/SPECIFIC/TARGET + target value); ⋮ Add measurement shortcut — body-screen.tsx:173-371,90-94.
+   290→- **A-092** History tab: flat newest-first 40px table (date | metric | value | Δ with good/bad/flat tone by goal direction) — body/body-history-tab.tsx:40-121.
+   291→- **A-093** Graph tab: metric select, range 3M/6M/All, points/trend/y-from-zero options, 240/360px chart, dashed amber goal ReferenceLine for SPECIFIC targets, 72px DetailRow — body/body-graph-tab.tsx:52-120+.
+   292→
+   293→### Tools (A-094 … A-097)
+   294→- **A-094** One-Rep Max calculator: weight+reps inputs (defaults 60kg/135lb), Epley↔Brzycki tap-to-switch method row (both values shown), headline e1RM, 5/8/10/12RM rows (highlights current reps, "> limit" marker vs est-1RM rep limit), offline note — tools/one-rm-tool.tsx:22-115.
+   295→- **A-095** Plate calculator: bar+target inputs (unit-aware defaults 20/45, 60/135), greedy per-side breakdown from **user's saved plate inventory** (server query), loadable/not-loadable status, nearest-loadable suggestion with one-tap "Use X instead", totals math — tools/plate-tool.tsx:20-163.
+   296→- **A-096** Set calculator: base weight + sets + reps → 95-60% table rounded to weight step, tap-to-toggle percentages, working-sets total + volume — tools/set-tool.tsx:17-100.
+   297→- **A-097** Interval timer: prepare/work/rest/rounds fields, start/pause/reset/skip, phase labels+colours (Get ready amber / Work orange / Rest emerald), drift-corrected phase engine, WebAudio beeps, vibrate, wake lock while running — tools/interval-tool.tsx:18-120+.
+   298→
+   299→### Settings (A-098 … A-139) — every control, src/features/settings/settings-sections.tsx + settings-screen.tsx
+   300→- **A-098** Theme (Light/Dark/System) menu row + **TopBar ⋮ theme quick-toggle** with instant next-themes preview — settings-screen.tsx:31-35,45-48,56-72; settings-sections.tsx:245-257.
+   301→- **A-099** Units: Metric (kg) / Imperial (lb) — settings-sections.tsx:258-267.
+   302→- **A-100** Week starts on: Monday/Sunday — settings-sections.tsx:268-276.
+   303→- **A-101** Weight step: 0.5/1/1.25/2.5/5/10 (unit-labelled) — settings-sections.tsx:277-283.
+   304→- **A-102** Home sets shown: 1-6/8 — settings-sections.tsx:284-289.
+   305→- **A-103** Weekly workout target: Off/2-7 — settings-sections.tsx:290-295.
+   306→- **A-104** Est-1RM rep limit: 8/10/12/15 — settings-sections.tsx:296-301.
+   307→- **A-105** e1RM method: Brzycki/Epley/RPE-adjusted — settings-sections.tsx:302-311.
+   308→- **A-106** When rest ends: Notify / Notify + focus next — settings-sections.tsx:312-320.
+   309→- **A-107** Set type column toggle (N W D F A) — settings-sections.tsx:321.
+   310→- **A-108** RPE column toggle — settings-sections.tsx:322.
+   311→- **A-109** Tempo column toggle — settings-sections.tsx:323.
+   312→- **A-110** Rest column toggle — settings-sections.tsx:324.
+   313→- **A-111** Show category toggle — settings-sections.tsx:325.
+   314→- **A-112** Track PRs toggle — settings-sections.tsx:326.
+   315→- **A-113** Mark sets complete toggle — settings-sections.tsx:327.
+   316→- **A-114** Auto-select next set toggle — settings-sections.tsx:328.
+   317→- **A-115** Rest from row toggle (✓ starts rest) — settings-sections.tsx:329.
+   318→- **A-116** Keep screen on (wake lock held at screen level, re-acquires on visibility) — settings-sections.tsx:330; settings-screen.tsx:43; use-wake-lock.ts:28-88.
+   319→- **A-117** Timezone (IANA; browser tz + common list; drives day rollover) — settings-sections.tsx:922-940,973-979.
+   320→- **A-118** Auto-advance rest days (after midnight) — settings-sections.tsx:980-985.
+   321→- **A-119** Scheduling moves cursor toggle — settings-sections.tsx:986-991.
+   322→- **A-120** Advance trigger: Finish or midnight / First set — settings-sections.tsx:992-1001.
+   323→- **A-121** Show projected days (calendar ghosts) — settings-sections.tsx:1002-1007.
+   324→- **A-122** Daily reminder: Off/06:00-21:00 presets; requests notification permission; "Fires at HH:MM" hint — settings-sections.tsx:942,1008-1024.
+   325→- **A-123** Account identity row (initials avatar, email, name) — settings-sections.tsx:424-434.
+   326→- **A-124** Change password inline expansion (current/new/confirm, error text, busy) — settings-sections.tsx:437-495.
+   327→- **A-125** Sign out (confirm-destructive dialog) — settings-sections.tsx:497-522.
+   328→- **A-126** Delete account: inline typed-DELETE confirm with warning copy, online-only — settings-sections.tsx:524-555.
+   329→- **A-127** Export data (JSON backup download `setforge-backup-YYYY-MM-DD.json`) — settings-sections.tsx:652-667,699-709.
+   330→- **A-128** Workouts CSV export — settings-sections.tsx:669-680,710-719.
+   331→- **A-129** Body CSV export — settings-sections.tsx:720-729.
+   332→- **A-130** Import backup inline expansion: file picker (.json ≤50MB), Merge|Replace mode menu, destructive warning on Replace, imported-count toast — settings-sections.tsx:581-630,731-791.
+   333→- **A-131** Recalculate PRs action (count toast) — settings-sections.tsx:682-693,793-802.
+   334→- **A-132** Clear data (delete all workout history) confirm-destructive — settings-sections.tsx:632-650,804-831.
+   335→- **A-133** Install app row (canInstall/installed states, prompt + "SetForge installed" toast) — settings-sections.tsx:869-886; components/shared/pwa.tsx:33-71.
+   336→- **A-134** Connection status row (Online emerald / Offline amber) — settings-sections.tsx:887-894.
+   337→- **A-135** Offline mode row ("Always on") — settings-sections.tsx:895-898.
+   338→- **A-136** Clear offline cache (SW postMessage CLEAR_CACHES + caches.delete) — settings-sections.tsx:844-862,899-908.
+   339→- **A-137** Help & shortcuts link row (`#/help?from=settings`) — settings-sections.tsx:909-913.
+   340→- **A-138** About row ("SetForge · offline-first workout tracker") — settings-sections.tsx:914.
+   341→- **A-139** Version row (1.0.0) — settings-sections.tsx:915; APP_VERSION at :58.
+   342→- (Numeric patches are coalesced/debounced — settings-sections.tsx:224-240.)
+   343→
+   344→### PWA / offline / sync (A-140 … A-146)
+   345→- **A-140** Web app manifest: standalone, portrait, theme #f97316, background #141210, 2 app shortcuts (Today, Insights), SVG+192+512+maskable icons — public/manifest.webmanifest:1-52.
+   346→- **A-141** Install prompt capture (beforeinstallprompt) + appinstalled toast — pwa.tsx:33-71.
+   347→- **A-142** Service worker auto-update: SKIP_WAITING on updatefound + controllerchange → explained reload toast — pwa.tsx:74-117.
+   348→- **A-143** Offline outbox: localStorage `setforge:outbox` queue, sequential replay on `online` event (+ initial flush on load), 4xx counts as consumed, per-item retry on 5xx/network, "Syncing N changes…/Synced N" toasts + global query invalidation — offline.ts:1-105; app-root.tsx:63-79.
+   349→- **A-144** SW API cache: network-first with per-**session** fallback (cache key embeds sf_session cookie slice; ≤80 entries; /api/health never cached; 503 JSON OFFLINE when uncached) — public/sw.js:43-47,103-118,125-127.
+   350→- **A-145** Offline shell: navigations network-first → cached shell → /offline.html fallback; assets network-first+cache (≤300); volatile (manifest/offline) never-stale — sw.js:57-101,130-141; public/offline.html exists.
+   351→- **A-146** Pull-based delta sync endpoint `GET /api/sync?since=` (workouts, measurement records, exercises, schedule entries, activeRoutine; applies program rules first) — api/sync/route.ts:8-35.
+   352→
+   353→### Notifications (A-147 … A-149)
+   354→- **A-147** Daily workout reminder: armed from settings.reminderTime; Notification **Trigger API** (showTrigger) when supported else tab-lifetime setTimeout re-armed on visibilitychange; max 1/day dedupe via localStorage; catch-up fire if time already passed; tap focuses app → #/home — lib/client/notifications.ts:1-196; app-root.tsx:49-60.
+   355→- **A-148** Rest-complete OS notification when the tab is hidden (permission pre-granted only; tag setforge-rest) — today/rest-state.tsx:59-68.
+   356→- **A-149** Install/update toasts (sonner) — pwa.tsx:45-47,109.
+   357→
+   358→### Global UX / shell / help (A-150 … A-157)
+   359→- **A-150** Global keyboard shortcuts (desktop): `?` help · `N` picker · `/` focus search (ignored while typing/modifiers) — app-shell.tsx:71-104.
+   360→- **A-151** In-app Help screen `#/help`: 4 sections (Features tour, Shortcuts, Offline, Your data) + version footer — help-screen.tsx:22-71,73-127.
+   361→- **A-152** Sonner toasts everywhere (29 files import `toast`) with Undo actions (finish, schedule) and descriptions — e.g. today-screen.tsx:367-373; schedule-shared.tsx.
+   362→- **A-153** Optimistic updates: settings patches (store.ts:54-67 with rollback) and favourite flips (use-favourite.ts:14-37).
+   363→- **A-154** `prefers-reduced-motion` honoured (animations/transitions clamped to 0.01ms) — globals.css:169-180.
+   364→- **A-155** Light/Dark/System theming via next-themes + OKLCH "warm forge-orange on stone" palette, synced from user settings — globals.css:46-115; app-root.tsx:44-46.
+   365→- **A-156** `#/dev` component showcase (static demo data, all card modes/modality/set types, console.log action harness — spec's Storybook substitute) — screens/dev-showcase.tsx:1-391.
+   366→- **A-157** Hash deep-links everywhere: `?date=`, `?tab=`, `?view=`, `?scope=`, `?period=`, `?tool=`, `?jump=`, `?from=`, `?reset=`, `?multi=1`, `?replace=`, `?context=routine&routineId&dayId` — router.ts:72 (Route.query); today-screen.tsx:93; training-screen.tsx:164-176; calendar-screen.tsx:63-89; insights-screen.tsx:45-62; tools-screen.tsx:44-53; routine-detail-screen.tsx:215-217; picker-screen.tsx:111-124.
+   367→
+   368→**Total: 157 features (A-001 … A-157).**
+   369→
+   370→---
+   371→
+   372→## A5 Design Tokens (measured from code)
+   373→
+   374→- **Primary colour**: `oklch(0.646 0.214 39.6)` light / `oklch(0.704 0.208 40.3)` dark ≈ forge orange (manifest theme_color literal `#f97316`) — globals.css:56,90; manifest.webmanifest:10.
+   375→- **Background**: `oklch(0.984 0.003 70)` light (≈ #fafaf9 — viewport themeColor literal, layout.tsx:41) / `oklch(0.144 0.004 55)` dark (≈ #141210, layout.tsx:42). Card: white / oklch(0.198 0.005 55). Foreground: oklch(0.216 0.006 56) / oklch(0.964 0.003 70). Destructive oklch(0.577 0.245 27.3).
+   376→- **Row heights (tokens.ts:20)**: 40 / 48 / 56 / 72 px (`rowBase` h-10, `rowTall` h-12, `rowBar` h-14, `rowHero` h-18 — tokens.ts:47-59). Bars fixed: TopBar 56, SubBar 48, BottomBar 56, NavBar 64 (+safe-area) — tokens.ts:24-33. (72px used as `h-18` hero row; programs rows also `h-18`.)
+   377→- **Radius**: 8px (`RADIUS = 8`, tokens.ts:36); `--radius: 0.75rem` in globals.css:49 → radius-lg 12px at runtime via CSS var (Tailwind rounds use var(--radius)); shadcn sm/md = −4/−2.
+   378→- **Spacing scale**: only 4/8/12/16/24/32 px (`SPACING`, tokens.ts:16).
+   379→- **Content column**: max-width 720px mobile/tablet → 1100px ≥lg, px-4 → lg:px-6 (tokens.ts:39-40; scroll-body.tsx:31). NavPane fixed 360px (nav-pane.tsx:67).
+   380→- **SetRow grid tracks (px)**: # 24 · type 32 · f1 72 · f2 56 · rpe 52 · tempo 64 · rest 56 · done 40 · more 32; value floors −16 below 360px viewport; RPE+tempo removed <468px — set-row.tsx:67,70,105-116.
+   381→- **Font sizes observed**: base text-sm (14px), cell/xs text-xs (12px), section headers 11-12px uppercase tracking-wider, nav labels 10px, card meta 13px, hero numbers text-2xl/font-black (rest countdown), Geist Sans/Mono (layout.tsx:6-14); tabular-nums everywhere.
+   382→- **Category colours (seed palette, constants.ts:65-90)**: Abs #f59e0b, Back #10b981, Biceps #84cc16, Cardio #ef4444, Chest #f97316, Legs #a855f7, Shoulders #14b8a6, Triceps #ec4899 (+ palette incl. #ec4899 pink, #64748b slate, #eab308 yellow); default fallback colour `#71717a` (cards), default category colour `#f97316` (schema).
+   383→- **Set-type badge classes** (constants.ts:100-106): N bg-muted; W amber-500/15; D violet-500/15; F red-500/15 (+row tint bg-red-500/10, set-row.tsx:122-128); A emerald-500/15. Row state tints: selected bg-primary/10, done bg-emerald-500/10, drop bg-violet-500/10.
+   384→- **Charts**: chart-1 primary orange; chart-2 emerald oklch(0.62 0.17 155); chart-3 purple 0.58/0.21/300; chart-4 red 0.68/0.18/5; chart-5 amber 0.74/0.16/80 (globals.css:68-72). Body goal ReferenceLine `#f59e0b` (body-graph-tab.tsx:59).
+   385→- **tailwind.config.ts**: legacy shadcn HSL-var config + tailwindcss-animate (Tailwind 4 actually drives theme via `@theme inline` in globals.css — the .ts config is vestigial).
+   386→
+   387→---
+   388→
+   389→## A6 Micro-interactions & Polish
+   390→
+   391→- **Haptics**: `navigator.vibrate([180,90,180])` on rest complete (rest-state.tsx:49-57); interval timer vibration per phase (interval-tool.tsx:69-77).
+   392→- **Audio**: 880Hz sine beep on rest end (rest-state.tsx:25-47); interval-timer WebAudio cues with warm-up resume (interval-tool.tsx:36-67).
+   393→- **Framer-motion**: dependency present but **zero imports in src/** — animation is CSS-only (accordion `grid-template-rows 0fr→1fr` 200ms ease-out, routine-detail-screen.tsx:105-119; chevron rotations; animate-pulse skeletons; active:scale-95 on type chip, set-row.tsx:410).
+   394→- **Toasts**: sonner (top-center, richColors, closeButton — layout.tsx:60) used in 29 files; **Undo toast actions**: finish (today-screen.tsx:367-373), schedule create (schedule-shared.tsx); long-duration 10s for finish.
+   395→- **Optimistic updates**: settings (store.ts:54-67, rollback+toast on failure), favourites (use-favourite.ts:14-37).
+   396→- **Skeletons**: every screen (DaySkeleton today-screen.tsx:636-645; picker 8 rows; stats 10 rows; calendar 42 cell skeletons month-view.tsx:90-95; settings rows; TodayCardSkeleton fixed 168px).
+   397→- **Confirm dialogs**: AlertDialog reserved for destructive ops only — remove exercise, delete exercise, delete routine/day, unfollow/switch follow, sign out, clear data, schedule replace (409), delete account uses typed-DELETE inline instead (settings-sections.tsx:524-555); goals use two-tap inline delete with 4s disarm (exercise-overview-screen.tsx:684-691).
+   398→- **Undo**: finish (toast action, 10s), schedule create (toast action deletes entry), goals two-tap arm/disarm.
+   399→- **Long-press**: set-type chip hold 420ms (or right-click/Enter) opens picker vs tap-cycle (set-row.tsx:322-408).
+   400→- **Swipe**: none found (no touch handlers) — UNKNOWN/not implemented.
+   401→- **Popovers instead of sheets**: RPE/tempo/rest/type/note editors are anchored popovers; phones fold RPE/tempo into ⋯ popover <468px (set-row.tsx:12-16,893-895). No bottom sheets by design (CHANGELOG Part 3).
+   402→- **Drag handles**: DragGlyph rendered in template edit mode but DnD NOT wired — reorder via ⋮ (routine-detail-screen.tsx:24-25; worklog known gap 1).
+   403→- **Wake locks**: rest timer + interval timer + "Keep screen on" setting (rest-state.tsx:146-162; interval-tool.tsx:115; use-wake-lock.ts).
+   404→- **Live regions**: rest countdown `role="timer" aria-live="polite"` (rest-bar.tsx:89-93); e1RM result aria-live (one-rm-tool.tsx:80-83).
+   405→
+   406→---
+   407→
+   408→## A7 State Quality
+   409→
+   410→- **Loading**: skeletons on every screen (see A6); `aria-busy` + labels throughout.
+   411→- **Empty states (per screen)**: Today — 200px "No workout this day" + 2 actions (today-empty.tsx:26-60); Training Track — "…not in this workout yet" + Add button (training-screen.tsx:756-769); Training History — "No history yet — today is the first time…" (:839-843); Training Track "Last time" — "No previous session — this is the first time." (:789-791); Graph — "No data to chart yet" (:1056-1057); Picker — "No exercises match your search."/"No exercises here yet." (:555-558); Programs — "Create your first routine"/"No sessions yet" + guidance (routines-screen.tsx:452-475); Routine detail — "No days yet" + Edit/Add first day (routine-detail-screen.tsx:1115-1139); day body — "No exercises in this day yet." (:762-766); Log day — "This day has no exercises yet" (log-day-screen.tsx:286-296); Home — "Nothing logged yet" row (today-workout-section.tsx:78-85) + "No program" card state (today-card.tsx:161-177); Calendar list — "No workouts match / Log a workout or loosen the filters." (list-view.tsx:64-71); SelectedDay empty — "Rest day" row (selected-day-panel.tsx:16); History — "No workouts yet" (history-screen.tsx:125-132); Insights stats — "No training data yet…" (stats-tab.tsx:198-204); Records — "No records yet — log a set to start tracking." (exercise-overview-screen.tsx:404-415); Goals — "No goals for this exercise yet." (:510-516); Body track — "No metrics enabled — use ⋮ → Configure metrics…" (body-track-tab.tsx:48-57); Body history — "No entries yet — log your first values from the Track tab." (body-history-tab.tsx:78-87); Body graph — no-data text (body-graph-tab.tsx); Exercise overview — "Exercise not found / may have been deleted" (exercise-overview-screen.tsx:228-242).
+   412→- **Error states**: inline auth error/notice blocks (auth-screen.tsx:229-238); Home dashboard error card (home-screen.tsx:43-50); Stats "Could not load stats — check your connection…" (stats-tab.tsx:142-151); Routine not found / Day not found / Exercise-not-found blocks with back buttons (routine-detail-screen.tsx:982-988; log-day-screen.tsx:279-285; predefined-editor-screen.tsx:248-254; training-screen.tsx:646-647); 404-aware copy-previous toast (today-screen.tsx:191-193); toast.error on every failed mutation (via useMutate/useOfflineRun/run helpers).
+   413→- **Offline behaviour**: useOnline() gates online-only ops with "needs a connection" toasts (start workout/copy/finish/log day/add day/start session); mutations queue into the outbox with "Saved offline" toasts; flush on reconnect with counts + global invalidation (app-root.tsx:63-79); SW serves cached API GETs per-session else 503 OFFLINE JSON (sw.js:113-117); offline.html shell fallback.
+   414→- **Refetch strategy**: TanStack defaults staleTime 30s, retry 1, refetchOnWindowFocus false (query.tsx:38-50); dashboard 15s staleTime + midnight/visibility/online triggers; targeted invalidation helper families (workout/exercises/routines/measurements/goals/plates/timerPresets/dashboard/programs/schedule/all — query.tsx:107-152); workout() invalidates 9 key prefixes to cover by-date and list queries (query.tsx:110-123).
+   415→
+   416→---
+   417→
+   418→## A8 Notifications
+   419→
+   420→- **File**: src/lib/client/notifications.ts (see A-147): local notifications only — **no push/service-worker push** (explicit comment line 19). Daily reminder uses the Notification **Trigger API** (`showTrigger`, notifications.ts:112-135) when supported (installed Chrome PWA), else setTimeout while tab open, re-armed on visibilitychange; 1/day dedupe via `setforge:reminder-fired:<date>`; catch-up fire; tap → focus + `#/home`.
+   421→- **Rest complete**: OS notification only when tab hidden and permission already granted, tag `setforge-rest` (rest-state.tsx:59-68) + in-app sonner toast + beep + vibrate.
+   422→- **Permission flow**: requestReminderPermission() from the settings row (settings-sections.tsx:958-968) with a "Notifications blocked" error toast.
+   423→- Server-side email: nodemailer only for password-reset links when EMAIL_SERVER set; otherwise logged server-side (README §6).
+   424→
+   425→---
+   426→
+   427→## A9 i18n / Copy language
+   428→
+   429→- **Language**: 100% English user-facing strings (all screens; tone: terse, coach-flavoured, motivational microcopy — "Get back under the bar 🔥", "Account created — let's forge! 🔥", "Keep logging", "Day 2 up next", "GRINDER" only in dev showcase). Em dashes/middots as separators; en-dash placeholders "–".
+   430→- **i18n framework**: none wired — `next-intl` is a declared dependency but **zero imports in src/** (verified). Date formatting is locale-aware via `toLocaleDateString(undefined, …)` (date-strip.tsx:19-25) and `Intl.DateTimeFormat().resolvedOptions().timeZone` for tz (auth-screen.tsx:75; program-rules localDateKey uses en-CA). `<html lang="en">` (layout.tsx:55).
+   431→
+   432→---
+   433→
+   434→## A10 Tests / QA
+   435→
+   436→- **No unit-test framework** (no jest/vitest config; package.json has no test script). Instead, runnable verification scripts:
+   437→  - `bun run verify:formulas` → scripts/qa/verify-formulas.ts (60+ assertions: Brzycki/Epley/RPE e1RM, plate greedy, tempo parser, unit convert, URL normaliser — README §8).
+   438→  - `bun scripts/qa/verify-ownership.ts` — two-user isolation checks across every endpoint (42 checks per README §5; CHANGELOG Part 4).
+   439→  - `bash scripts/qa/verify-layout.sh '#/today'` — zero-overlap / single-line rows / fixed heights at 320-1440px using `data-scroll-body` (scroll-body.tsx:6-8) and `data-row` markers.
+   440→- tests/ dir contains only sandbox shell scripts (python-runtime-build.sh, python-runtime-container.sh, database-runtime-build.sh) — infrastructure, not app tests.
+   441→- Other scripts: db-deploy/export/import/copy/switch-check, seed-demo-data, reset-demo-data, keep-alive.sh, watchdog.sh; ~200 QA screenshots in download/ (qa-r7…r18, p3, p5 rounds); worklog.md documents per-task E2E verification via agent-browser.
+   442→
+   443→---
+   444→
+   445→## A11 Known Issues / TODOs
+   446→
+   447→- **`grep TODO|FIXME|HACK|XXX` in src/ → 0 matches.**
+   448→- Documented known limitations (CHANGELOG.md:44-50 + worklog.md tail): Google OAuth reserved but hidden; drag handles render but reorder via ⋮ Move up/down (dnd-kit unwired); calendar list not virtualised; CSP keeps `unsafe-eval` for dev overlay; no quick-add grammar parser; tools plate-inventory editor + timer-preset persistence UI not ported (timer-presets API/model exist without a consumer — A2 note); body history rows read-only (edits via Track); multi-select card action not surfaced ("Multi-select arrives with the next build" toasts — today-screen.tsx:467, training-screen.tsx:427); routine groups/replacing in templates "arrive with a later build" (routine-detail-screen.tsx:530-533); tsc baseline errors in goals/route.ts + timer-presets/[id]/route.ts (worklog); `typescript.ignoreBuildErrors: true` in next.config.ts:22.
+   449→
+   450→---
+   451→
+   452→## A12 Performance & Bundle
+   453→
+   454→- **Code splitting**: none explicit (single `/` page; hash router means one bundle; screens statically imported in app-shell.tsx:26-46). `output: "standalone"` build (next.config.ts:21).
+   455→- **Memoisation**: 61 `useMemo`/`memo` usages in components/features (e.g. grid template memo per row set-row.tsx:888-891; sections memo picker-screen.tsx:173; dashboard derivations).
+   456→- **Virtualisation**: `useViewportWidth` is a shared single-resize-listener `useSyncExternalStore` (set-row/viewport.ts:9-38) — NOT list virtualisation; calendar list virtualisation explicitly skipped (list-view.tsx:13-15). Home today-workout capped at max-h-96 scroll (today-workout-section.tsx:61).
+   457→- **Query cache sharing**: byDate workout cache shared across Today/Calendar/History (workout-block.tsx:14-16; selected-day-panel.tsx:18-20; list-view.tsx:96-97) so visited days render instantly; staleTime 30s default, 60s for exercise history/records/graph.
+   458→- **Invalidation strategy**: fine-grained `useInvalidate()` families; workout mutations invalidate 9 prefixes incl. stats/records/graphs (query.tsx:110-123); global invalidate-all after import/recalculate/logout/flush.
+   459→- **SW caches capped**: API ≤80 entries, assets ≤300 (sw.js:15,93,110).
+   460→- **Charts**: recharts in 3 files only; `isAnimationActive={false}` on lines (training-screen.tsx:1088,1103).
+   461→- **Debounce**: picker search 250ms (picker-screen.tsx:139-142); filters search 300ms (filters-screen.tsx:99-102); settings numeric patches coalesced (settings-sections.tsx:224-240).
+   462→
+   463→---
+   464→
+   465→## A13 Security
+   466→
+   467→- **Auth model**: custom credentials; opaque 256-bit hex session tokens stored in DB (server/auth.ts:76-83), cookie `sf_session` httpOnly + SameSite=Lax + Secure-in-prod + 30d expiry (auth.ts:109-118); expired sessions deleted on read (auth.ts:94-97); password change/reset revoke sessions (README §5).
+   468→- **Password hashing**: Argon2id m=19456/t=3/p=1 via hash-wasm, transparent scrypt legacy upgrade (auth.ts:12-46); reset tokens SHA-256-hashed at rest, single-use, 1h TTL (auth.ts:65-68; PasswordResetToken model).
+   469→- **Rate limiting**: in-memory token bucket per IP+route on auth endpoints, 20 req/60s default → 429 (http.ts:92-107; env RATE_LIMIT_* README §2).
+   470→- **Validation**: Zod 4 on every input — body (`parseBody` with 1MB default / 50MB import cap, double size check, http.ts:59-76), query params (e.g. exercises/route.ts:12-18), settings incl. IANA tz + HH:MM; ZodError → 400 VALIDATION_ERROR with issue paths (http.ts:46-51).
+   471→- **Ownership**: `requireUser()` on every route; `assertOwned()` throws **404 not 403** to avoid existence leaks (http.ts:79-90); all Prisma queries userId-scoped; verified by scripts/qa/verify-ownership.ts.
+   472→- **Headers** (next.config.ts:24-40): CSP (self + unsafe-inline/eval for dev), X-Frame-Options DENY, nosniff, Referrer-Policy strict-origin-when-cross-origin, Permissions-Policy (camera/mic/geo/payment/usb denied), HSTS 2y includeSubDomains.
+   473→- **SW cache isolation**: API cache keyed by session cookie slice; logout clears all caches (sw.js:41-47; settings useSignOut).
+   474→- Secrets never reach client (README §5, grep-verified claim).
+   475→
+   476→---
+   477→
+   478→## A14 Offline / PWA details
+   479→
+   480→- **manifest.webmanifest** (public/): id "/", name "SetForge — Workout Tracker", short_name SetForge, start_url "/", display standalone, orientation portrait-primary, background #141210, theme #f97316, categories health/fitness/sports, shortcuts Today + Insights, icons svg/192/512/512-maskable.
+   481→- **sw.js** (public/sw.js, VERSION v1.0.2): scope "/" registered from PwaBridge (pwa.tsx:79). Strategy: navigations network-first → shell cache → /offline.html; static assets (/_next/static, /icons, /logo.svg, /robots.txt) network-first + ASSET cache (≤300); manifest/offline.html volatile network-first; API GETs network-first + per-session API cache (≤80), /api/health bypassed; non-GET and cross-origin never intercepted; install pre-caches SHELL_URLS with allSettled; activate purges old versions; messages: SKIP_WAITING, CLEAR_CACHES.
+   482→- **offline.html** exists (public/offline.html) as the true-offline fallback page.
+   483→- **Outbox** (lib/client/offline.ts): localStorage `setforge:outbox` descriptors {path, method, body, label, queuedAt}; sequential replay; ok/4xx drop, else retry; `wipeLocalData()` removes all `setforge:*` keys.
+   484→- **iOS/standalone detection**: matchMedia display-mode standalone + navigator.standalone (pwa.tsx:22-29); apple-web-app meta (layout.tsx:32-36).
+   485→- Worklog caveat: Part 5 schedule mutations queue only where wired; new endpoints only partially outbox-covered.
+   486→
+   487→---
+   488→
+   489→## A15 Counts Summary
+   490→
+   491→| Metric | Count | Evidence |
+   492→|---|---|---|
+   493→| Screens (hash routes) | **21** | router.ts:37-58 + app-shell.tsx:118-167 |
+   494→| API route files / endpoint methods | **73 / 104** | find src/app/api -name route.ts; method exports |
+   495→| Prisma models | **26** | prisma/schema.prisma |
+   496→| Prisma migrations | **9** | prisma/migrations/* |
+   497→| A-### features inventoried | **157** (A-001…A-157) | §A4 |
+   498→| Settings rows (all sections) | **42** (19 Preferences + 6 Programs + 4 Account + 6 Data + 7 App) + theme quick-toggle in TopBar | settings-sections.tsx |
+   499→| Layout primitives | 6 (Screen/TopBar/SubBar/ScrollBody/BottomBar/NavBar) + NavPane | src/components/layout/* |
+   500→| Shared card/row components | 1 ExerciseCard (5 modes) + 1 SetRow (4 modes) | components/exercise-card, components/set-row |
+   501→| Files: src/features screens slots | 21 | src/features/screens/* |
+   502→| TODO/FIXME/HACK/XXX in src | **0** | grep |
+   503→| Toast (sonner) consumer files | 29 | grep `from "sonner"` |
+   504→| Unused declared deps (no src imports) | framer-motion, @dnd-kit/*, next-intl, date-fns (react-day-picker used instead) | grep |
+   505→

@@ -1,0 +1,783 @@
+     1→# STNDRD Fitness — App Documentation
+     2→
+     3→## 1. Overview
+     4→
+     5→STNDRD Fitness is a mobile workout-tracking application built with Expo (React Native + Web). It guides users through structured training programs, logs every completed session to a PostgreSQL backend, tracks daily nutrition + water, streams exercise demo videos from Cloudflare R2, and surfaces progress and community activity on a dark-themed UI. The repository is a **pnpm monorepo** that co-locates the mobile client, the Express API server, an OpenAPI spec + generated client, a Drizzle DB package, shared Zod schemas, and a Vite component preview sandbox.
+     6→
+     7→---
+     8→
+     9→## 2. Repository Structure
+    10→
+    11→```
+    12→/
+    13→├── artifacts/
+    14→│   ├── mobile/            ← Expo SDK 54 React Native + Web app   (dev port 5000 / 8080)
+    15→│   ├── api-server/        ← Express 5 REST API                   (port 3000)
+    16→│   └── mockup-sandbox/    ← Vite component preview               (port 8081 → external 80)
+    17→├── lib/
+    18→│   ├── api-spec/          ← OpenAPI 3.1 spec (source of truth) + Orval config
+    19→│   ├── api-client-react/  ← Orval-generated React Query hooks + customFetch
+    20→│   ├── api-zod/           ← Orval-generated Zod schemas
+    21→│   └── db/                ← Drizzle ORM (PostgreSQL) schema + index
+    22→├── scripts/               ← post-merge + graphify hooks
+    23→├── graphify-out/          ← graphify knowledge-graph artifacts
+    24→├── attached_assets/       ← design references, screenshots, comps
+    25→├── .replit                ← workflow + port mappings
+    26→├── pnpm-workspace.yaml    ← workspace + catalog
+    27→└── package.json
+    28→```
+    29→
+    30→---
+    31→
+    32→## 3. Tech Stack
+    33→
+    34→| Layer | Choice |
+    35→|---|---|
+    36→| Mobile | Expo SDK 54, expo-router v6 (file-based), React Native 0.81, React Native Web 0.21, React 19.1 |
+    37→| State | React Context + AsyncStorage (client-only persistence) |
+    38→| Server state | TanStack React Query 5 + Orval-generated hooks |
+    39→| API | Express 5, CORS, pino-http, JSON middleware |
+    40→| Validation | Zod (`zod/v4`), `drizzle-zod`, `@workspace/api-zod` |
+    41→| Database | PostgreSQL 16 (Replit-hosted) via `pg` Pool |
+    42→| ORM | Drizzle ORM 0.45 (`pgTable`, `jsonb`, `timestamp`) |
+    43→| API codegen | Orval (from `lib/api-spec/openapi.yaml`) |
+    44→| Cloud assets | Cloudflare R2 (`gym-assets-storage` bucket) via `@aws-sdk/client-s3` on the API; raw URLs on the client |
+    45→| Video | `expo-video` (`VideoView` + `useVideoPlayer`) |
+    46→| Build | esbuild (API CJS bundle), Metro (mobile + web) |
+    47→| Fonts | Inter (400, 500, 600, 700) via `@expo-google-fonts/inter` |
+    48→| Icons | `@expo/vector-icons` (Ionicons, MaterialCommunityIcons, Feather, FontAwesome5), `expo-symbols` (SF Symbols on iOS) |
+    49→| Animation | `react-native-reanimated` 4, `react-native-gesture-handler` 2 |
+    50→| Media | `expo-image`, `expo-av`, `expo-blur`, `expo-linear-gradient`, `expo-glass-effect` |
+    51→| Node | 24 (`.replit modules`) |
+    52→| Package mgr | pnpm workspaces, `minimumReleaseAge: 1440` (24h supply-chain delay) |
+    53→
+    54→---
+    55→
+    56→## 4. Environment & Run Commands
+    57→
+    58→### Workflows (`.replit`)
+    59→
+    60→The `Project` workflow runs three tasks in parallel:
+    61→
+    62→| Workflow | Command | Port |
+    63→|---|---|---|
+    64→| **API Server** | `PORT=3000 pnpm --filter @workspace/api-server run dev` | 3000 |
+    65→| **Mobile App** | `PORT=5000 pnpm --filter @workspace/mobile run dev` | 5000 (webview) |
+    66→| **Mockup Sandbox** | `PORT=8081 BASE_PATH=/__mockup pnpm --filter @workspace/mockup-sandbox run dev` | 8081 → external 80 |
+    67→
+    68→### Manual commands
+    69→
+    70→| Command | Purpose |
+    71→|---|---|
+    72→| `pnpm --filter @workspace/mobile run dev` | Start Expo dev server (web target) |
+    73→| `PORT=3000 pnpm --filter @workspace/api-server run dev` | Build + start API server |
+    74→| `pnpm run typecheck` | Full workspace typecheck (root → libs → artifacts) |
+    75→| `pnpm --filter @workspace/api-spec run codegen` | Regenerate React Query hooks + Zod schemas from OpenAPI |
+    76→| `pnpm --filter @workspace/db run push` | Push Drizzle schema to PostgreSQL (dev) |
+    77→| `pnpm run build` | Typecheck + build all packages |
+    78→
+    79→### Env vars
+    80→
+    81→| Var | Used by | Purpose |
+    82→|---|---|---|
+    83→| `PORT` | mobile + api | Dev port (required) |
+    84→| `DATABASE_URL` | api-server (via `@workspace/db`) | Postgres connection string (required at boot) |
+    85→| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | api-server | Cloudflare R2 credentials for `GET /api/exercises` |
+    86→| `EXPO_PUBLIC_R2_BASE_URL` | mobile | Public R2 base URL for streaming demo videos + setup images directly from the client |
+    87→| `REPLIT_EXPO_DEV_DOMAIN` | mobile | Public Expo dev URL injected into `expo-router` config |
+    88→| `REPLIT_DEV_DOMAIN` | mobile | Sets `EXPO_PUBLIC_DOMAIN` so native builds hit `https://$DOMAIN/api` |
+    89→| `REPL_ID` | mobile | Exposed to client as `EXPO_PUBLIC_REPL_ID` |
+    90→
+    91→### Proxy routing
+    92→
+    93→Metro (`artifacts/mobile/metro.config.js`) proxies `/api/*` from the Expo dev server to `localhost:3000`. The middleware also strips `origin`/`referer` so the Replit iframe can load the bundle past Metro's CORS guard, and adds permissive `Access-Control-Allow-*` headers.
+    94→
+    95→---
+    96→
+    97→## 5. Mobile App Architecture
+    98→
+    99→### 5.1 Provider tree (`app/_layout.tsx`)
+   100→
+   101→```
+   102→SafeAreaProvider
+   103→└─ ErrorBoundary
+   104→   └─ QueryClientProvider           // TanStack React Query
+   105→      └─ WorkoutProvider            // client-only training state
+   106→         └─ LogsProvider            // server-synced logs + scheduled
+   107→            └─ GestureHandlerRootView
+   108→               └─ KeyboardProvider  // react-native-keyboard-controller
+   109→                  └─ Stack (expo-router)
+   110→```
+   111→
+   112→Fonts (Inter family + vector icon fonts) loaded via `useFonts()`. On web, `injectWebFonts()` adds `@font-face` rules from a CDN. Splash held until fonts resolve.
+   113→
+   114→When `EXPO_PUBLIC_DOMAIN` is set on a non-web platform, `setBaseUrl(`https://${DOMAIN}/api`)` switches the fetch base URL.
+   115→
+   116→### 5.2 Routes (`artifacts/mobile/app/`)
+   117→
+   118→```
+   119→app/
+   120→├── _layout.tsx                     ← root providers + Stack
+   121→├── +not-found.tsx                  ← 404
+   122→├── active-workout.tsx              ← standalone active workout (builder + on-demand entry)
+   123→├── exercise-library.tsx            ← R2-backed exercise grid + modal w/ video
+   124→├── profile.tsx                     ← user profile / settings
+   125→├── (tabs)/
+   126→│   ├── _layout.tsx                 ← Native (Liquid Glass) or Classic tab bar
+   127→│   ├── index.tsx                   ← Workout home
+   128→│   ├── nutrition.tsx               ← Daily nutrition + water
+   129→│   ├── dashboardtab.tsx            ← Stats dashboard
+   130→│   └── community.tsx               ← Feed + leaderboard
+   131→├── on-demand/
+   132→│   ├── _layout.tsx
+   133→│   ├── index.tsx                   ← On-Demand library
+   134→│   ├── [id].tsx                    ← On-Demand workout detail
+   135→│   └── dictionary.tsx              ← Set-type / training-method glossary
+   136→├── programs/
+   137→│   ├── _layout.tsx
+   138→│   ├── index.tsx                   ← Programs Library (frozen — grouped cards)
+   139→│   ├── [id].tsx                    ← Legacy static program detail (PROGRAMS data)
+   140→│   ├── user-detail.tsx             ← Dynamic detail for user/seed programs
+   141→│   ├── day-detail.tsx              ← Single day of a program with exercises
+   142→│   └── workout-session.tsx         ← Active workout player (program + standalone)
+   143→├── workout-builder/
+   144→│   ├── _layout.tsx
+   145→│   ├── index.tsx                   ← "Your Workouts" — saved workouts + programs list
+   146→│   ├── build.tsx                   ← New-workout builder (sets/reps/tempo/series)
+   147→│   ├── add-exercise.tsx            ← Exercise picker with multi-select grouping
+   148→│   ├── rearrange-series.tsx        ← Drag-to-reorder series groups
+   149→│   ├── workout-detail.tsx          ← Read-only saved-workout viewer
+   150→│   ├── edit.tsx                    ← Edit a saved single workout
+   151→│   ├── program-builder.tsx         ← Multi-difficulty / multi-phase program creator
+   152→│   └── program-edit.tsx            ← Edit an existing user program
+   153→└── workout-logs/
+   154→    ├── _layout.tsx
+   155→    ├── index.tsx                   ← Logs list + monthly calendar
+   156→    └── [id].tsx                    ← Log detail with weight history
+   157→```
+   158→
+   159→### 5.3 Context providers
+   160→
+   161→#### `WorkoutContext` (`context/WorkoutContext.tsx`)
+   162→
+   163→Central in-memory + AsyncStorage store. Wraps the entire app.
+   164→
+   165→Exposed state slices:
+   166→
+   167→| State | Type | Purpose |
+   168→|---|---|---|
+   169→| `workouts` | `SavedWorkout[]` | User-saved single workouts |
+   170→| `userPrograms` | `UserProgram[]` | Seed programs (Jacklete, Legacy Bro Split) + user-created programs |
+   171→| `userOnDemand` | `UserOnDemand[]` | User-saved on-demand sessions |
+   172→| `activeProgram` | `ActiveProgramState \| null` | `{ programId, completedSessions }` — currently active program |
+   173→| `currentProgramId` | `string \| null` | Selected program in builder flows |
+   174→| `buildExercises` | `BuildExercise[]` | Workout builder draft state (sets, reps, tempo, intensifier, series grouping) |
+   175→| `pendingExercises` | `PendingExercise[]` | Exercises staged by Add Exercise screen, plus `pendingMode` (`new`/`replace`/`addToGroup`) and `pendingMeta` (`uid`/`groupId`) |
+   176→
+   177→Key actions:
+   178→
+   179→```ts
+   180→setActiveProgram(programId)        // start a program from day 1
+   181→advanceActiveDay()                  // increment completedSessions
+   182→clearActiveProgram()
+   183→addWorkout(w) / removeWorkout(id)
+   184→addUserProgram(p) / patchUserProgram(id, changes) / removeUserProgram(id)
+   185→addBuildExercises(pending) / reorderSeriesGroups(order) / updateBuildSet(...) / clearBuild()
+   186→addUserOnDemand(u) / removeUserOnDemand(id)
+   187→setPendingAction(list, mode, meta) / clearPendingExercises()
+   188→```
+   189→
+   190→Persistence keys (AsyncStorage):
+   191→| Key | Payload |
+   192→|---|---|
+   193→| `stndrd_active_program_v1` | `ActiveProgramState` |
+   194→| `stndrd_jacklete_seeded_v1` | seed flag for Jacklete logs |
+   195→| `stndrd_logs_seeded_v1` | seed flag for scheduled workouts |
+   196→
+   197→Day progression for active program:
+   198→```
+   199→workoutDays   = program.days.filter(d => d.type === "workout")
+   200→totalSessions = workoutDays.length * program.weeks
+   201→currentDay    = workoutDays[completedSessions % workoutDays.length]
+   202→weekNumber    = Math.floor(completedSessions / workoutDays.length) + 1
+   203→dayNumber     = completedSessions + 1
+   204→// Rest days excluded from counter; program auto-clears when complete.
+   205→```
+   206→
+   207→#### `LogsContext` (`context/LogsContext.tsx`)
+   208→
+   209→React-Query-backed log + schedule store. `useLogs()` returns:
+   210→
+   211→```
+   212→logs              WorkoutLog[]       // GET /api/workout-logs
+   213→logsLoading       boolean
+   214→updateExerciseSets(logId, exerciseId, sets)
+   215→deleteLog(id)                          // DELETE /api/workout-logs/:id
+   216→scheduledWorkouts ScheduledWorkout[]   // GET /api/scheduled-workouts
+   217→addScheduledWorkout(s)                 // POST /api/scheduled-workouts
+   218→removeScheduledWorkout(id)             // DELETE /api/scheduled-workouts/:id
+   219→```
+   220→
+   221→Seeding: on first launch with the flags unset, `LogsProvider` POSTs `SEED_SCHEDULED` workouts and `JACKLETE_LOGS` (Week 1–4 of the Jacklete program).
+   222→
+   223→### 5.4 Theming (`constants/colors.ts` + `hooks/useColors.ts`)
+   224→
+   225→`useColors()` returns active theme tokens plus shared `radius: 12`.
+   226→
+   227→Dark theme tokens (default):
+   228→| Token | Value |
+   229→|---|---|
+   230→| `background` | `#0D0D0D` |
+   231→| `foreground` | `#FFFFFF` |
+   232→| `card` | `#1A1A1A` |
+   233→| `border` | `#2C2C2C` |
+   234→| `primary` | `#4F8EF7` (blue) |
+   235→| `primaryForeground` | `#FFFFFF` |
+   236→| `secondary` | `#2C2C2C` |
+   237→| `accent` | `#C4F135` (lime) |
+   238→| `mutedForeground` | `#8E8E93` |
+   239→| `destructive` | `#ef4444` |
+   240→
+   241→Light tokens defined but unused — app renders dark on all surfaces.
+   242→
+   243→Difficulty palette:
+   244→| Difficulty | Color |
+   245→|---|---|
+   246→| beginner | `#22C55E` (green) |
+   247→| intermediate | `#EAB308` / `#C4F135` |
+   248→| advanced | `#A855F7` / `#EF4444` (varies per screen) |
+   249→
+   250→---
+   251→
+   252→## 6. Screens — UI / UX Detail
+   253→
+   254→### 6.1 Tab Bar (`app/(tabs)/_layout.tsx`)
+   255→
+   256→Two implementations chosen at runtime:
+   257→- **NativeTabLayout** — `isLiquidGlassAvailable()` true (iOS 18+ Liquid Glass). Uses `expo-router/unstable-native-tabs` with SF Symbols: `dumbbell` / `fork.knife` / `chart.bar` / `person.3`.
+   258→- **ClassicTabLayout** — fallback. iOS uses `BlurView` (intensity 100); web uses opaque background with top border; Android uses opaque `background`. Active tint = `primary`; inactive = `mutedForeground`.
+   259→
+   260→Tabs: **Workout · Nutrition · Dashboard · Community**.
+   261→
+   262→### 6.2 Workout Home — `(tabs)/index.tsx`
+   263→
+   264→- **Header**: 40 px avatar circle (initials "SP") that pushes `/profile`, title "Workout", today's full date (`Month DD, YYYY`), calendar icon top-right → `/workout-logs?view=calendar`.
+   265→- **Current Program** section header with "See all" → `/programs`.
+   266→- **Empty state** (no `activeProgram`): dashed bordered card with trophy outline, "No Program Selected" title, descriptive copy, pill "Browse Programs →" button. Whole card tappable.
+   267→- **Active program card**: full-bleed `ImageBackground` (~340 px), 55%-black overlay, rounded radius 12. Inside:
+   268→  - Top-right difficulty pill (`approximately-equal` icon + label, color-coded).
+   269→  - Centered **CircularProgress** (72 px, 32 tick marks, fills proportionally to `completedSessions / totalSessions`). Inner shows `{days}` (large) / `{total} Days`.
+   270→  - Program name (26 px bold, centered) + subtitle (translucent 75% white).
+   271→  - **Phase pills** — only when >1 phase. Active pill `bg rgba(255,255,255,0.18)` + accent-lime play-forward icon; inactive shows ellipsis.
+   272→  - **Start Day N** — full-width pill, `primary` blue, navigates to `programs/workout-session` with `dayName/duration/difficulty/programId/programName/dayNumber/weekNumber` query string.
+   273→- **Training Tools grid** — 2-column. Two large tiles (`On Demand`, `Workout Builder`) with icon + title + description; two small row-tiles (`Workout Logs`, `Exercise Library`). Routes: `/on-demand`, `/workout-builder`, `/workout-logs`, `/exercise-library`.
+   274→
+   275→### 6.3 Nutrition Tab — `(tabs)/nutrition.tsx`
+   276→
+   277→Fully API-backed via `useGetNutritionLog(today)` + `useUpsertNutritionLog`. Falls back to `DEFAULT_LOG` if no row exists.
+   278→
+   279→- **Header**: avatar + "Nutrition" + today's date + share icon (Alert).
+   280→- **Calorie Summary Card**:
+   281→  - Radial **tick ring** showing kcal remaining (`calorieGoal − food + caloriesBurned`).
+   282→  - Inside ring: big number + "Remaining" / "kcal" labels.
+   283→  - Right column: Food (`+`) and Exercise (`−`) running totals.
+   284→- **Macros Row** — three `MacroBar` (Protein / Carbs / Fat). Each: label, `current/goal` text, filled progress bar (blue / amber / red).
+   285→- **Water Tracker**:
+   286→  - "Water Intake" + counter `{glasses}/8`.
+   287→  - 8-cell grid of tappable cups. Filled = accent-lime; empty = bordered. Tap upserts immediately.
+   288→- **Meal sections** — four collapsible cards (Breakfast / Lunch / Dinner / Snacks). Summary calories + protein, expand chevron, entry rows (`name · calories · protein g`), "Add Food" CTA (Alert "coming soon"). All state changes PUT `/api/nutrition-logs/:date`.
+   289→
+   290→### 6.4 Dashboard Tab — `(tabs)/dashboardtab.tsx`
+   291→
+   292→All stats derived from `useLogs()`.
+   293→
+   294→- **Header**: avatar + "Dashboard" + hardcoded "December 23, 2025" + share icon.
+   295→- **Stat cards row** (3-up):
+   296→  - Day Streak — `flame` (orange), consecutive days with ≥1 log starting today.
+   297→  - Workouts — `barbell-outline` (blue), `logs.length`.
+   298→  - Total Time — `clock-fast` (lime), sum of parsed `durationLabel`.
+   299→- **This Week card** — `weeklyDoneCount/7 sessions`. 7 day circles (M T W T F S S). Done = filled blue checkmark; remaining = secondary outline.
+   300→- **Volume card** — title + "+10.8%" delta. 6-bar chart (`W1`–`W6`, hardcoded values, latest brighter blue).
+   301→- **Personal Bests card** — 4 hardcoded rows with trophy icon + weight.
+   302→- **Achievements grid** — 3-column, 6 tiles. Unlocked = full opacity with colored icon ring border; locked = 45% opacity.
+   303→
+   304→### 6.5 Community Tab — `(tabs)/community.tsx`
+   305→
+   306→- **Header tabs**: "Feed" / "Leaderboard" switcher.
+   307→- **Feed**: search bar, post composer ("What's your win today?") with avatar, post list (avatar + initials + username + time + body + optional workout tag, PB badge, image, like/comment/share action row).
+   308→- **Leaderboard**: Weekly / Monthly / All Time period pills. Ranked list — top 3 with gold/silver/bronze medal icons; user row ("you", lime SP avatar) highlighted by `isYou`. Each row: rank, avatar, username, score, green `+delta`.
+   309→
+   310→### 6.6 Profile — `app/profile.tsx`
+   311→
+   312→Standalone screen reached from home-screen avatar.
+   313→
+   314→- **Hero**: decorative concentric blue arcs. Back arrow. Centered avatar (90 px outer ring, 82 px inner, initials "SP", camera-edit badge bottom-right). Name beneath. "Current Program:" label + pill showing `currentProgram?.name ?? "No Active Program"`.
+   315→- **Achievements summary card** — trophy icon, "600 XP", medal pill.
+   316→- **Account group**: Manage Profile / Manage Notifications / Manage Subscriptions / Message Support (each opens "coming soon" Alert).
+   317→- **Legal group**: Privacy Policy / Terms & Conditions / Social Accounts.
+   318→- **Invite your Friends** — solid primary button.
+   319→- **Sign out** — outlined; confirm Alert.
+   320→- **Delete Account** — red destructive link; confirm Alert.
+   321→
+   322→### 6.7 Programs Library — `app/programs/index.tsx` (FROZEN)
+   323→
+   324→Renders `GroupedProgramCard` per unique program name in `userPrograms`. Card:
+   325→- Hero image based on `imageIdx` from a fixed picker.
+   326→- Title + subtitle, weeks/days, phase count.
+   327→- **Difficulty selector** — single diff = plain label; multi-diff = dropdown with chevron + confirm sheet on switch.
+   328→- **Phase chips** — clickable when >1 phase.
+   329→- **Three-dot menu** — Edit (→ `program-edit`) / Remove (confirm sheet).
+   330→- Tap → `/programs/user-detail?name=...&difficulty=...&phaseIdx=...`.
+   331→
+   332→**Do not modify** `programs/index.tsx`; extend via `user-detail` or context.
+   333→
+   334→### 6.8 Program Detail (Legacy) — `app/programs/[id].tsx`
+   335→
+   336→Static screen using `PROGRAMS` array from `constants/programsData.ts` (only Push-Pull-Legs as shape reference). Hero + circular day-progress ring, phase pills, Overview / Program tab switcher, day-by-day schedule, fixed Start CTA. Kept for compatibility; home + Library use `user-detail.tsx`.
+   337→
+   338→### 6.9 Program User-Detail — `app/programs/user-detail.tsx`
+   339→
+   340→Dynamic detail driven by query params `name`, `difficulty`, `phaseIdx`.
+   341→
+   342→- **Sticky header** — back + share + three-dot menu (Edit / Delete).
+   343→- **Hero** — `ImageBackground` with overlay, difficulty pill, **CircularProgress** (88 px, 32 ticks) showing program completion, program name (large), subtitle.
+   344→- **Phase chips** — horizontal scrollable ("Phase One"..."Phase Eight"), accent dot on active.
+   345→- **Tab switcher** — Overview / Program.
+   346→- **Overview** tab: stat row (daysPerWeek, minutes, weeks), equipment carousel (2 cards per row), phase overview text.
+   347→- **Program** tab: day-by-day schedule using `WorkoutDayRow` (workout pill or rest pill, expand to see exercises).
+   348→- **Fixed bottom CTA**: "Start Program · Phase N" — calls `setActiveProgram(program.id)`, routes to `workout-session` with day-1 params + `programId`/`programName`.
+   349→
+   350→### 6.10 Day Detail — `app/programs/day-detail.tsx`
+   351→
+   352→Reached from `user-detail` Program-tab rows.
+   353→
+   354→- Hero image with difficulty pill, duration ring (62 px), day name + target muscles.
+   355→- Equipment pills row.
+   356→- Exercise list grouped by series. Each row: thumbnail, `seriesCode` badge (`A1`, `B2` …), name, sets × reps, tempo, expandable rest times.
+   357→- "Start Workout" CTA at bottom (no `programId` → standalone session log).
+   358→
+   359→### 6.11 Active Workout Session — `app/programs/workout-session.tsx` (≈1500 lines)
+   360→
+   361→Entry points:
+   362→1. Home "Start Day N" (with `programId`)
+   363→2. `user-detail` "Start Program" (with `programId`)
+   364→3. `day-detail` "Start Workout" (standalone)
+   365→4. On-demand `[id]` "Start" (standalone)
+   366→
+   367→**URL params:**
+   368→| Param | Type | Notes |
+   369→|---|---|---|
+   370→| `dayName` | string | required — feeds `getExerciseSeries()` |
+   371→| `duration` | string | required — header subtitle |
+   372→| `difficulty` | `beginner` / `intermediate` / `advanced` | colors throughout |
+   373→| `programId` | optional | if set, completion triggers `advanceActiveDay()` |
+   374→| `programName` | optional | becomes `workoutName` on the saved log |
+   375→| `dayNumber`, `weekNumber` | optional | build `dayLabel = "Week N · Day M"` |
+   376→
+   377→**Header**: back arrow, running elapsed timer (`MM:SS`), current exercise name, global set counter `X/total`.
+   378→
+   379→**Two display modes (toggle via bottom bar):**
+   380→- **Image / Video mode** (default) — large exercise image with series-code badge overlay, speed pill (`1.0x → 1.25x → 1.5x → 2.0x`, tap to cycle), trainer-tip info icon, exercise name overlay.
+   381→- **Overview / List mode** — all exercises grouped by series (`A`, `B`, `C`...). Each row: thumbnail, code, name, `N/total` log progress. Tap a row to jump.
+   382→
+   383→**Set-logging panel** (bottom card):
+   384→- Info bar: Max Logged weight, Tempo (`3/0/1/0`), Rest seconds.
+   385→- Active row: `Working Set · {reps} Reps`.
+   386→- Scrollable table: `# | Type | Reps | Weight | Log It`.
+   387→  - Tap weight cell → modal weight entry (numeric pad, ±2.5 kg).
+   388→  - Tap numbered circle → logs set (green ✓), advances to next set.
+   389→- After logging last set of an exercise, **Rest Ring** overlay appears (full-screen blur, 180 px ring + countdown, Skip button). When timer reaches zero, auto-advance.
+   390→
+   391→**Bottom playback bar**: Info (tip modal) · Prev · Pause/Play · Next · Mode toggle.
+   392→
+   393→**Completion / save flow:**
+   394→- Auto-trigger when every set is logged. Manual: "Mark as Complete" button.
+   395→- Builds `WorkoutLog` payload (`id = log-{timestamp}`, `dateISO`, `timeLabel`, `imageKey`, `muscles`, exercises normalized as `{ setIndex, reps, weight, restTime }`).
+   396→- POSTs via `useCreateWorkoutLog`; invalidates `getListWorkoutLogsQueryKey`.
+   397→- If `programId` set: fires `advanceActiveDay()` exactly once (`advancedRef`). Clears `activeProgram` when `completedSessions >= totalSessions`.
+   398→- Shows **Trophy completion screen** — trophy icon, time / exercises / sets stats, "Done" → `router.back()` ×2.
+   399→
+   400→### 6.12 Active Workout (Standalone) — `app/active-workout.tsx`
+   401→
+   402→Lighter active workout used by Workout Builder ("Start" on a built workout) and on-demand. Reads from `buildExercises` or `OnDemandWorkout.series[]`. Same rest ring, set logging, auto-advance — but no `advanceActiveDay()` call.
+   403→
+   404→### 6.13 On-Demand — `app/on-demand/index.tsx`
+   405→
+   406→- Header — back, search bar, filter funnel (opens `FiltersSheet`), category pills (All / Warm Up / Rehab / Favorites / Chris's Favorites / Special).
+   407→- Workouts grid — hero image with title + duration overlay, favorite heart, difficulty dot, series count badge.
+   408→- Filters (`FiltersSheet`): intensity (difficulty chips), target areas (12 muscle group chips), durations (`20 mins & less` / `20-45 min` / `45 min & more`), equipment (No / Minimal / Gym).
+   409→- User-saved on-demand (`userOnDemand`) appears above stock `WORKOUTS`.
+   410→
+   411→### 6.14 On-Demand Detail — `app/on-demand/[id].tsx`
+   412→
+   413→- Hero image, name, duration ring, difficulty pill, total sets + exercises, muscle pills.
+   414→- **Action row** (×4): Save / Schedule / Share / Edit (only for user-created).
+   415→- **Exercise list** grouped by series — `ExerciseCard` per row.
+   416→- **Sticky Start CTA** → `active-workout` with the payload.
+   417→- **Dictionary link** (info icon) → `/on-demand/dictionary`.
+   418→
+   419→### 6.15 Dictionary — `app/on-demand/dictionary.tsx`
+   420→
+   421→Glossary of training methods. Two tabs:
+   422→- **Foundational Sets**: Warm-up, Working, Back-off, Peak.
+   423→- **Intensity-Boosting Methods**: Drop, Rest-Pause, Cluster, etc.
+   424→
+   425→Each entry = icon + title + multi-paragraph description card.
+   426→
+   427→### 6.16 Exercise Library — `app/exercise-library.tsx` (R2-backed)
+   428→
+   429→- **Data**: `useExercises()` → `GET /api/exercises` → returns `R2Exercise[]` (`id`, `folder`, `name`, `muscles[]`, `instructions[]`) sourced from Cloudflare R2 (`cbumexerciselibrary/` folder listing).
+   430→- Header — back + "Exercise Library" + search.
+   431→- Filter chip rows — Equipment + Muscle Group; AND with search.
+   432→- Grid — `R2Image` thumbnail (target muscle image from R2, falls back to bundled `gym_hero.png` on error), name, muscle pills.
+   433→- Tap → **ExerciseDetailModal** (full-screen slide-up):
+   434→  - Hero `VideoView` (`expo-video`, `useVideoPlayer`) streaming `${EXPO_PUBLIC_R2_BASE_URL}/gym-assets-storage/cbumexerciselibrary/{folder}/demo.mp4`, loops automatically.
+   435→  - Speed badge — cycles through `1.0x → 1.25x → 1.5x → 2.0x → 0.5x`.
+   436→  - Muscle tag pills.
+   437→  - **Setup section** — grip / position / equipment icons (R2 setup images: `Setup/grip_{slug}.jpg`, `Setup/position_{slug}.jpg`, `Setup/equipment_{slug}.jpg`).
+   438→  - **Instructions** — fetched lazily from `Instructions.txt` in the folder; line-number prefixes stripped. Falls back to the `instructions[]` returned by the API.
+   439→
+   440→### 6.17 Workout Builder — `app/workout-builder/index.tsx`
+   441→
+   442→"Your Workouts" — unified list.
+   443→
+   444→- Tabs: **Workouts** / **Programs**.
+   445→- **WorkoutCard** rows — hero thumbnail with diagonal stripe, duration **TickRing** (52 px), title, difficulty pill, muscle pills (first 2 + `+N more`), set/exercise count, three-dot menu (Edit → `edit.tsx` / Delete confirm).
+   446→- **Program rows** — phase pill, three-dot menu (Edit → `program-edit.tsx` / Remove confirm).
+   447→- Floating "+" FAB — sheet: "New Workout" → `build.tsx` or "New Program" → `program-builder.tsx`.
+   448→
+   449→### 6.18 Build Workout — `app/workout-builder/build.tsx` (1445 lines)
+   450→
+   451→Most complex builder screen.
+   452→
+   453→- Top: name input, difficulty picker (3 chips), duration input, hero image picker (12 stock in 4-column grid).
+   454→- Tempo presets: `3-0-1-0`, `3-1-1-0`, `3-0-1-1`, `2-0-2-0`, `4-0-X-0`, etc. Tempo input toggles between presets and free text.
+   455→- **Reps mode** — `individual` (set-by-set) or `forAll`.
+   456→- Series grouping: `single` / `superset` / `triset` / `giantset`. Codes auto-generated (`A`, `A1`, `A2`…).
+   457→- For each exercise: name + image, expandable Setup tip, sets list (`id`, `reps`, `restTime`, optional `intensifier`).
+   458→  - Intensifier options: warmup / working / drop / restpause / cluster / backoff / density / peak / variable / midrange / prefatigue.
+   459→- "Add Exercise" → `add-exercise.tsx` (mode `new`).
+   460→- "Rearrange" → `rearrange-series.tsx`.
+   461→- "Save" → `workouts` in WorkoutContext, returns to `index.tsx`.
+   462→
+   463→### 6.19 Add Exercise — `app/workout-builder/add-exercise.tsx`
+   464→
+   465→- Search, equipment + muscle filter chips.
+   466→- `FlatList` of `EXERCISES` (`ExerciseRow`) — image, name, muscle pills, info icon (detail modal), tappable checkmark.
+   467→- Multi-select counter at bottom: `N selected — Combine as: Superset (×2) / Triset (×3) / Giant Set (×4)`.
+   468→- "Add" CTA — calls `setPendingAction(selection, mode, meta)` and `router.back()`. The caller (`build.tsx` / `edit.tsx`) consumes `pendingExercises` via `useFocusEffect`.
+   469→
+   470→### 6.20 Rearrange Series — `app/workout-builder/rearrange-series.tsx`
+   471→
+   472→`GroupSummary` list (one row per series group): thumbnail, label, type (Superset/Triset/Giant Set), exercise count, total sets. Up/Down arrows reorder. "Save" calls `reorderSeriesGroups(orderedGroupIds)`.
+   473→
+   474→### 6.21 Workout Detail — `app/workout-builder/workout-detail.tsx`
+   475→
+   476→Read-only viewer for a `SavedWorkout`. Hero, difficulty, muscles, full series list with `ExerciseCard`. CTAs: Start → `active-workout` / Edit → `edit.tsx`.
+   477→
+   478→### 6.22 Edit Workout — `app/workout-builder/edit.tsx`
+   479→
+   480→Mirror of `build.tsx` with pre-populated fields. Save patches the workout in place.
+   481→
+   482→### 6.23 Program Builder — `app/workout-builder/program-builder.tsx` (1076 lines)
+   483→
+   484→Create multi-difficulty, multi-phase program.
+   485→
+   486→- Inputs: name, subtitle, duration, image picker, **equipment** chip-select (Barbell, Dumbbell, Cable Machine, Bench, Machine, Bodyweight, Kettlebell, Resistance Band, Pull-Up Bar, Squat Rack).
+   487→- **Difficulty tabs** — each enables a variant.
+   488→- **Phase tabs per difficulty** — add/remove phases with `label` + `overview`.
+   489→- **Weekly template days** per phase — add `workout` / `rest` rows.
+   490→- **Per-day exercises** — `DraftExercise[]` (name, sets, repsRange, restSecs).
+   491→- Save creates one `UserProgram` per (difficulty × phase).
+   492→
+   493→### 6.24 Program Edit — `app/workout-builder/program-edit.tsx`
+   494→
+   495→Edits a single `UserProgram` in place: name, subtitle, duration, image, day list, per-day exercises, description. `patchUserProgram(id, changes)` on save.
+   496→
+   497→### 6.25 Workout Logs — `app/workout-logs/index.tsx` (1157 lines)
+   498→
+   499→Two views toggled in the header: **List** / **Calendar** (`?view=calendar` opens calendar by default).
+   500→
+   501→**List view**:
+   502→- Search input (matches `workoutName`, `dayLabel`, `dayTypeName`).
+   503→- Sort funnel — bottom sheet with Newest / Oldest / A–Z; active highlighted with `accent`.
+   504→- Logs grouped by date (`Today`, `Yesterday`, `Month DD`).
+   505→- Each `LogCard`: hero thumbnail with diagonal stripe, time, workout name, day label, difficulty pill, muscle pills, duration. Trash icon → confirm Alert → `deleteLog(id)`.
+   506→- Tap → `[id].tsx`.
+   507→
+   508→**Calendar view**:
+   509→- Six months loaded (`-2..+3` from today). Month header.
+   510→- 7-column grid (Mon–Sun). Past dates with logs filled with a small thumbnail strip + checkmark; today highlighted blue; future scheduled = outline.
+   511→- Tap a cell → bottom sheet with that day's logs.
+   512→
+   513→### 6.26 Log Detail — `app/workout-logs/[id].tsx` (1578 lines)
+   514→
+   515→- **Hero card** — image, workout name, day label, difficulty pill, duration, muscle pills.
+   516→- **Series groups** — `WorkoutLog.exercises[]`. For each exercise:
+   517→  - Image + code badge + name + sets count.
+   518→  - Expandable Rest Times list.
+   519→  - **Weight History table** — tabs across dates (`Month DD`), max-weight badge per session, scrollable rows of `set # · reps · weight`. Tap a cell to edit (PATCH `/api/workout-logs/:id/exercises/:exerciseId/sets`).
+   520→- Delete button at bottom (confirm Alert).
+   521→
+   522→---
+   523→
+   524→## 7. API Server
+   525→
+   526→Source: `artifacts/api-server/src/`. Stack: Express 5 + pino-http + cors + `@workspace/db` + `drizzle-orm` + `@aws-sdk/client-s3`.
+   527→
+   528→Boot: `index.ts` reads `PORT` (required, parsed int, >0), then `app.listen()`. `app.ts` mounts `pinoHttp`, `cors()`, `express.json()`, `express.urlencoded()`, and `/api` router.
+   529→
+   530→### 7.1 Endpoints
+   531→
+   532→| Method | Path | Handler | Description |
+   533→|---|---|---|---|
+   534→| GET  | `/api/healthz` | `routes/health.ts` | `{ status: "ok" }` |
+   535→| GET  | `/api/workout-logs` | `workoutLogs.ts` | List logs ordered by `createdAt DESC` |
+   536→| POST | `/api/workout-logs` | `workoutLogs.ts` | Insert log (client-generated id) |
+   537→| DELETE | `/api/workout-logs/:id` | `workoutLogs.ts` | Delete by id |
+   538→| PATCH | `/api/workout-logs/:id/exercises/:exerciseId/sets` | `workoutLogs.ts` | Replace `sets` of one exercise in a log; renumbers `setIndex` |
+   539→| GET  | `/api/scheduled-workouts` | `scheduledWorkouts.ts` | List ordered by `dateISO ASC` |
+   540→| POST | `/api/scheduled-workouts` | `scheduledWorkouts.ts` | Create |
+   541→| DELETE | `/api/scheduled-workouts/:id` | `scheduledWorkouts.ts` | Delete (404 if none) |
+   542→| GET  | `/api/nutrition-logs/:date` | `nutritionLogs.ts` | Get by ISO date (404 if not seeded) |
+   543→| PUT  | `/api/nutrition-logs/:date` | `nutritionLogs.ts` | Upsert — inserts if absent, updates `updatedAt` if present |
+   544→| GET  | `/api/exercises` | `exercises.ts` | List exercises from Cloudflare R2 (`cbumexerciselibrary/` folder listing) — returns `[{ id, folder, name, muscles[], instructions[] }]` |
+   545→
+   546→Errors return `{ error: string }` with HTTP 4xx/5xx. No auth — `cors()` permissive.
+   547→
+   548→`exercises.ts` notes:
+   549→- Uses `S3Client` (region `auto`) against `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`.
+   550→- `ListObjectsV2Command` with `Delimiter: "/"` to enumerate top-level folders inside `cbumexerciselibrary/`.
+   551→- For each folder: `GetObjectCommand` on `Instructions.txt`, stream → string → split lines → strip numeric prefix.
+   552→- Folder slugs are parsed: `Bench_Press-Chest-Triceps` → `{ name: "Bench Press", muscles: ["Chest", "Triceps"] }`.
+   553→
+   554→### 7.2 Database schema (`lib/db/src/schema/`)
+   555→
+   556→PostgreSQL via Drizzle.
+   557→
+   558→#### `workout_logs`
+   559→```ts
+   560→id            text primary key       // client "log-{timestamp}"
+   561→workout_name  text not null
+   562→day_label     text not null          // "Week N · Day M" or "Workout"
+   563→day_type_name text not null
+   564→date_iso      text not null          // "YYYY-MM-DD"
+   565→time_label    text not null          // "HH:MM AM/PM"
+   566→difficulty    text not null
+   567→duration_label text not null         // "75 Min"
+   568→image_key     text not null
+   569→muscles       jsonb<string[]>
+   570→exercises     jsonb<ExerciseLog[]>
+   571→created_at    timestamp default now()
+   572→```
+   573→
+   574→`ExerciseLog`:
+   575→```ts
+   576→{ id, name, exerciseType, muscles[], imageKey, seriesGroupId, seriesGroupLabel,
+   577→  seriesCode (nullable), seriesType: "single"|"superset"|"triset"|"giantset",
+   578→  tempo (nullable), trainerNote?, sets: SetLog[] }
+   579→```
+   580→`SetLog`: `{ setIndex, reps, weight, restTime }`
+   581→
+   582→#### `scheduled_workouts`
+   583→```ts
+   584→id           text primary key
+   585→date_iso     text not null
+   586→workout_name text not null
+   587→created_at   timestamp default now()
+   588→```
+   589→
+   590→#### `nutrition_logs`
+   591→```ts
+   592→date            text primary key      // YYYY-MM-DD
+   593→calorie_goal    integer default 2800
+   594→calories_burned integer default 0
+   595→water_glasses   integer default 0
+   596→water_goal      integer default 8
+   597→protein_current integer default 0
+   598→protein_goal    integer default 220
+   599→carbs_current   integer default 0
+   600→carbs_goal      integer default 300
+   601→fat_current     integer default 0
+   602→fat_goal        integer default 80
+   603→meals           jsonb<Meal[]>         // [{ id, label, icon, entries:[{name,calories,protein}] }]
+   604→updated_at      timestamp default now()
+   605→```
+   606→
+   607→Zod schemas (`drizzle-zod` + `zod/v4`) exported alongside each table.
+   608→
+   609→---
+   610→
+   611→## 8. API Client (`lib/api-client-react`)
+   612→
+   613→Orval-generated hooks in `src/generated/api.ts`. Re-exported from `index.ts`:
+   614→
+   615→- `useListWorkoutLogs`, `useCreateWorkoutLog`, `useDeleteWorkoutLog`, `useUpdateExerciseSets`, `getListWorkoutLogsQueryKey`
+   616→- `useListScheduledWorkouts`, `useCreateScheduledWorkout`, `useDeleteScheduledWorkout`, `getListScheduledWorkoutsQueryKey`
+   617→- `useGetNutritionLog`, `useUpsertNutritionLog`, `getGetNutritionLogQueryKey`
+   618→- Types: `WorkoutLog`, `ExerciseLog`, `SetLog`, `ScheduledWorkout`, `NutritionLog`, `Meal`, `MealEntry`
+   619→
+   620→`customFetch` (`src/custom-fetch.ts`):
+   621→- `setBaseUrl(url)` — runtime base URL injection (used by `_layout.tsx` for native builds).
+   622→- `setAuthTokenGetter(fn)` — placeholder; not wired up.
+   623→- Auto JSON parse; throws typed `ApiError` on non-2xx.
+   624→
+   625→**Note**: `GET /api/exercises` is NOT in `lib/api-spec/openapi.yaml` and so has no generated hook. The Exercise Library uses a hand-rolled `useExercises()` (`hooks/useExercises.ts`) that calls `fetch` directly.
+   626→
+   627→Regenerate after editing the OpenAPI spec:
+   628→```
+   629→pnpm --filter @workspace/api-spec run codegen
+   630→```
+   631→
+   632→---
+   633→
+   634→## 9. Data Layer (client constants)
+   635→
+   636→### `constants/exerciseData.ts`
+   637→- `getExerciseSeries(dayName)` — fuzzy-matches keywords (push / pull / upper / lower / chest / back / shoulder / arm / full / leg / squat) to a hardcoded series of exercises (`A1`, `A2`, `B1`...).
+   638→- `flattenExercises(series)` → `FlatExercise[]` (`code`, `name`, `imageKey`, `reps[]`, `restSecs[]`, `tempo`, `trainerTip`).
+   639→
+   640→### `constants/exercisesData.ts`
+   641→`EXERCISES` array (Add Exercise picker). Each `ExerciseItem`:
+   642→```ts
+   643→{ id, name, imageKey, muscles[], equipment, grip?, position?, instructions? }
+   644→```
+   645→Plus `MUSCLE_GROUPS` and `EQUIPMENT_LIST`.
+   646→
+   647→### `constants/programsData.ts`
+   648→- `Program` interface (legacy, used by `[id].tsx`).
+   649→- `DIFFICULTY_COLORS = { beginner: "#22C55E", intermediate: "#C4F135", advanced: "#A855F7" }`.
+   650→- `PROGRAMS` — single entry (Push-Pull-Legs) as shape reference.
+   651→
+   652→### `constants/onDemandData.ts`
+   653→`WORKOUTS: OnDemandWorkout[]` — full catalog (Back Beginnings, etc.) with series, reps, tempo, rest, equipment, trainer tips.
+   654→
+   655→### `context/WorkoutContext.tsx` → `SEED_USER_PROGRAMS`
+   656→**Jacklete** — 3 difficulties × 1–3 phases (≈9 entries). Weekly template (5 workout + 2 rest):
+   657→```
+   658→1. Upper A (Back + Shoulders)
+   659→2. Lower A (Quads + Hamstrings)
+   660→3. Upper B (Chest + Arms)
+   661→4. Lower B (Glutes + Calves)
+   662→5. Full Body
+   663→6. Rest
+   664→7. Rest
+   665→```
+   666→
+   667→**Legacy Bro Split** — intermediate × 1 phase. Chest / Back / Shoulders / Arms / Legs + 2 rest days.
+   668→
+   669→### `lib/firebase-storage.ts` (R2 asset URL builder, despite the filename)
+   670→Builds public R2 URLs when `EXPO_PUBLIC_R2_BASE_URL` is set. Base path: `${EXPO_PUBLIC_R2_BASE_URL}/gym-assets-storage/cbumexerciselibrary/{folder}/...`.
+   671→- `getExerciseVideoUrl(folder)` → `{folder}/demo.mp4`
+   672→- `getGripImageUrl(folder, grip)` → `{folder}/Setup/grip_{slug}.jpg`
+   673→- `getPositionImageUrl(folder, position)` → `{folder}/Setup/position_{slug}.jpg`
+   674→- `getEquipmentImageUrl(folder, equipment)` → `{folder}/Setup/equipment_{slug}.jpg`
+   675→- `getTargetImageUrl(folder, muscle)` → `{folder}/Target/{slug}.jpg`
+   676→- `getInstructionsUrl(folder)` → `{folder}/Instructions.txt`
+   677→- `hasStorageConfig()` — true when `EXPO_PUBLIC_R2_BASE_URL` set.
+   678→
+   679→### `hooks/useExercises.ts`
+   680→React Query wrapper around `GET /api/exercises`. `staleTime: 5 min`.
+   681→
+   682→---
+   683→
+   684→## 10. Shared Components (`artifacts/mobile/components/`)
+   685→
+   686→| Component | Purpose |
+   687→|---|---|
+   688→| `ErrorBoundary.tsx` | React error boundary wrapping the entire app; renders `ErrorFallback` |
+   689→| `ErrorFallback.tsx` | Fallback UI with reload button |
+   690→| `ExerciseCard.tsx` | Reusable exercise card — image, code badge, sets/reps, tempo, expandable rest times, trainer tip modal |
+   691→| `FiltersSheet.tsx` | Modal bottom sheet for on-demand filters (intensity / target areas / durations / equipment) |
+   692→| `KeyboardAwareScrollViewCompat.tsx` | Cross-platform keyboard-aware scroll view |
+   693→
+   694→---
+   695→
+   696→## 11. Active Program Flow — End to End
+   697→
+   698→```
+   699→User opens Programs Library
+   700→  └─ Taps a card → user-detail (name, difficulty, phaseIdx)
+   701→       └─ Phase chip + Overview/Program tabs
+   702→            └─ Taps "Start Program · Phase N"
+   703→                 ├─ setActiveProgram(programId)        ← WorkoutContext
+   704→                 │    { programId, completedSessions: 0 }
+   705→                 │    persisted to AsyncStorage
+   706→                 └─ router.push(workout-session, { programId, programName, dayNumber:1, weekNumber:1, ... })
+   707→                      └─ User completes workout
+   708→                           ├─ saveLog() fires automatically (last set logged) OR via "Mark as Complete"
+   709→                           │    ├─ advanceActiveDay()  ← WorkoutContext (guarded by advancedRef)
+   710→                           │    │    completedSessions++
+   711→                           │    │    (program auto-clears when finished)
+   712→                           │    └─ POST /api/workout-logs
+   713→                           └─ Trophy screen → router.back() ×2 → Home
+   714→
+   715→Home Screen (index.tsx)
+   716→  ├─ activeProgram === null → empty-state card → /programs
+   717→  └─ activeProgram set → active card
+   718→       ├─ Program name, difficulty pill, phase pills
+   719→       ├─ Progress ring (completedSessions / totalSessions)
+   720→       └─ "Start Day N" → workout-session with current day params
+   721→```
+   722→
+   723→---
+   724→
+   725→## 12. Adding a New Program
+   726→
+   727→1. Add `UserProgram` to `SEED_USER_PROGRAMS` in `WorkoutContext.tsx` with `isUserCreated: true`, `id`, `name`, `difficulty`, `phaseNumber`, `phases`, `days`, `weeks`, `duration`, `imageIdx`, `equipment[]`.
+   728→2. Add per-day exercises to `dayExercises` (+ optional `weekOverrides`) — otherwise `getExerciseSeries(dayName)` fuzzy-matches.
+   729→3. The program appears in Programs Library via `buildGroups()` automatically.
+   730→4. Calling `setActiveProgram(id)` (e.g. from `user-detail`) makes it the current home card.
+   731→
+   732→---
+   733→
+   734→## 13. Adding a New API Endpoint
+   735→
+   736→1. Add path + schemas to `lib/api-spec/openapi.yaml`.
+   737→2. `pnpm --filter @workspace/api-spec run codegen` — regenerates `lib/api-client-react/src/generated/api.ts` and `lib/api-zod/src/generated/`.
+   738→3. Implement handler in `artifacts/api-server/src/routes/<feature>.ts`.
+   739→4. Register in `routes/index.ts`.
+   740→5. New table? Add Drizzle table in `lib/db/src/schema/<feature>.ts`, re-export from `schema/index.ts`, then `pnpm --filter @workspace/db run push`.
+   741→6. Consume the new hook from a screen / context.
+   742→
+   743→---
+   744→
+   745→## 14. Architectural Decisions
+   746→
+   747→1. **Client-only program state** — `activeProgram` lives in WorkoutContext + AsyncStorage. Avoids server round-trips for a local UX concern.
+   748→2. **Session counting, not calendar tracking** — `completedSessions` counts only workout sessions; rest days excluded. Avoids date math and missed-day handling.
+   749→3. **Metro proxy for API** — `/api/*` proxied from Expo (5000/8080) to Express (3000). API stays a private localhost service.
+   750→4. **OpenAPI is the source of truth** — never hand-write hooks; regenerate. Exception: the R2-backed `/api/exercises` is bypassing this for now (`useExercises` is hand-rolled).
+   751→5. **Postgres + Drizzle** — managed Postgres; `DATABASE_URL` required at boot.
+   752→6. **R2 for exercise media** — exercise videos / setup images / instructions live in Cloudflare R2 (`gym-assets-storage`). The API enumerates folders via `@aws-sdk/client-s3`; the client streams assets via `EXPO_PUBLIC_R2_BASE_URL`.
+   753→7. **`programs/index.tsx` is frozen** — extend via `user-detail.tsx`, home card, context only.
+   754→8. **No auth** — all data is global to the deployment.
+   755→9. **Liquid Glass tab bar** — `NativeTabs` auto-detected on iOS 18+; classic blur/web bar elsewhere.
+   756→10. **Seed-once flags in AsyncStorage** — `stndrd_logs_seeded_v1` and `stndrd_jacklete_seeded_v1` prevent re-seeding on every launch.
+   757→
+   758→---
+   759→
+   760→## 15. Known Limitations / Future Work
+   761→
+   762→- No auth or per-user isolation.
+   763→- Personal Bests, Volume bar chart, and Achievements on the Dashboard are static placeholders (only Streak / Total Workouts / Total Time and the weekly grid are derived from real logs).
+   764→- Community feed + leaderboard are entirely hardcoded mock data.
+   765→- Profile menu items show "coming soon" alerts.
+   766→- Push notifications for scheduled workouts not wired up.
+   767→- Dictionary content inline in `dictionary.tsx` — not API-driven.
+   768→- `/api/exercises` is not yet in `openapi.yaml`; the client uses an unmanaged `fetch` wrapper.
+   769→- Native iOS / Android builds not regularly validated; app is tested in Expo Web on Replit.
+   770→- R2 streaming is opt-in (`EXPO_PUBLIC_R2_BASE_URL`); without it, exercise images fall back to bundled stock and videos won't load.
+   771→
+   772→---
+   773→
+   774→## 16. graphify Integration
+   775→
+   776→This repo uses **graphify** (a knowledge-graph CLI) for codebase context.
+   777→
+   778→- `scripts/post-merge.sh` rebuilds the graph after each merge.
+   779→- `graphify-out/` holds the latest graph artifacts.
+   780→- Query example: `graphify query "How is authentication implemented?"`
+   781→
+   782→Project rule: prefer `graphify query` for architecture-level questions before scanning files manually.
+   783→
