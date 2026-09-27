@@ -35,6 +35,7 @@ model User {
   resetTokens  PasswordResetToken[]
   activeRoutine ActiveRoutine?
   scheduleEntries ScheduleEntry[]
+  profile    UserProfile?
 }
 
 model Session {
@@ -102,6 +103,21 @@ model UserSettings {
   advanceTrigger        String  @default("FINISH_OR_MIDNIGHT") // FINISH_OR_MIDNIGHT | FIRST_SET
   showProjectedDays     Boolean @default(false) // calendar ghosts upcoming cursor days
   reminderTime          String? // "HH:MM" local daily reminder (null = off)
+  // ---- Part 6: feature expansion (defaults preserve Part 1-5 behaviour) ----
+  guidedMode          Boolean @default(false) // guided set-by-set session pointer
+  restDisplay         String  @default("BAR") // BAR | RING (RING adds in-flow RestRingBlock)
+  autoMoveNextSet     Boolean @default(false) // pointer/focus advances after rest
+  hapticsEnabled      Boolean @default(true)
+  showVideoPanel      Boolean @default(true) // guided-mode per-exercise video block
+  showMuscleChips     Boolean @default(true)
+  showEquipmentChips  Boolean @default(true)
+  finishBehaviour     String  @default("ALWAYS_SAVE") // ALWAYS_SAVE | ASK (discard option)
+  showSetsProgressBar Boolean @default(true) // 4px bar inside DateStrip SubBar
+  showMaxWeightBar    Boolean @default(true) // "Best W×R" line in ExerciseCard meta
+  calendarStyle       String  @default("GRID") // GRID | SCROLL (continuous months)
+  tempoPresets        Json? // string[]; default ["2-0-2-0","3-1-1-0","4-0-1-0","1-0-1-0"] applied app-side
+  showCaloriesCard    Boolean @default(false) // Home calories card (manual kcal log)
+  showThumbnails      Boolean @default(true) // library row thumbnails
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -145,9 +161,19 @@ model Exercise {
   defaultSetType  String? // NORMAL | WARMUP | DROP | FAILURE | AMRAP preset for new sets
   defaultRpeTarget Float? // suggested RPE for new sets
   defaultTempo    String? // suggested tempo, e.g. "3-1-1-0"
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  // ---- Part 6: catalog metadata (additive; lists as Json — SQLite) ----
+  primaryMuscles   Json? // string[] (Muscles enum values)
+  secondaryMuscles Json? // string[]
+  equipment        Json? // string[] (Equipment enum values)
+  thumbnailUrl     String? // resolves via media adapter; null = no thumbnail
+  videoUrl         String?
+  trainerTip       String?
+  setupNotes       String?
+  targetNotes      String?
+  catalogKey       String? // stable key of the SystemCatalog row this was adopted from
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
   workoutExercises WorkoutExercise[]
   routineExercises RoutineExercise[]
@@ -155,6 +181,7 @@ model Exercise {
   goals            Goal[]
 
   @@unique([userId, name])
+  @@unique([userId, catalogKey])
   @@index([userId, categoryId])
 }
 
@@ -176,6 +203,9 @@ model Workout {
   sourceDayId     String? // routine day it was started from
   scheduledStart  Boolean   @default(false) // true = started from a PLANNED schedule entry
   finishedAt      DateTime? // set by the Finish action
+  // ---- Part 6: lifecycle (additive) ----
+  discardedAt     DateTime? // session discard: effects reverted, hidden everywhere until restored
+  deletedAt       DateTime? // history soft delete
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -276,6 +306,14 @@ model Routine {
   notes     String?
   kind      String    @default("ROUTINE") // ROUTINE (multi-day program) | SESSION (single-day)
   sortOrder Int       @default(0)
+  // ---- Part 6: program metadata (additive) ----
+  difficulty  String? // BEGINNER | INTERMEDIATE | ADVANCED
+  phases      Json? // ordered [{ name, dayIds: string[] }]
+  daysPerWeek Int?
+  estMinutes  Int?
+  highlights  Json? // string[] ≤4 short lines
+  isFavorite  Boolean @default(false)
+  labels      Json? // string[] user-defined tags
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -297,6 +335,10 @@ model RoutineDay {
   name       String
   dayType    String   @default("WORKOUT") // WORKOUT | REST
   sortOrder  Int      @default(0)
+  // ---- Part 6 (additive) ----
+  primaryMuscles Json? // string[] derived cache from exercises on save
+  estMinutes     Int? // derived: Σ sets × (avg set 30s + rest)
+  isFavorite     Boolean @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -372,6 +414,7 @@ model ActiveRoutine {
   startedAt           DateTime  @default(now())
   lastAdvancedAt      DateTime?
   lastAdvancedForDate String? // local YYYY-MM-DD of the last advance (idempotency for date-based advances)
+  completedDayIds     Json    @default("[]") // persistent "Day completed" markers, independent of cursor
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -394,6 +437,10 @@ model ScheduleEntry {
   workoutId  String?
   workout    Workout?  @relation(fields: [workoutId], references: [id], onDelete: SetNull)
   note       String?
+  // ---- Part 6 (additive) ----
+  timeOfDay  String? // "HH:MM" local time-of-day (null = all-day)
+  estMinutes Int?
+  missedAt   DateTime? // set lazily when PLANNED → MISSED is derived
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -463,6 +510,7 @@ model MeasurementRecord {
   comment       String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+  photos        ProgressPhoto[]
 
   @@index([measurementId])
 }
@@ -499,6 +547,69 @@ model TimerPreset {
   updatedAt  DateTime @updatedAt
 
   @@unique([userId, name])
+}
+
+// ---------- Part 6: profile, photos, calories, catalog ----------
+
+model UserProfile {
+  id        String    @id
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age       Int?
+  heightCm  Float?
+  weightKg  Float?
+  level     String? // BEGINNER | INTERMEDIATE | ADVANCED
+  goal      String? // STRENGTH | MUSCLE | FAT_LOSS | GENERAL
+  daysPerWeekTarget Int?
+  onboardingCompletedAt DateTime? // null = onboarding pending; set on Finish OR Skip
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model ProgressPhoto {
+  id                 String    @id
+  userId             String
+  measurementRecordId String
+  measurementRecord  MeasurementRecord @relation(fields: [measurementRecordId], references: [id], onDelete: Cascade)
+  slot               String // FRONT | BACK | LEFT | RIGHT
+  mediaKey           String // media-adapter key (users/{userId}/photos/...)
+  width              Int
+  height             Int
+  createdAt          DateTime  @default(now())
+
+  @@index([userId])
+  @@index([measurementRecordId])
+}
+
+model DailyCalories {
+  id        String   @id
+  userId    String
+  date      DateTime // UTC midnight of the day
+  kcal      Int
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// System-level exercise catalog (not per user). Loaded from
+// catalog/exercises.v1.json (builtin) or CATALOG_URL on boot; upsert by key.
+model SystemCatalog {
+  key              String   @id
+  name             String
+  category         String
+  type             String   @default("WEIGHT_REPS")
+  primaryMuscles   Json? // string[]
+  secondaryMuscles Json? // string[]
+  equipment        Json? // string[]
+  setupNotes       String?
+  targetNotes      String?
+  trainerTip       String?
+  thumbnailUrl     String?
+  videoUrl         String?
+  updatedAt        DateTime @updatedAt
 }
 
 // ---------- System ----------

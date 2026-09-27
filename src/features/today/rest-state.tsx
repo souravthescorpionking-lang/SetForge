@@ -7,6 +7,12 @@
 // wake lock while running) WITHOUT any rendering. The legacy fixed slim bar /
 // full-screen overlay are replaced by the BottomBar swap in today-screen
 // (LAW: bars are flex siblings; the RestBar lives inside the BottomBar slot).
+//
+// Part 6 (§4.11) additive extension: `totalSec` (the active countdown's start
+// total — drives the RING display's tick fraction) + an `onComplete` callback
+// fired when the countdown reaches zero NATURALLY (skip/stop suppress it),
+// which the guided mode uses for auto-move-next-set. No behavioural change
+// for existing callers (training-screen) — both are optional.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -92,6 +98,9 @@ export type RestState = {
   restRowId: string | null;
   /** Live remaining seconds of the active/paused countdown (null while idle). */
   remainingSec: number | null;
+  /** Total seconds of the ACTIVE countdown (the duration it was started with)
+   * — null while idle. §4.11 RING display: remaining/total drives the tick ring. */
+  totalSec: number | null;
   /** Start (or restart) a countdown; sec falls back to the last used duration. */
   start: (sec?: number, setId?: string | null) => void;
   /** End immediately (no completion side-effects). */
@@ -100,7 +109,13 @@ export type RestState = {
   adjust: (deltaSec: number) => void;
 };
 
-export function useRestState(): RestState {
+export interface RestStateOptions {
+  /** Fired when the countdown reaches zero NATURALLY (skip suppresses it).
+   * §4.11 autoMoveNextSet: advance the guided pointer + scroll into view. */
+  onComplete?: () => void;
+}
+
+export function useRestState(options?: RestStateOptions): RestState {
   const [durationSec, setDurationSec] = useState<number>(() => readLastRest());
   const [remaining, setRemaining] = useState<number>(0);
   const [running, setRunning] = useState(false);
@@ -109,11 +124,20 @@ export function useRestState(): RestState {
   const endAtRef = useRef<number>(0);
   const finishedRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
+  const [activeTotalSec, setActiveTotalSec] = useState<number | null>(null);
+
+  // "Latest" callback ref — the consumer's closure stays fresh across renders
+  // without re-subscribing the ticking engine.
+  const onCompleteRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    onCompleteRef.current = options?.onComplete;
+  });
 
   const finish = useCallback(() => {
     setRunning(false);
     setRemaining(0);
     setRestRowId(null);
+    setActiveTotalSec(null);
     if (!finishedRef.current) {
       finishedRef.current = true;
       beep();
@@ -123,6 +147,7 @@ export function useRestState(): RestState {
         icon: <Timer className="h-4 w-4 text-primary" />,
         description: "Get back under the bar 🔥",
       });
+      onCompleteRef.current?.();
     }
   }, []);
 
@@ -175,6 +200,7 @@ export function useRestState(): RestState {
       finishedRef.current = false;
       setEverStarted(true);
       setRestRowId(setId ?? null);
+      setActiveTotalSec(total);
       endAtRef.current = Date.now() + total * 1000;
       setRemaining(total * 1000);
       setRunning(true);
@@ -187,6 +213,7 @@ export function useRestState(): RestState {
     setRunning(false);
     setRemaining(0);
     setRestRowId(null);
+    setActiveTotalSec(null);
   }, []);
 
   const adjust = useCallback(
@@ -214,6 +241,7 @@ export function useRestState(): RestState {
     everStarted,
     restRowId,
     remainingSec: running || remaining > 0 ? Math.ceil(remaining / 1000) : null,
+    totalSec: activeTotalSec,
     start,
     skip,
     adjust,

@@ -5,14 +5,19 @@
 // duration chip (live elapsed session timer, reusing the legacy
 // workout-header-card logic — tap to start/stop/restart), rest chip (live
 // countdown mini while rest runs), note chip (anchored popover editor for the
-// workout comment; ghost "Add note"). All chips single-line; the row uses
-// the rowTall token (48px, nowrap).
+// workout comment; ghost "Add note").
+//
+// Part 6 (§4.11) adds three chips, all single-line + flex-none, appended in
+// front of the flex-1 note chip: the guided-pointer chip ("A1 · set 2/4" /
+// "All sets done"), the sets-progress chip ("12/18 sets", tabular) and the
+// trainer-tip toggle chip. The row scrolls horizontally (no-scrollbar) when
+// the chip set exceeds the width — same pattern as every other chip row.
 
 import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronRight, MessageSquareText, Play, Square, Timer } from "lucide-react";
+import { ChevronRight, Crosshair, Lightbulb, ListChecks, MessageSquareText, Play, Square, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { rowTall } from "@/lib/ui/tokens";
@@ -40,6 +45,9 @@ export function MetaRow({
   source,
   restRemainingSec,
   onToggleTimer,
+  setsProgress = null,
+  guidedPointer = null,
+  tipToggle = null,
 }: {
   workout: WorkoutDTO;
   /** Part 5 provenance chip: "Routine · Day" or "Session · Name" (null = none). */
@@ -48,6 +56,12 @@ export function MetaRow({
   restRemainingSec: number | null;
   /** Start/stop/restart the session timer (legacy toggleTimer logic). */
   onToggleTimer: () => void;
+  /** §4.11 `12/18 sets` chip (showSetsProgressBar gate is the caller's). */
+  setsProgress?: { completed: number; total: number } | null;
+  /** §4.11 guided pointer chip label ("A1 · set 2/4" / "All sets done"); null hides. */
+  guidedPointer?: string | null;
+  /** §4.11 trainer-tip chip (present → chip renders; tap toggles all tip rows). */
+  tipToggle?: { open: boolean; onToggle: () => void } | null;
 }) {
   const mutate = useMutate();
   const navigate = useApp((s) => s.navigate);
@@ -85,7 +99,7 @@ export function MetaRow({
   };
 
   return (
-    <div data-row className={cn(rowTall, "gap-2 px-1")}>
+    <div data-row className={cn(rowTall, "no-scrollbar gap-2 overflow-x-auto overflow-y-hidden px-1")}>
       {/* Part 5: provenance source chip — tap → the program */}
       {source ? (
         <button
@@ -135,6 +149,48 @@ export function MetaRow({
           <Timer className="h-3.5 w-3.5 flex-none" aria-hidden />
           Rest {formatDuration(restRemainingSec)}
         </span>
+      )}
+
+      {/* §4.11 guided pointer — the current guided-mode target */}
+      {guidedPointer != null && (
+        <span
+          className={cn(chipBase, "flex-none border-primary/40 bg-primary/10 font-bold text-primary")}
+          title="Guided mode: current set"
+        >
+          <Crosshair className="h-3.5 w-3.5 flex-none" aria-hidden />
+          <span className="max-w-[150px] truncate">{guidedPointer}</span>
+        </span>
+      )}
+
+      {/* §4.11 sets progress — completed non-warmup sets / total sets */}
+      {setsProgress != null && setsProgress.total > 0 && (
+        <span className={cn(chipBase, "flex-none")} title="Workout sets progress">
+          <ListChecks className="h-3.5 w-3.5 flex-none text-primary" aria-hidden />
+          <span>
+            {setsProgress.completed}/{setsProgress.total} sets
+          </span>
+        </span>
+      )}
+
+      {/* §4.11 trainer-tip toggle — shows/hides the cards' tip rows */}
+      {tipToggle != null && (
+        <button
+          type="button"
+          onClick={tipToggle.onToggle}
+          aria-pressed={tipToggle.open}
+          aria-label={tipToggle.open ? "Hide trainer tips" : "Show trainer tips"}
+          title={tipToggle.open ? "Hide trainer tips" : "Show trainer tips"}
+          className={cn(
+            chipBase,
+            "flex-none px-2.5",
+            tipToggle.open
+              ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
+              : "hover:bg-accent",
+          )}
+        >
+          <Lightbulb className="h-3.5 w-3.5 flex-none" aria-hidden />
+          Tip
+        </button>
       )}
 
       {/* workout note — anchored popover editor */}

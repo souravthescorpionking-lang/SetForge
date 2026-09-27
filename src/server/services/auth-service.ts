@@ -13,6 +13,8 @@ import {
 import { buildPerUserSeed } from "../seed";
 import { conflict, unauthorized, badRequest } from "../http";
 import { getEnv } from "../env";
+import { jsonStringArray } from "@/server/media";
+import { DEFAULT_TEMPO_PRESETS } from "@/lib/constants";
 
 export async function signup(input: { email: string; password: string; name?: string; timezone?: string }) {
   const email = normaliseEmail(input.email);
@@ -35,10 +37,25 @@ export async function signup(input: { email: string; password: string; name?: st
     await tx.exercise.createMany({ data: seed.exercises });
     await tx.plate.createMany({ data: seed.plates });
     await tx.measurement.createMany({ data: seed.measurements });
-    // Part 5: seeded program/session templates
+    // Part 5: seeded program/session templates (+ Part 6 §3 metadata)
     for (const r of seed.programs) {
-      await tx.routine.create({ data: { id: r.id, userId, name: r.name, notes: r.notes ?? null, kind: r.kind, sortOrder: r.sortOrder } });
+      await tx.routine.create({
+        data: {
+          id: r.id,
+          userId,
+          name: r.name,
+          notes: r.notes ?? null,
+          kind: r.kind,
+          sortOrder: r.sortOrder,
+          difficulty: r.difficulty ?? undefined,
+          daysPerWeek: r.daysPerWeek ?? undefined,
+          estMinutes: r.estMinutes ?? undefined,
+          highlights: r.highlights ? JSON.stringify(r.highlights) : undefined,
+        },
+      });
+      const dayIds: string[] = [];
       for (const d of r.days) {
+        dayIds.push(d.id);
         await tx.routineDay.create({
           data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: d.sortOrder },
         });
@@ -65,11 +82,20 @@ export async function signup(input: { email: string; password: string; name?: st
           }
         }
       }
+      // Part 6 §3: single-phase layout — day chips render in template order.
+      await tx.routine.update({
+        where: { id: r.id },
+        data: { phases: JSON.stringify([{ name: "Main", dayIds }]) },
+      });
     }
 
     return user;
   });
   console.log(`[auth] signup: ${email}`);
+  // Part 6 (§4.16): issue the confirmation token when email confirmation is on.
+  if (getEnv().AUTH_EMAIL_CONFIRM) {
+    await sendEmailConfirmationToken(email);
+  }
   return result;
 }
 
@@ -90,6 +116,10 @@ export async function login(input: { email: string; password: string }) {
     console.log(`[auth] password hash upgraded to Argon2id for ${email}`);
   }
   console.log(`[auth] login: ${email}`);
+  // Part 6 (§4.16): AUTH_EMAIL_CONFIRM=true blocks login until confirmed.
+  if (!(await isEmailConfirmed(email))) {
+    throw unauthorized("Confirm your email before signing in — check your inbox for the link");
+  }
   return user;
 }
 
@@ -165,9 +195,14 @@ export async function getUserWithSettings(userId: string) {
     include: { settings: true },
   });
   if (!user) throw unauthorized();
+  // Part 6: normalise Json columns so the wire type matches SettingsDTO.
+  const raw = user.settings!;
   return {
     user: { id: user.id, email: user.email, name: user.name },
-    settings: user.settings!,
+    settings: {
+      ...raw,
+      tempoPresets: jsonStringArray(raw.tempoPresets).length > 0 ? jsonStringArray(raw.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
+    },
   };
 }
 
@@ -189,4 +224,72 @@ export async function deleteAccount(userId: string) {
   await db.session.deleteMany({ where: { userId } });
   await db.user.delete({ where: { id: userId } }); // cascades everywhere
   console.log(`[auth] account deleted: ${userId}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 6 — email confirmation (§4.16, AUTH_EMAIL_CONFIRM=true). Reuses the
+// VerificationToken model (identifier + token + expiry, single-use) with the
+// same hashed-token discipline as PasswordResetToken.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { randomBytes } from "node:crypto";
+
+const CONFIRM_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const RESEND_COOLDOWN_MS = 60 * 1000; // 1 min
+
+/**
+ * Signup flow when AUTH_EMAIL_CONFIRM=true: creates the account (unconfirmed)
+ * and emails (or console-logs) the confirmation link `#/auth?confirm=<token>`.
+ */
+export async function sendEmailConfirmationToken(emailInput: string): Promise<{ ok: true; emailConfigured: boolean }> {
+  const email = normaliseEmail(emailInput);
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) return { ok: true, emailConfigured: Boolean(getEnv().EMAIL_SERVER) }; // do not leak existence
+
+  // Recent token issued less than RESEND_COOLDOWN_MS ago → silent cooldown.
+  const recent = await db.verificationToken.findFirst({
+    where: { identifier: email, expiresAt: { gt: new Date(Date.now() + CONFIRM_TTL_MS - RESEND_COOLDOWN_MS) } },
+    orderBy: { expiresAt: "desc" },
+  });
+  if (recent) return { ok: true, emailConfigured: Boolean(getEnv().EMAIL_SERVER) };
+
+  const token = randomBytes(32).toString("hex");
+  await db.verificationToken.create({
+    data: { identifier: email, token: hashToken(token), expiresAt: new Date(Date.now() + CONFIRM_TTL_MS) },
+  });
+
+  const env = getEnv();
+  const link = `${env.APP_URL ?? ""}/#/auth?confirm=${token}`;
+  if (env.EMAIL_SERVER) {
+    const nodemailer = await import("nodemailer").then((m) => m.default);
+    const transport = nodemailer.createTransport(env.EMAIL_SERVER);
+    await transport.sendMail({
+      from: env.EMAIL_FROM ?? "SetForge <no-reply@setforge.app>",
+      to: email,
+      subject: "Confirm your SetForge account",
+      text: `Welcome to SetForge!\n\nConfirm your email to activate your account:\n${link}\n\nThe link expires in 24 hours.`,
+    }).catch(() => undefined);
+  } else {
+    console.info(`[auth] email-confirmation link for ${email}: ${link}`);
+  }
+  return { ok: true, emailConfigured: Boolean(env.EMAIL_SERVER) };
+}
+
+/** POST /api/auth/confirm {token} — marks the account confirmed (single-use). */
+export async function confirmEmail(input: { token: string }): Promise<{ ok: true }> {
+  const hashed = hashToken(input.token);
+  const row = await db.verificationToken.findUnique({ where: { token: hashed } });
+  if (!row || row.expiresAt.getTime() < Date.now()) throw badRequest("Confirmation link is invalid or expired");
+  await db.verificationToken.delete({ where: { token: hashed } });
+  return { ok: true };
+}
+
+/** Login gate helper: is this email confirmed (or not requiring confirmation)? */
+export async function isEmailConfirmed(emailInput: string): Promise<boolean> {
+  if (!getEnv().AUTH_EMAIL_CONFIRM) return true;
+  // No outstanding valid token for this account → confirmed (or never created).
+  const outstanding = await db.verificationToken.findFirst({
+    where: { identifier: normaliseEmail(emailInput), expiresAt: { gt: new Date() } },
+  });
+  return !outstanding;
 }

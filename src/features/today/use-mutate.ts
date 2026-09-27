@@ -8,6 +8,7 @@ import { useCallback } from "react";
 import { useInvalidate, useOnline } from "@/lib/client/query";
 import { queueMutation } from "@/lib/client/offline";
 import { toast } from "sonner";
+import { hapticError } from "@/lib/client/haptics";
 
 export type OfflineQueue = { path: string; method: string; body?: unknown };
 
@@ -37,6 +38,7 @@ export function useMutate() {
         return await opts.run();
       } catch (e) {
         const message = e instanceof Error ? e.message : "Something went wrong";
+        hapticError(); // §4.17 — error feedback
         toast.error(message);
         return null;
       } finally {

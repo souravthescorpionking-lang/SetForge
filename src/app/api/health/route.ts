@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { bootstrap } from "@/server/bootstrap";
 import { db } from "@/lib/db";
+import { mediaHealth } from "@/server/media";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export async function GET(_req: NextRequest) {
   } catch {
     /* not migrated */
   }
+  const media = await mediaHealth().catch(() => "fail");
   return NextResponse.json(
     {
       db: dbOk ? "ok" : "fail",
@@ -31,6 +33,7 @@ export async function GET(_req: NextRequest) {
       version: boot.version,
       latencyMs,
       lastBoot,
+      media, // none | local ok | s3 ok | s3 fail
       ...(error ? { error } : {}),
     },
     { status: dbOk ? 200 : 503 },

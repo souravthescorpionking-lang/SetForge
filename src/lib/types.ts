@@ -31,6 +31,21 @@ export type SettingsDTO = {
   advanceTrigger: string; // FINISH_OR_MIDNIGHT | FIRST_SET
   showProjectedDays: boolean;
   reminderTime: string | null; // "HH:MM" or null = off
+  // ---- Part 6: feature expansion ----
+  guidedMode: boolean;
+  restDisplay: string; // BAR | RING
+  autoMoveNextSet: boolean;
+  hapticsEnabled: boolean;
+  showVideoPanel: boolean;
+  showMuscleChips: boolean;
+  showEquipmentChips: boolean;
+  finishBehaviour: string; // ALWAYS_SAVE | ASK
+  showSetsProgressBar: boolean;
+  showMaxWeightBar: boolean;
+  calendarStyle: string; // GRID | SCROLL
+  tempoPresets: string[];
+  showCaloriesCard: boolean;
+  showThumbnails: boolean;
 };
 
 export type SessionDTO = { user: UserDTO; settings: SettingsDTO };
@@ -63,6 +78,16 @@ export type ExerciseDTO = {
   defaultTempo: string | null;
   workoutCount?: number;
   lastPerformed?: string | null;
+  // ---- Part 6: catalog metadata ----
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
+  equipment?: string[];
+  thumbnailUrl?: string | null;
+  videoUrl?: string | null;
+  trainerTip?: string | null;
+  setupNotes?: string | null;
+  targetNotes?: string | null;
+  catalogKey?: string | null;
 };
 
 // ---------- interval timer ----------
@@ -126,6 +151,9 @@ export type WorkoutDTO = {
   sourceDayId: string | null;
   scheduledStart: boolean;
   finishedAt: string | null;
+  // ---- Part 6: lifecycle ----
+  discardedAt: string | null;
+  deletedAt: string | null;
   exercises: WorkoutExerciseDTO[];
   groups: WorkoutGroupDTO[];
 };
@@ -216,7 +244,13 @@ export type RoutineDayDTO = {
   dayType: string; // WORKOUT | REST
   sortOrder: number;
   exercises: RoutineExerciseDTO[];
+  // ---- Part 6 ----
+  primaryMuscles?: string[];
+  estMinutes?: number | null;
+  isFavorite?: boolean;
 };
+
+export type RoutinePhaseDTO = { name: string; dayIds: string[] };
 
 export type RoutineDTO = {
   id: string;
@@ -225,6 +259,14 @@ export type RoutineDTO = {
   kind: string; // ROUTINE | SESSION
   sortOrder: number;
   days: RoutineDayDTO[];
+  // ---- Part 6: program metadata ----
+  difficulty?: string | null;
+  phases?: RoutinePhaseDTO[] | null;
+  daysPerWeek?: number | null;
+  estMinutes?: number | null;
+  highlights?: string[];
+  isFavorite?: boolean;
+  labels?: string[];
 };
 
 export type MeasurementDTO = {
@@ -357,6 +399,13 @@ export type BackupDTO = {
     targetDistance: number | null;
     targetTimeSec: number | null;
   }>;
+  // ---- Part 6 ----
+  profile?: {
+    age: number | null; heightCm: number | null; weightKg: number | null;
+    level: string | null; goal: string | null; daysPerWeekTarget: number | null;
+  } | null;
+  calories?: Array<{ date: string; kcal: number; note: string | null }>;
+  photos?: Array<{ measurementName: string; recordDate: string; slot: string; mediaKey: string; width: number; height: number }>;
 };
 
 // ===================== Part 5: Programs, Sessions, Scheduling =====================
@@ -372,6 +421,10 @@ export type ScheduleEntryDTO = {
   status: string; // PLANNED | DONE | SKIPPED | MISSED (lazily derived)
   workoutId: string | null;
   note: string | null;
+  // ---- Part 6 ----
+  timeOfDay?: string | null; // "HH:MM"
+  estMinutes?: number | null;
+  missedAt?: string | null;
 };
 
 /** Ghost "projected" day for the calendar (showProjectedDays setting). */
@@ -393,6 +446,7 @@ export type ActiveRoutineDTO = {
   dayName: string;
   dayType: string; // WORKOUT | REST
   startedAt: string;
+  completedDayIds?: string[]; // Part 6: persistent "Day completed" markers
 };
 
 /** One row in the programs list with follow/usage metadata. */
@@ -442,4 +496,103 @@ export type DashboardDTO = {
     setCount: number;
     completedCount: number;
   } | null;
+};
+
+// ---------- Part 6: library, profile, calories, dictionary, weight table ----------
+
+export type LibraryEntryDTO = {
+  key: string;
+  name: string;
+  category: string;
+  type: string;
+  primaryMuscles: string[];
+  secondaryMuscles: string[];
+  equipment: string[];
+  setupNotes: string | null;
+  targetNotes: string | null;
+  trainerTip: string | null;
+  thumbnailUrl: string | null;
+  videoUrl: string | null;
+  adopted: boolean;
+  exerciseId: string | null;
+  isFavorite: boolean;
+};
+
+export type UserProfileDTO = {
+  age: number | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  level: string | null;
+  goal: string | null;
+  daysPerWeekTarget: number | null;
+  onboardingCompletedAt: string | null;
+};
+
+export type CaloriesDTO = {
+  date: string; // YYYY-MM-DD
+  kcal: number | null;
+  note: string | null;
+};
+
+export type DictionaryTermDTO = {
+  term: string;
+  definition: string;
+  setforge?: string; // "Used in SetForge as: …"
+};
+
+export type ProgramMetaDTO = {
+  difficulty: string | null;
+  phases: Array<{ name: string; dayIds: string[] }> | null;
+  daysPerWeek: number | null;
+  estMinutes: number | null;
+  highlights: string[];
+  labels: string[];
+  isFavorite: boolean;
+};
+
+export type ProgramTotalsDTO = {
+  workouts: number;
+  setsLogged: number;
+  weightLifted: number; // kg
+};
+
+export type ProgressPhotoDTO = {
+  id: string;
+  slot: string; // FRONT | BACK | LEFT | RIGHT
+  mediaKey: string;
+  thumbKey?: string | null;
+  width: number;
+  height: number;
+  createdAt: string;
+  recordId: string;
+  recordDate: string;
+};
+
+export type WeightTableDTO = {
+  exerciseId: string;
+  columns: Array<{ date: string; label: string }>; // newest first, ≤ limit
+  rows: Array<{
+    setIndex: number;
+    cells: Array<{ date: string; weight: number | null; reps: number | null; isBest: boolean } | null>;
+  }>;
+  hasMore: boolean;
+};
+
+export type HiddenWorkoutDTO = {
+  id: string;
+  date: string;
+  comment: string | null;
+  discardedAt: string | null;
+  deletedAt: string | null;
+  exerciseCount: number;
+};
+
+export type MediaUploadResultDTO = {
+  key: string;
+  thumbKey: string;
+  width: number;
+  height: number;
+  mime: string;
+  url: string | null;
+  thumbUrl: string | null;
 };

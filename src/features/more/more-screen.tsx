@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Screen, TopBar, ScrollBody } from "@/components/layout";
-import { BarChart3, History, Dumbbell, Wrench, Settings, CircleHelp, ChevronRight } from "lucide-react";
+import { BarChart3, History, Dumbbell, Wrench, Settings, CircleHelp, ChevronRight, BookOpen, UserRound, BookMarked } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface MoreDestination {
@@ -23,6 +23,9 @@ const DESTINATIONS: readonly MoreDestination[] = [
   { key: "insights", label: "Insights", hint: "records · stats · goals", hash: "#/insights", icon: BarChart3 },
   { key: "history", label: "History", hint: "past workouts", hash: "#/history", icon: History },
   { key: "exercises", label: "Exercises", hint: "library · favourites", hash: "#/exercises", icon: Dumbbell },
+  { key: "library", label: "Exercise library", hint: "catalog · filters · adopt", hash: "#/library", icon: BookOpen },
+  { key: "dictionary", label: "Dictionary", hint: "training methods · terms", hash: "#/dictionary", icon: BookMarked },
+  { key: "profile", label: "Profile", hint: "account · notifications", hash: "#/profile", icon: UserRound },
   { key: "tools", label: "Tools", hint: "1RM · plates · timer", hash: "#/tools", icon: Wrench },
   { key: "settings", label: "Settings", hint: "preferences · account", hash: "#/settings", icon: Settings },
   { key: "help", label: "Help", hint: "tour · shortcuts", hash: "#/help", icon: CircleHelp },

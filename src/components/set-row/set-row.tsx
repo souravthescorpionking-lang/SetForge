@@ -32,9 +32,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Check, Minus, MoreHorizontal, Plus, RotateCcw, StickyNote, Timer, Trash2, Trophy } from "lucide-react";
+import { Check, ChevronDown, Copy, Minus, MoreHorizontal, Plus, RotateCcw, StickyNote, Timer, Trash2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rowGrid } from "@/lib/ui/tokens";
+import { hapticTap } from "@/lib/client/haptics";
 import {
   fieldsForType,
   formatRestSec,
@@ -54,6 +55,7 @@ import {
   parseFieldValue,
   stepForField,
   trimNum,
+  type ApplyToAllFields,
   type CardAction,
   type CardExercise,
   type CardMode,
@@ -170,7 +172,16 @@ function RpeEditor({ value, onChange }: { value: number | null; onChange: (v: nu
   );
 }
 
-function TempoEditor({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+function TempoEditor({
+  value,
+  onChange,
+  presets,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  /** §4.10e tempo presets from settings ("2-0-2-0"…) — optional chip row above the segments. */
+  presets?: string[];
+}) {
   const initial = (value ?? "").split("-");
   const [parts, setParts] = useState<[string, string, string, string]>([
     initial[0] ?? "",
@@ -179,11 +190,41 @@ function TempoEditor({ value, onChange }: { value: string | null; onChange: (v: 
     initial[3] ?? "",
   ]);
   const labels = ["Ecc", "Pause", "Con", "Pause"];
+  const fillPreset = (preset: string) => {
+    hapticTap();
+    const seg = preset.split("-");
+    setParts([seg[0] ?? "", seg[1] ?? "", seg[2] ?? "", seg[3] ?? ""]);
+  };
   return (
     <div>
       <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
         Tempo <span className="font-medium normal-case">(sec: ecc-pause-con-pause)</span>
       </p>
+      {presets && presets.length > 0 ? (
+        <div
+          data-chip-scroller
+          role="group"
+          aria-label="Tempo presets"
+          className="no-scrollbar mb-2 flex h-10 items-center gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+        >
+          {presets.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-label={`Use tempo preset ${p}`}
+              className={cn(
+                "flex h-8 flex-none items-center rounded-full border px-3 text-xs font-bold tabular-nums transition-colors",
+                p === value
+                  ? "border-primary/60 bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+              onClick={() => fillPreset(p)}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex items-end gap-1">
         {parts.map((p, i) => (
           <div key={i} className="min-w-0 flex-1">
@@ -638,7 +679,17 @@ function RpeCell({ set, editable, onAction }: { set: CardSet; editable: boolean;
   );
 }
 
-function TempoCell({ set, editable, onAction }: { set: CardSet; editable: boolean; onAction?: (a: CardAction) => void }) {
+function TempoCell({
+  set,
+  editable,
+  onAction,
+  tempoPresets,
+}: {
+  set: CardSet;
+  editable: boolean;
+  onAction?: (a: CardAction) => void;
+  tempoPresets?: string[];
+}) {
   const [open, setOpen] = useState(false);
   const value = set.tempo ?? null;
   if (!editable || !onAction) {
@@ -666,7 +717,11 @@ function TempoCell({ set, editable, onAction }: { set: CardSet; editable: boolea
         </button>
       </PopoverTrigger>
       <PopoverContent align="center" className="w-56 p-3">
-        <TempoEditor value={value} onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })} />
+        <TempoEditor
+          value={value}
+          presets={tempoPresets}
+          onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -737,20 +792,148 @@ function DoneCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAct
   );
 }
 
+// ---------- apply-to-all field chips (§4.10d) ----------
+
+/** One selectable field in the ⋯ popover's "Apply to all sets" expander. */
+type ApplyField = { key: keyof ApplyToAllFields; label: string; enabled: boolean };
+
+function applyFieldsFor(exercise: CardExercise, set: CardSet): ApplyField[] {
+  const fields = fieldsForType(exercise.modality);
+  const out: ApplyField[] = fields.map((f) => ({
+    key: FIELD_TO_KEY[f] as keyof ApplyToAllFields,
+    label: FIELD_LABEL[f],
+    enabled: (set[FIELD_TO_KEY[f]] as number | null | undefined) != null,
+  }));
+  out.push({ key: "restPlannedSec", label: "Rest", enabled: set.restPlannedSec != null });
+  out.push({ key: "tempo", label: "Tempo", enabled: !!set.tempo });
+  out.push({ key: "rpe", label: "RPE", enabled: set.rpe != null });
+  return out;
+}
+
+function ApplyToAllSection({
+  exercise,
+  set,
+  onAction,
+}: {
+  exercise: CardExercise;
+  set: CardSet;
+  onAction: (a: CardAction) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const fields = applyFieldsFor(exercise, set);
+  const anyEnabled = fields.some((f) => f.enabled);
+
+  const toggle = (key: string) => {
+    hapticTap();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const apply = () => {
+    // keys are constrained to keyof ApplyToAllFields by applyFieldsFor, so the
+    // record-then-cast keeps each property's value type sound.
+    const out: Record<string, unknown> = {};
+    for (const f of fields) {
+      if (!selected.has(f.key) || !f.enabled) continue;
+      // copy the value straight off the source row (undefined → null = clear)
+      out[f.key] = set[f.key] ?? null;
+    }
+    onAction({ type: "apply-to-all", fields: out as ApplyToAllFields });
+  };
+
+  if (!anyEnabled) {
+    return (
+      <p className="text-[11px] leading-snug text-muted-foreground/70">
+        Fill weight, reps, rest, tempo or RPE on this set to copy it to every set.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label="Apply to all sets"
+        onClick={() => {
+          hapticTap();
+          setOpen((o) => !o);
+        }}
+        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Copy className="h-3.5 w-3.5 flex-none" aria-hidden />
+        <span className="min-w-0 flex-1">Apply to all sets</span>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 flex-none transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="pt-2">
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Fields to apply">
+            {fields.map((f) => {
+              const on = selected.has(f.key);
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  disabled={!f.enabled}
+                  aria-pressed={on}
+                  aria-disabled={!f.enabled}
+                  aria-label={`Apply ${f.label}${f.enabled ? "" : " — no value on this set"}`}
+                  className={cn(
+                    "flex h-8 items-center rounded-full border px-3 text-xs font-bold transition-colors",
+                    on
+                      ? "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                    !f.enabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-muted-foreground",
+                  )}
+                  onClick={() => toggle(f.key)}
+                >
+                  {f.label}
+                  {on ? <Check className="ml-1 h-3 w-3" aria-hidden /> : null}
+                </button>
+              );
+            })}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="mt-2 h-8 w-full rounded-lg text-xs font-bold"
+            disabled={selected.size === 0}
+            onClick={apply}
+          >
+            Apply to all sets
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function MoreCell({
   set,
+  exercise,
   editable,
   showRpeEditor,
   showTempoEditor,
   allowRemoveSet,
+  tempoPresets,
   onAction,
 }: {
   set: CardSet;
+  exercise: CardExercise;
   editable: boolean;
   showRpeEditor: boolean;
   showTempoEditor: boolean;
   /** template mode: predefined sets can be deleted from the row ⋯ popover. */
   allowRemoveSet?: boolean;
+  tempoPresets?: string[];
   onAction?: (a: CardAction) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -801,6 +984,7 @@ function MoreCell({
               <div className="border-t border-border pt-3">
                 <TempoEditor
                   value={set.tempo ?? null}
+                  presets={tempoPresets}
                   onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })}
                 />
               </div>
@@ -841,6 +1025,9 @@ function MoreCell({
               <Timer className="h-3.5 w-3.5" aria-hidden /> Rest
             </Button>
           </div>
+          <div className="mt-2 border-t border-border pt-2">
+            <ApplyToAllSection exercise={exercise} set={set} onAction={onAction} />
+          </div>
           {allowRemoveSet ? (
             <Button
               type="button"
@@ -876,10 +1063,21 @@ export interface SetRowProps {
   moreTrack?: boolean;
   /** Omit → the row renders fully read-only (no inputs/menus, even in edit mode). */
   onAction?: (action: CardAction) => void;
+  /** §4.10e tempo presets ("2-0-2-0"…) shown as chips in the tempo editors. */
+  tempoPresets?: string[];
   className?: string;
 }
 
-export function SetRow({ mode, exercise, set, visibleColumns, moreTrack, onAction, className }: SetRowProps) {
+export function SetRow({
+  mode,
+  exercise,
+  set,
+  visibleColumns,
+  moreTrack,
+  onAction,
+  tempoPresets,
+  className,
+}: SetRowProps) {
   const vw = useViewportWidth();
   const fields = useMemo(() => fieldsForType(exercise.modality), [exercise.modality]);
   const editable = onAction != null && (mode === "edit" || mode === "template" || mode === "preview");
@@ -920,16 +1118,25 @@ export function SetRow({ mode, exercise, set, visibleColumns, moreTrack, onActio
       />
     ) : null,
     rpe: <RpeCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
-    tempo: <TempoCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
+    tempo: (
+      <TempoCell
+        set={set}
+        editable={editable}
+        onAction={editable ? onAction : undefined}
+        tempoPresets={tempoPresets}
+      />
+    ),
     rest: <RestCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
     done: <DoneCell set={set} mode={mode} onAction={onAction} />,
     more: (
       <MoreCell
         set={set}
+        exercise={exercise}
         editable={moreEditable}
         showRpeEditor={rpeDropped}
         showTempoEditor={tempoDropped}
         allowRemoveSet={mode === "template"}
+        tempoPresets={tempoPresets}
         onAction={moreEditable ? onAction : undefined}
       />
     ),

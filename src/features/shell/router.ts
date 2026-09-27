@@ -55,18 +55,31 @@ export type RouteName =
   | "help"
   | "auth"
   | "dev"
-  | "exercise-overview";
+  | "exercise-overview"
+  // ---- Part 6 ----
+  | "library"
+  | "library-entry"
+  | "program-day"
+  | "day-arrange"
+  | "today-arrange"
+  | "program-builder"
+  | "dictionary"
+  | "onboarding"
+  | "profile"
+  | "body-compare";
 
 /** Params extracted from the URL contract (all optional — presence depends on route). */
 export type RouteParams = {
   /** #/today/{exerciseId} */
   exerciseId?: string;
-  /** #/programs/{id} (+ nested log-day / predefined-editor) */
+  /** #/programs/{id} (+ nested log-day / predefined-editor / day / arrange) */
   routineId?: string;
-  /** #/programs/{id}/log/{dayId} */
+  /** #/programs/{id}/log/{dayId} and #/programs/{id}/day/{dayId} */
   dayId?: string;
   /** #/programs/{id}/exercise/{reId} */
   reId?: string;
+  /** #/library/{catalogKey} (Part 6) */
+  catalogKey?: string;
 };
 
 type RouteMeta = { query: URLSearchParams; hash: string };
@@ -92,7 +105,18 @@ export type Route =
   | ({ name: "help" } & RouteMeta)
   | ({ name: "auth" } & RouteMeta)
   | ({ name: "dev" } & RouteMeta)
-  | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta);
+  | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta)
+  // ---- Part 6 ----
+  | ({ name: "library" } & RouteMeta)
+  | ({ name: "library-entry"; params: RouteParams & { catalogKey: string } } & RouteMeta)
+  | ({ name: "program-day"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
+  | ({ name: "day-arrange"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
+  | ({ name: "today-arrange" } & RouteMeta)
+  | ({ name: "program-builder" } & RouteMeta)
+  | ({ name: "dictionary" } & RouteMeta)
+  | ({ name: "onboarding" } & RouteMeta)
+  | ({ name: "profile" } & RouteMeta)
+  | ({ name: "body-compare" } & RouteMeta);
 
 /** Route used before the real hash is read (and on the server): #/home. */
 export const HOME_ROUTE: Route = {
@@ -141,6 +165,7 @@ export function parseRoute(hash: string): Route | null {
     case "today":
       if (segs.length === 0) return { name: "today", ...meta };
       if (segs.length === 1) return { name: "today", ...meta };
+      if (segs.length === 2 && segs[1] === "arrange") return { name: "today-arrange", ...meta }; // Part 6
       if (segs.length === 2) return { name: "training", params: { exerciseId: segs[1] }, ...meta };
       return null;
 
@@ -161,8 +186,12 @@ export function parseRoute(hash: string): Route | null {
       // slip through the canonical rewrite still resolve; useHashRoute
       // additionally replaces the URL so the address bar shows #/programs).
       if (segs.length === 1) return { name: "programs", ...meta };
+      // Part 6: #/programs/new/builder (must precede the generic {id} match)
+      if (segs.length === 3 && segs[1] === "new" && segs[2] === "builder") {
+        return { name: "program-builder", ...meta };
+      }
       const id = segs[1];
-      if (segs.length === 2 && id) return { name: "program-detail", params: { routineId: id }, ...meta };
+      if (segs.length === 2 && id && id !== "new") return { name: "program-detail", params: { routineId: id }, ...meta };
       const leaf = segs[2];
       const leafId = segs[3];
       if (segs.length === 4 && id && leaf === "log" && leafId) {
@@ -170,6 +199,13 @@ export function parseRoute(hash: string): Route | null {
       }
       if (segs.length === 4 && id && leaf === "exercise" && leafId) {
         return { name: "predefined-editor", params: { routineId: id, reId: leafId }, ...meta };
+      }
+      // Part 6: #/programs/{id}/day/{dayId} (+ /arrange)
+      if (segs.length === 4 && id && leaf === "day" && leafId) {
+        return { name: "program-day", params: { routineId: id, dayId: leafId }, ...meta };
+      }
+      if (segs.length === 5 && id && leaf === "day" && leafId && segs[4] === "arrange") {
+        return { name: "day-arrange", params: { routineId: id, dayId: leafId }, ...meta };
       }
       return null;
     }
@@ -182,7 +218,9 @@ export function parseRoute(hash: string): Route | null {
       return segs.length === 1 ? { name: "more", ...meta } : null;
 
     case "body":
-      return segs.length === 1 ? { name: "body", ...meta } : null;
+      if (segs.length === 1) return { name: "body", ...meta };
+      if (segs.length === 2 && segs[1] === "compare") return { name: "body-compare", ...meta }; // Part 6
+      return null;
 
     case "insights":
       return segs.length === 1 ? { name: "insights", ...meta } : null;
@@ -207,6 +245,22 @@ export function parseRoute(hash: string): Route | null {
         return { name: "exercise-overview", params: { exerciseId: segs[1] }, ...meta };
       }
       return null;
+
+    // ---- Part 6 routes ----
+
+    case "library":
+      if (segs.length === 1) return { name: "library", ...meta };
+      if (segs.length === 2 && segs[1]) return { name: "library-entry", params: { catalogKey: decodeURIComponent(segs[1]) }, ...meta };
+      return null;
+
+    case "dictionary":
+      return segs.length === 1 ? { name: "dictionary", ...meta } : null;
+
+    case "onboarding":
+      return segs.length === 1 ? { name: "onboarding", ...meta } : null;
+
+    case "profile":
+      return segs.length === 1 ? { name: "profile", ...meta } : null;
 
     default:
       return null;

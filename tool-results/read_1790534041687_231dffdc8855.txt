@@ -1,0 +1,965 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// TodayScreen — the Part 3 rebuild of the day view (#/today), composed ONLY
+     5→// from the layout primitives (Screen/TopBar/SubBar/ScrollBody/BottomBar/NavBar)
+     6→// and the ONE ExerciseCard (edit mode) from @/components/exercise-card.
+     7→//
+     8→//   TopBar (56)  : brand "SetForge" · Calendar action · ⋮ menu (+ Arrange)
+     9→//   SubBar (48)  : DateStrip ◄ [Thu 25 Sep] ► + Today chip + §4.11 4px sets bar
+    10→//   ScrollBody   : [§4.11 RestRingBlock while resting · RING] → MetaRow →
+    11→//                  ExerciseCard×N → SummaryRow → spacer (or ONE 200px empty-state
+    12→//                  block on days with no workout)
+    13→//   BottomBar(56): content swaps — RestBar (rest running) | GuidedBar (§4.11
+    14→//                  guided mode, workout unfinished) | FinishedBar | FinishBar |
+    15→//                  AddExerciseBar (never more than one)
+    16→//
+    17→// Part 6 §4.11 (each behind its setting — defaults preserve Part 5 behaviour):
+    18→//   • guidedMode  — pointer over guidedPointerOrder (ungrouped sequential, then
+    19→//                   per-group round-robin); Prev/Log set/Next BottomBar; pointer
+    20→//                   chip in MetaRow; ring-2 highlight on the current card +
+    21→//                   scrollIntoView (prefers-reduced-motion aware).
+    22→//   • autoMoveNextSet — rest-completion callback advances the pointer.
+    23→//   • restDisplay=RING — RestRingBlock as the first ScrollBody child while
+    24→//                   resting (RestBar stays in the BottomBar).
+    25→//   • finishBehaviour=ASK — Finish → Save/Discard AlertDialogs (finish-ask.tsx).
+    26→//   • showSetsProgressBar — DateStrip 4px bar + MetaRow `n/n sets` chip.
+    27→//   • showMaxWeightBar — `Best W×R` metaExtra line from exercisesApi.records.
+    28→//   • showVideoPanel — MediaBlock underHeader on the CURRENT guided card.
+    29→//   • trainer tips — MetaRow “Tip” chip toggles per-card tip rows (underHeader).
+    30→//   • groupCode chips via computeGroupCodes (§4.10 codes on today cards).
+    31→//
+    32→// Data/mutation logic is REUSED from the legacy today feature (today-view /
+    33→// track-tab / workout-header-card): useWorkoutByDate + use-mutate (offline
+    34→// outbox), toggle-timer, add/patch/toggle sets with auto-rest, reorder
+    35→// exercises, group membership, start/copy workout. The rest engine is
+    36→// extracted into ./rest-state (no rendering — the BottomBar shows it).
+    37→// ─────────────────────────────────────────────────────────────────────────────
+    38→
+    39→import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+    40→import { useQueries, useQuery } from "@tanstack/react-query";
+    41→import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+    42→import {
+    43→  ExerciseCard,
+    44→  toCardSet,
+    45→  type CardAction,
+    46→  type CardExercise,
+    47→  type CardSet,
+    48→  type CardVisibleColumns,
+    49→} from "@/components/exercise-card/exercise-card";
+    50→import { trimNum } from "@/components/exercise-card/card-types";
+    51→import { MediaBlock } from "@/components/shared/media-block";
+    52→import { Button } from "@/components/ui/button";
+    53→import {
+    54→  DropdownMenu,
+    55→  DropdownMenuContent,
+    56→  DropdownMenuItem,
+    57→  DropdownMenuTrigger,
+    58→} from "@/components/ui/dropdown-menu";
+    59→import {
+    60→  ArrowDownUp,
+    61→  CalendarDays,
+    62→  Dumbbell,
+    63→  History,
+    64→  MoreVertical,
+    65→  Settings,
+    66→  Wrench,
+    67→} from "lucide-react";
+    68→import { toast } from "sonner";
+    69→import { useApp } from "@/lib/client/store";
+    70→import { ApiError, exercisesApi, routinesApi, workoutsApi, type SetInput } from "@/lib/client/api";
+    71→import { hapticSuccess } from "@/lib/client/haptics";
+    72→import { computeGroupCodes, guidedPointerOrder } from "@/lib/group-codes";
+    73→import { qk, useInvalidate, useOnline, useWorkoutByDate } from "@/lib/client/query";
+    74→import { addDaysKey, todayKey } from "@/lib/client/format";
+    75→import { formatDuration } from "@/lib/formulas";
+    76→import { useHashRoute } from "@/features/shell/router";
+    77→import { defaultUnitFor, exerciseUnit } from "@/features/exercises/labels";
+    78→import { useSessionFromWorkout } from "@/features/routines/session-dialog";
+    79→import type { RecordsDTO, SetDTO, WorkoutExerciseDTO, WorkoutGroupDTO } from "@/lib/types";
+    80→import { useMutate } from "./use-mutate";
+    81→import { useRestState } from "./rest-state";
+    82→import { DateStrip } from "./date-strip";
+    83→import { MetaRow } from "./meta-row";
+    84→import { SummaryRow } from "./summary-row";
+    85→import { TodayEmpty } from "./today-empty";
+    86→import { AddExerciseBar, FinishBar, FinishedBar, RestBar } from "./rest-bar";
+    87→import { GuidedBar } from "./guided-bar";
+    88→import { RestRingBlock } from "./rest-ring-block";
+    89→import { TrainerTipRow } from "./tip-row";
+    90→import { FinishAskFlow } from "./finish-ask";
+    91→import {
+    92→  ConfirmRemoveExercise,
+    93→  ExerciseGroupPopover,
+    94→  ExerciseNotesPopover,
+    95→} from "./card-popovers";
+    96→
+    97→const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    98→
+    99→/** Map a CardSet patch (SetRow/ExerciseCard contract) onto the API's SetInput. */
+   100→function cardPatchToSetInput(patch: Partial<CardSet>): SetInput {
+   101→  const out: SetInput = {};
+   102→  if ("weightKg" in patch) out.weight = patch.weightKg ?? null;
+   103→  if ("reps" in patch) out.reps = patch.reps ?? null;
+   104→  if ("distanceM" in patch) out.distance = patch.distanceM ?? null;
+   105→  if ("timeSec" in patch) out.timeSec = patch.timeSec ?? null;
+   106→  if ("rpe" in patch) out.rpe = patch.rpe ?? null;
+   107→  if ("tempo" in patch) out.tempo = patch.tempo ?? null;
+   108→  if ("restPlannedSec" in patch) out.restPlannedSec = patch.restPlannedSec ?? null;
+   109→  if ("setType" in patch) out.setType = patch.setType ?? "NORMAL";
+   110→  if ("note" in patch) out.comment = patch.note ?? null;
+   111→  if ("done" in patch) out.isComplete = !!patch.done;
+   112→  return out;
+   113→}
+   114→
+   115→/** §4.11 showMaxWeightBar — "Best 110×5" from the exercise's record table
+   116→ *  (max-weight entry; ties break to the higher rep count). */
+   117→function bestSetLine(records: RecordsDTO | undefined): string | null {
+   118→  if (!records) return null;
+   119→  const usable = records.actual.filter((r) => r.weight != null && r.weight > 0 && r.reps != null);
+   120→  const rows = usable.some((r) => !r.superseded) ? usable.filter((r) => !r.superseded) : usable;
+   121→  if (rows.length === 0) return null;
+   122→  let best = rows[0];
+   123→  for (const r of rows) {
+   124→    if (r.weight! > best.weight! || (r.weight === best.weight && r.reps! > best.reps!)) best = r;
+   125→  }
+   126→  return `Best ${trimNum(best.weight!)}×${best.reps!}`;
+   127→}
+   128→
+   129→export default function TodayScreen() {
+   130→  const navigate = useApp((s) => s.navigate);
+   131→  const settings = useApp((s) => s.settings);
+   132→  const route = useHashRoute();
+   133→  const invalidate = useInvalidate();
+   134→  const online = useOnline();
+   135→  const mutate = useMutate();
+   136→  const sessionFromWorkout = useSessionFromWorkout();
+   137→
+   138→  // ---------- date state (syncs with the ?date= query param) ----------
+   139→  const routeDate = route.name === "today" ? route.query.get("date") : null;
+   140→  const [dateKey, setDateKey] = useState(() =>
+   141→    routeDate && DATE_RE.test(routeDate) ? routeDate : todayKey(),
+   142→  );
+   143→
+   144→  useEffect(() => {
+   145→    if (routeDate && DATE_RE.test(routeDate)) {
+   146→      if (routeDate !== dateKey) setDateKey(routeDate);
+   147→    } else if (route.name === "today" && !routeDate && dateKey !== todayKey()) {
+   148→      // #/today without a ?date= param always means today.
+   149→      setDateKey(todayKey());
+   150→    }
+   151→  }, [routeDate, route.name, dateKey]);
+   152→
+   153→  const goTo = useCallback(
+   154→    (key: string) => {
+   155→      setDateKey(key);
+   156→      if (key === todayKey()) navigate("/today");
+   157→      else navigate(`/today?date=${key}`);
+   158→    },
+   159→    [navigate],
+   160→  );
+   161→
+   162→  // ---------- data ----------
+   163→  const { data, isLoading } = useWorkoutByDate(dateKey);
+   164→  const workout = data?.workout ?? null;
+   165→
+   166→  // routines cache — resolves the workout's source chip (routine · day names)
+   167→  const routinesQuery = useQuery({ queryKey: qk.routines, queryFn: () => routinesApi.list() });
+   168→  const source = useMemo(() => {
+   169→    if (!workout?.sourceRoutineId) return null;
+   170→    if (workout.sourceType !== "ROUTINE_DAY" && workout.sourceType !== "SESSION") return null;
+   171→    const r = routinesQuery.data?.routines.find((x) => x.id === workout.sourceRoutineId);
+   172→    if (!r) return null;
+   173→    if (workout.sourceType === "SESSION") {
+   174→      return { label: `Session · ${r.name}`, routineId: r.id };
+   175→    }
+   176→    const day = r.days.find((d) => d.id === workout.sourceDayId);
+   177→    return { label: day ? `${r.name} · ${day.name}` : r.name, routineId: r.id };
+   178→  }, [workout, routinesQuery.data]);
+   179→
+   180→  // does any workout exist before this date? (enables "Copy Previous")
+   181→  const previousWorkouts = useQuery({
+   182→    queryKey: qk.workoutList({ to: addDaysKey(dateKey, -1), limit: 1 }),
+   183→    queryFn: () => workoutsApi.list({ to: addDaysKey(dateKey, -1) }),
+   184→    staleTime: 30_000,
+   185→  });
+   186→  const hasPrevious = (previousWorkouts.data?.workouts.length ?? 0) > 0;
+   187→
+   188→  // ---------- ui state ----------
+   189→  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+   190→  const [notesWeId, setNotesWeId] = useState<string | null>(null);
+   191→  const [groupWeId, setGroupWeId] = useState<string | null>(null);
+   192→  const [removeWeId, setRemoveWeId] = useState<string | null>(null);
+   193→  const [creating, setCreating] = useState(false);
+   194→  // §4.11 local toggles: trainer-tip rows, finishBehaviour=ASK dialog stage
+   195→  const [tipsOpen, setTipsOpen] = useState(false);
+   196→  const [finishAskOpen, setFinishAskOpen] = useState(false);
+   197→  const [guidedIdx, setGuidedIdx] = useState(0);
+   198→
+   199→  const exercises = useMemo(
+   200→    () => (workout ? [...workout.exercises].sort((a, b) => a.sortOrder - b.sortOrder) : []),
+   201→    [workout],
+   202→  );
+   203→  const groupById = useMemo(() => {
+   204→    const m = new Map<string, WorkoutGroupDTO>();
+   205→    for (const g of workout?.groups ?? []) m.set(g.id, g);
+   206→    return m;
+   207→  }, [workout]);
+   208→
+   209→  const removeWe = workout && removeWeId ? (exercises.find((we) => we.id === removeWeId) ?? null) : null;
+   210→
+   211→  // ---------- §4.11 guided mode: pointer over guidedPointerOrder ----------
+   212→  // Ungrouped exercises run sequentially first, then each group round-robins
+   213→  // (A1s1, A2s1, A1s2…). The pointer ALWAYS targets an incomplete set — the
+   214→  // skip-effect below advances it past anything already logged (on load, on
+   215→  // cache updates and when a set is un-ticked back to incomplete at the end).
+   216→  const guidedActive =
+   217→    !!settings?.guidedMode && !!workout && !workout.finishedAt && exercises.length > 0;
+   218→
+   219→  const sortedSetsByWe = useMemo(() => {
+   220→    const m = new Map<string, SetDTO[]>();
+   221→    for (const we of exercises) {
+   222→      m.set(we.id, [...we.sets].sort((a, b) => a.sortOrder - b.sortOrder));
+   223→    }
+   224→    return m;
+   225→  }, [exercises]);
+   226→
+   227→  const pointerOrder = useMemo(
+   228→    () =>
+   229→      guidedActive
+   230→        ? guidedPointerOrder(
+   231→            exercises.map((we) => ({ id: we.id, groupId: we.groupId, setCount: we.sets.length })),
+   232→          )
+   233→        : [],
+   234→    [guidedActive, exercises],
+   235→  );
+   236→
+   237→  const isPointerComplete = useCallback(
+   238→    (i: number): boolean => {
+   239→      const p = pointerOrder[i];
+   240→      if (!p) return false;
+   241→      return !!sortedSetsByWe.get(p.exerciseId)?.[p.setIndex]?.isComplete;
+   242→    },
+   243→    [pointerOrder, sortedSetsByWe],
+   244→  );
+   245→
+   246→  // keep the pointer on an incomplete set (or "all done" == length)
+   247→  useEffect(() => {
+   248→    if (!guidedActive) return;
+   249→    setGuidedIdx((cur) => {
+   250→      if (cur >= pointerOrder.length) {
+   251→        // "all done" — a set may have been un-ticked back to incomplete
+   252→        const firstIncomplete = pointerOrder.findIndex((_, i) => !isPointerComplete(i));
+   253→        return firstIncomplete >= 0 ? firstIncomplete : pointerOrder.length;
+   254→      }
+   255→      let i = cur;
+   256→      while (i < pointerOrder.length && isPointerComplete(i)) i += 1;
+   257→      return i;
+   258→    });
+   259→  }, [guidedActive, pointerOrder, isPointerComplete]);
+   260→
+   261→  /** Advance past `from` to the next incomplete pointer (used by Log set). */
+   262→  const advanceGuidedPast = useCallback(
+   263→    (from: number) => {
+   264→      setGuidedIdx(() => {
+   265→        let i = from;
+   266→        while (i < pointerOrder.length && isPointerComplete(i)) i += 1;
+   267→        return Math.min(i, pointerOrder.length);
+   268→      });
+   269→    },
+   270→    [pointerOrder, isPointerComplete],
+   271→  );
+   272→
+   273→  /** §4.11 autoMoveNextSet — rest ended naturally: advance + scroll into view. */
+   274→  const handleRestComplete = useCallback(() => {
+   275→    if (!(settings?.guidedMode && settings?.autoMoveNextSet)) return;
+   276→    setGuidedIdx((cur) => {
+   277→      if (cur >= pointerOrder.length) return cur;
+   278→      let i = cur;
+   279→      while (i < pointerOrder.length && isPointerComplete(i)) i += 1;
+   280→      return Math.min(i, pointerOrder.length);
+   281→    });
+   282→  }, [settings?.guidedMode, settings?.autoMoveNextSet, pointerOrder, isPointerComplete]);
+   283→
+   284→  const rest = useRestState({ onComplete: handleRestComplete });
+   285→
+   286→  // ---------- empty-day actions (legacy logic) ----------
+   287→  const startNewWorkout = async () => {
+   288→    if (!online) {
+   289→      toast.info("Starting a workout needs a connection");
+   290→      return;
+   291→    }
+   292→    setCreating(true);
+   293→    try {
+   294→      await workoutsApi.createOrGet(dateKey);
+   295→      invalidate.workout(dateKey);
+   296→      toast.success("New workout started");
+   297→    } catch (e) {
+   298→      toast.error(e instanceof Error ? e.message : "Could not start workout");
+   299→    } finally {
+   300→      setCreating(false);
+   301→    }
+   302→  };
+   303→
+   304→  const copyPreviousWorkout = async () => {
+   305→    if (!online) {
+   306→      toast.info("Copying needs a connection");
+   307→      return;
+   308→    }
+   309→    setCreating(true);
+   310→    try {
+   311→      const w = await workoutsApi.createOrGet(dateKey);
+   312→      await workoutsApi.copy(w.id, {});
+   313→      invalidate.workout(dateKey);
+   314→      toast.success("Previous workout copied in");
+   315→    } catch (e) {
+   316→      if (e instanceof ApiError && e.status === 404) {
+   317→        toast.info("No source workout found — log a session first, then copy it forward");
+   318→      } else {
+   319→        toast.error(e instanceof Error ? e.message : "Copy failed");
+   320→      }
+   321→    } finally {
+   322→      setCreating(false);
+   323→    }
+   324→  };
+   325→
+   326→  // ---------- session timer (legacy workout-header-card logic) ----------
+   327→  const toggleTimer = async () => {
+   328→    if (!workout) return;
+   329→    if (!workout.startAt || workout.endAt) {
+   330→      const startAt = new Date().toISOString();
+   331→      await mutate({
+   332→        label: "Workout timer started",
+   333→        run: () => workoutsApi.update(workout.id, { startAt }),
+   334→        queue: { path: `/api/workouts/${workout.id}`, method: "PATCH", body: { startAt } },
+   335→      });
+   336→      toast.success("Timer started");
+   337→    } else {
+   338→      const endAt = new Date().toISOString();
+   339→      await mutate({
+   340→        label: "Workout timer stopped",
+   341→        run: () => workoutsApi.update(workout.id, { endAt }),
+   342→        queue: { path: `/api/workouts/${workout.id}`, method: "PATCH", body: { endAt } },
+   343→      });
+   344→      toast.success("Timer stopped");
+   345→    }
+   346→  };
+   347→
+   348→  // ---------- set/exercise mutations (legacy track-tab logic) ----------
+   349→  const patchSet = async (we: WorkoutExerciseDTO, setId: string, patch: SetInput) => {
+   350→    if (!workout) return;
+   351→    await mutate({
+   352→      label: "Set updated",
+   353→      run: () => workoutsApi.updateSet(workout.id, we.id, setId, patch),
+   354→      queue: {
+   355→        path: `/api/workouts/${workout.id}/exercises/${we.id}/sets/${setId}`,
+   356→        method: "PATCH",
+   357→        body: patch,
+   358→      },
+   359→    });
+   360→  };
+   361→
+   362→  const addSetToCard = async (we: WorkoutExerciseDTO) => {
+   363→    if (!workout) return;
+   364→    const ex = we.exercise;
+   365→    const payload: SetInput = {
+   366→      weight: null,
+   367→      reps: null,
+   368→      distance: null,
+   369→      timeSec: null,
+   370→      setType: ex.defaultSetType ?? "NORMAL",
+   371→      rpe: ex.defaultRpeTarget ?? null,
+   372→      tempo: ex.defaultTempo ?? null,
+   373→      restPlannedSec: ex.restSec ?? null,
+   374→    };
+   375→    const created = await mutate({
+   376→      label: "Set saved",
+   377→      run: () => workoutsApi.addSet(workout.id, we.id, payload),
+   378→      queue: {
+   379→        path: `/api/workouts/${workout.id}/exercises/${we.id}/sets`,
+   380→        method: "POST",
+   381→        body: payload,
+   382→      },
+   383→    });
+   384→    if (!created) return; // queued offline
+   385→    if (created.newPr) {
+   386→      toast.success("New personal record!", {
+   387→        description: `${created.reps} reps at ${created.weight} — best ever`,
+   388→      });
+   389→    } else {
+   390→      toast.success("Set added");
+   391→    }
+   392→  };
+   393→
+   394→  const toggleSetDone = async (we: WorkoutExerciseDTO, set: SetDTO) => {
+   395→    if (!workout) return;
+   396→    const next = !set.isComplete;
+   397→    if (next) hapticSuccess(); // §4.17 — set complete (row ✓ and guided Log set)
+   398→    const updated = await mutate({
+   399→      label: "Set updated",
+   400→      run: () => workoutsApi.updateSet(workout.id, we.id, set.id, { isComplete: next }),
+   401→      queue: {
+   402→        path: `/api/workouts/${workout.id}/exercises/${we.id}/sets/${set.id}`,
+   403→        method: "PATCH",
+   404→        body: { isComplete: next },
+   405→      },
+   406→    });
+   407→    // ticking ✓ starts the rest clock (warm-ups excluded) — legacy rules
+   408→    if (updated && next && (set.setType ?? "NORMAL") !== "WARMUP" && !set.isWarmup) {
+   409→      if (settings?.autoRestFromRow ?? true) {
+   410→        const restSec = set.restPlannedSec ?? we.exercise.restSec ?? null;
+   411→        if (restSec && restSec > 0) rest.start(restSec, set.id);
+   412→        else if (rest.everStarted) rest.start(undefined, set.id);
+   413→      } else if (rest.everStarted) {
+   414→        rest.start(undefined, set.id);
+   415→      }
+   416→    }
+   417→  };
+   418→
+   419→  const copyLast = async (we: WorkoutExerciseDTO, setId: string) => {
+   420→    const sorted = [...we.sets].sort((a, b) => a.sortOrder - b.sortOrder);
+   421→    const idx = sorted.findIndex((s) => s.id === setId);
+   422→    if (idx < 0) return;
+   423→    const src = [...sorted.slice(0, idx)]
+   424→      .reverse()
+   425→      .find((s) => s.weight != null || s.reps != null || s.distance != null || s.timeSec != null);
+   426→    if (!src) {
+   427→      toast.info("No earlier set to copy from");
+   428→      return;
+   429→    }
+   430→    await patchSet(we, setId, {
+   431→      weight: src.weight,
+   432→      reps: src.reps,
+   433→      distance: src.distance,
+   434→      timeSec: src.timeSec,
+   435→      rpe: src.rpe ?? null,
+   436→      tempo: src.tempo ?? null,
+   437→      restPlannedSec: src.restPlannedSec ?? null,
+   438→    });
+   439→    toast.success("Copied from previous set");
+   440→  };
+   441→
+   442→  const moveExercise = async (we: WorkoutExerciseDTO, delta: -1 | 1) => {
+   443→    if (!workout) return;
+   444→    const ids = [...workout.exercises]
+   445→      .sort((a, b) => a.sortOrder - b.sortOrder)
+   446→      .map((w) => w.id);
+   447→    const i = ids.indexOf(we.id);
+   448→    const j = i + delta;
+   449→    if (i < 0 || j < 0 || j >= ids.length) return;
+   450→    [ids[i], ids[j]] = [ids[j], ids[i]];
+   451→    await mutate({
+   452→      label: "Exercise order saved",
+   453→      run: () => workoutsApi.reorderExercises(workout.id, ids),
+   454→      queue: {
+   455→        path: `/api/workouts/${workout.id}/exercises/order`,
+   456→        method: "PUT",
+   457→        body: { ids },
+   458→      },
+   459→    });
+   460→  };
+   461→
+   462→  const removeExercise = async (weId: string) => {
+   463→    if (!workout) return;
+   464→    await mutate({
+   465→      label: "Exercise removed",
+   466→      run: () => workoutsApi.removeExercise(workout.id, weId),
+   467→      queue: { path: `/api/workouts/${workout.id}/exercises/${weId}`, method: "DELETE" },
+   468→    });
+   469→    toast.success("Exercise removed");
+   470→  };
+   471→
+   472→  // ---------- §4.11 guided actions (BottomBar Prev / Log set / Next) ----------
+   473→
+   474→  /** Manual pointer move — skips complete sets in the movement direction. */
+   475→  const moveGuided = (delta: 1 | -1) => {
+   476→    setGuidedIdx((cur) => {
+   477→      let i = cur + delta;
+   478→      while (i >= 0 && i < pointerOrder.length && isPointerComplete(i)) i += delta;
+   479→      return Math.max(0, Math.min(i, pointerOrder.length));
+   480→    });
+   481→  };
+   482→
+   483→  /** "Log set" — complete the current set via the EXISTING toggle-done
+   484→   *  mutation (auto-rest per autoRestFromRow), then optimistically advance
+   485→   *  the pointer past it (the skip-effect re-runs on the cache update). */
+   486→  const logGuidedSet = async () => {
+   487→    const p = pointerOrder[guidedIdx];
+   488→    if (!p) return;
+   489→    const we = exercises.find((w) => w.id === p.exerciseId);
+   490→    const set = sortedSetsByWe.get(p.exerciseId)?.[p.setIndex];
+   491→    if (!we || !set || set.isComplete) return;
+   492→    await toggleSetDone(we, set);
+   493→    advanceGuidedPast(guidedIdx + 1);
+   494→  };
+   495→
+   496→  // card element registry — the guided pointer scrolls the current card into view
+   497→  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+   498→  useEffect(() => {
+   499→    if (!guidedActive) return;
+   500→    const p = pointerOrder[guidedIdx];
+   501→    if (!p) return;
+   502→    const el = cardRefs.current.get(p.exerciseId);
+   503→    if (!el) return;
+   504→    const reduced =
+   505→      typeof window.matchMedia === "function" &&
+   506→      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+   507→    el.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+   508→  }, [guidedActive, guidedIdx, pointerOrder]);
+   509→
+   510→  // ---------- §4.11 derived card data ----------
+   511→
+   512→  /** §4.10 group codes for today's cards (A1/A2… on superset members). */
+   513→  const groupCodes = useMemo(() => computeGroupCodes(exercises), [exercises]);
+   514→
+   515→  const guidedCardWeId = guidedIdx < pointerOrder.length ? pointerOrder[guidedIdx].exerciseId : null;
+   516→  const guidedAllDone = guidedActive && guidedIdx >= pointerOrder.length;
+   517→  const guidedLabel = (() => {
+   518→    if (!guidedActive) return null;
+   519→    if (guidedAllDone) return "All sets done";
+   520→    const p = pointerOrder[guidedIdx];
+   521→    const code = groupCodes.codes.get(p.exerciseId);
+   522→    const total = sortedSetsByWe.get(p.exerciseId)?.length ?? 0;
+   523→    return code ? `${code} · set ${p.setIndex + 1}/${total}` : `set ${p.setIndex + 1}/${total}`;
+   524→  })();
+   525→
+   526→  /** §4.11 sets progress — non-warmup performed sets / total sets. */
+   527→  const setsProgress = useMemo(() => {
+   528→    if (!workout) return null;
+   529→    let total = 0;
+   530→    let completed = 0;
+   531→    for (const we of workout.exercises) {
+   532→      for (const s of we.sets) {
+   533→        total += 1;
+   534→        if (s.isComplete && !s.isWarmup && (s.setType ?? "NORMAL") !== "WARMUP") completed += 1;
+   535→      }
+   536→    }
+   537→    return total > 0 ? { completed, total } : null;
+   538→  }, [workout]);
+   539→
+   540→  /** §4.11 showMaxWeightBar — "Best W×R" per exercise from its records. */
+   541→  const showBestLine = !!settings?.showMaxWeightBar;
+   542→  const recordsQueries = useQueries({
+   543→    queries: exercises.map((we) => ({
+   544→      queryKey: qk.exerciseRecords(we.exerciseId),
+   545→      queryFn: () => exercisesApi.records(we.exerciseId),
+   546→      enabled: showBestLine,
+   547→      staleTime: 60_000,
+   548→    })),
+   549→  });
+   550→  const bestByWeId = useMemo(() => {
+   551→    const m = new Map<string, string>();
+   552→    if (!showBestLine) return m;
+   553→    exercises.forEach((we, i) => {
+   554→      const line = bestSetLine(recordsQueries[i]?.data);
+   555→      if (line) m.set(we.id, line);
+   556→    });
+   557→    return m;
+   558→  }, [showBestLine, exercises, recordsQueries]);
+   559→
+   560→  /** Any card has a trainer tip → the MetaRow "Tip" chip renders. */
+   561→  const anyTips = exercises.some((we) => !!we.exercise.trainerTip);
+   562→
+   563→  // ---------- Part 5: finish / undo-finish ----------
+   564→  const finishWorkout = async () => {
+   565→    if (!workout || !online) {
+   566→      if (!online) toast.info("Finishing needs a connection");
+   567→      return;
+   568→    }
+   569→    try {
+   570→      const res = await workoutsApi.finish(workout.id);
+   571→      invalidate.workout();
+   572→      invalidate.dashboard();
+   573→      invalidate.schedule();
+   574→      invalidate.programs();
+   575→      // "Day X up next" — index comes from the routine days (fallback: name)
+   576→      let nextLabel = "Done";
+   577→      if (res.nextDay) {
+   578→        const routine = routinesQuery.data?.routines.find(
+   579→          (r) => r.id === workout.sourceRoutineId,
+   580→        );
+   581→        const idx = routine?.days.findIndex((d) => d.id === res.nextDay?.id) ?? -1;
+   582→        nextLabel = idx >= 0 ? `Day ${idx + 1} up next` : `${res.nextDay.name} up next`;
+   583→      }
+   584→      toast.success(`Workout finished · ${nextLabel}`, {
+   585→        duration: 10_000,
+   586→        action: {
+   587→          label: "Undo",
+   588→          onClick: () => void undoFinish(workout.id),
+   589→        },
+   590→      });
+   591→    } catch (e) {
+   592→      toast.error(e instanceof Error ? e.message : "Could not finish workout");
+   593→    }
+   594→  };
+   595→
+   596→  const undoFinish = async (workoutId: string) => {
+   597→    try {
+   598→      await workoutsApi.undoFinish(workoutId);
+   599→      invalidate.workout();
+   600→      invalidate.dashboard();
+   601→      invalidate.schedule();
+   602→      invalidate.programs();
+   603→      toast.success("Finish undone — keep logging");
+   604→    } catch (e) {
+   605→      if (e instanceof ApiError && e.status === 404) {
+   606→        toast.info("Too late to undo (past the 10s window)");
+   607→      } else {
+   608→        toast.error(e instanceof Error ? e.message : "Could not undo");
+   609→      }
+   610→    }
+   611→  };
+   612→
+   613→  // §4.11 finishBehaviour — ALWAYS_SAVE (default) finishes directly; ASK opens
+   614→  // the Save/Discard dialogs (finish-ask.tsx).
+   615→  const handleFinishPressed = () => {
+   616→    if (settings?.finishBehaviour === "ASK") setFinishAskOpen(true);
+   617→    else void finishWorkout();
+   618→  };
+   619→
+   620→  // ---------- card mapping ----------
+   621→  const visibleColumns: CardVisibleColumns = {
+   622→    setType: settings?.showSetType ?? true,
+   623→    rpe: settings?.showRpe ?? true,
+   624→    tempo: settings?.showTempo ?? true,
+   625→    rest: settings?.showRest ?? true,
+   626→  };
+   627→
+   628→  const toCardExercise = (we: WorkoutExerciseDTO): CardExercise => ({
+   629→    id: we.id,
+   630→    name: we.exercise.name,
+   631→    categoryLabel: we.exercise.category?.name ?? "Exercise",
+   632→    categoryColour: we.exercise.category?.colour ?? "#71717a",
+   633→    modality: we.exercise.type,
+   634→    unit: exerciseUnit(we.exercise, settings),
+   635→    weightIncrement: we.exercise.weightIncrement ?? settings?.defaultWeightIncrement ?? 2.5,
+   636→  });
+   637→
+   638→  const cardSets = (we: WorkoutExerciseDTO): CardSet[] =>
+   639→    [...we.sets].sort((a, b) => a.sortOrder - b.sortOrder).map((s, i) => toCardSet(s, i + 1));
+   640→
+   641→  const handleCardAction =
+   642→    (we: WorkoutExerciseDTO) =>
+   643→    (action: CardAction): void => {
+   644→      switch (action.type) {
+   645→        case "toggle-collapse":
+   646→          setCollapsedIds((prev) => {
+   647→            const next = new Set(prev);
+   648→            if (next.has(we.id)) next.delete(we.id);
+   649→            else next.add(we.id);
+   650→            return next;
+   651→          });
+   652→          break;
+   653→        case "add-set":
+   654→          void addSetToCard(we);
+   655→          break;
+   656→        case "update-set":
+   657→          void patchSet(we, action.setId, cardPatchToSetInput(action.patch));
+   658→          break;
+   659→        case "toggle-done": {
+   660→          const set = we.sets.find((s) => s.id === action.setId);
+   661→          if (set) void toggleSetDone(we, set);
+   662→          break;
+   663→        }
+   664→        case "copy-last":
+   665→          void copyLast(we, action.setId);
+   666→          break;
+   667→        case "notes":
+   668→          setNotesWeId(we.id);
+   669→          break;
+   670→        case "rest-timer":
+   671→          rest.start(we.exercise.restSec ?? undefined, action.setId ?? null);
+   672→          break;
+   673→        case "move-up":
+   674→          void moveExercise(we, -1);
+   675→          break;
+   676→        case "move-down":
+   677→          void moveExercise(we, 1);
+   678→          break;
+   679→        case "add-to-group":
+   680→          setGroupWeId(we.id);
+   681→          break;
+   682→        case "replace":
+   683→          // p3-4: the picker opens in replace mode with the day context
+   684→          navigate(`/exercises?replace=${we.id}&date=${dateKey}`);
+   685→          break;
+   686→        case "remove":
+   687→          setRemoveWeId(we.id);
+   688→          break;
+   689→        case "select":
+   690→          // multi-select omitted in the p3-3 Today rebuild (see report)
+   691→          toast.info("Multi-select arrives with the next build");
+   692→          break;
+   693→        case "open":
+   694→          // p3-4 "Focus view" — carry the day context into the training screen
+   695→          navigate(`/today/${we.id}?date=${dateKey}`);
+   696→          break;
+   697→        case "toggle-select":
+   698→          break; // preview-mode only; edit rows never emit it
+   699→      }
+   700→    };
+   701→
+   702→  const restActive = rest.remainingSec != null;
+   703→  // §4.11 RING display — in-flow block while resting (RestBar stays too)
+   704→  const ringRestActive = restActive && settings?.restDisplay === "RING";
+   705→
+   706→  // ---------- render ----------
+   707→  return (
+   708→    <Screen
+   709→      topBar={
+   710→        <TopBar
+   711→          title="SetForge"
+   712→          actions={
+   713→            <>
+   714→              <Button
+   715→                type="button"
+   716→                variant="ghost"
+   717→                size="icon"
+   718→                className="h-11 w-11 flex-none"
+   719→                aria-label="Calendar"
+   720→                onClick={() => navigate("/calendar")}
+   721→              >
+   722→                <CalendarDays className="h-5 w-5" aria-hidden />
+   723→              </Button>
+   724→              <DropdownMenu>
+   725→                <DropdownMenuTrigger asChild>
+   726→                  <Button
+   727→                    type="button"
+   728→                    variant="ghost"
+   729→                    size="icon"
+   730→                    className="h-11 w-11 flex-none"
+   731→                    aria-label="More actions"
+   732→                  >
+   733→                    <MoreVertical className="h-5 w-5" aria-hidden />
+   734→                  </Button>
+   735→                </DropdownMenuTrigger>
+   736→                <DropdownMenuContent align="end" className="w-52">
+   737→                  {workout && workout.exercises.length > 0 ? (
+   738→                    <>
+   739→                      <DropdownMenuItem
+   740→                        onClick={() => sessionFromWorkout.openFor(workout.id, dateKey)}
+   741→                      >
+   742→                        <Dumbbell className="h-4 w-4" aria-hidden /> Save as session
+   743→                      </DropdownMenuItem>
+   744→                      {/* §4.10c — today's arrange screen (6-d) */}
+   745→                      <DropdownMenuItem
+   746→                        onClick={() =>
+   747→                          navigate(
+   748→                            dateKey === todayKey() ? "/today/arrange" : `/today/arrange?date=${dateKey}`,
+   749→                          )
+   750→                        }
+   751→                      >
+   752→                        <ArrowDownUp className="h-4 w-4" aria-hidden /> Arrange exercises
+   753→                      </DropdownMenuItem>
+   754→                    </>
+   755→                  ) : null}
+   756→                  <DropdownMenuItem onClick={() => navigate("/history")}>
+   757→                    <History className="h-4 w-4" aria-hidden /> History
+   758→                  </DropdownMenuItem>
+   759→                  <DropdownMenuItem onClick={() => navigate("/exercises")}>
+   760→                    <Dumbbell className="h-4 w-4" aria-hidden /> Exercises
+   761→                  </DropdownMenuItem>
+   762→                  <DropdownMenuItem onClick={() => navigate("/tools")}>
+   763→                    <Wrench className="h-4 w-4" aria-hidden /> Tools
+   764→                  </DropdownMenuItem>
+   765→                  <DropdownMenuItem onClick={() => navigate("/settings")}>
+   766→                    <Settings className="h-4 w-4" aria-hidden /> Settings
+   767→                  </DropdownMenuItem>
+   768→                </DropdownMenuContent>
+   769→              </DropdownMenu>
+   770→            </>
+   771→          }
+   772→        />
+   773→      }
+   774→      subBar={
+   775→        <DateStrip
+   776→          dateKey={dateKey}
+   777→          onChange={goTo}
+   778→          workoutExists={!!workout}
+   779→          progress={settings?.showSetsProgressBar !== false ? setsProgress : null}
+   780→        />
+   781→      }
+   782→      bottomBar={
+   783→        <BottomBar>
+   784→          {restActive ? (
+   785→            <RestBar
+   786→              display={formatDuration(rest.remainingSec ?? 0)}
+   787→              onAdjust={rest.adjust}
+   788→              onSkip={rest.skip}
+   789→            />
+   790→          ) : workout?.finishedAt ? (
+   791→            // finished — single disabled confirmation row
+   792→            <FinishedBar />
+   793→          ) : guidedActive ? (
+   794→            // §4.11 guided mode — Prev / Log set / Next replaces Add/Finish
+   795→            <GuidedBar
+   796→              onPrev={() => moveGuided(-1)}
+   797→              onNext={() => moveGuided(1)}
+   798→              onLog={() => void logGuidedSet()}
+   799→              onFinish={handleFinishPressed}
+   800→              canLog={guidedIdx < pointerOrder.length && !isPointerComplete(guidedIdx)}
+   801→              allDone={guidedAllDone}
+   802→              atStart={guidedIdx <= 0}
+   803→            />
+   804→          ) : workout && workout.exercises.length > 0 ? (
+   805→            // logging in progress — two equal actions
+   806→            <FinishBar
+   807→              onAdd={() => navigate(`/exercises?date=${dateKey}`)}
+   808→              onFinish={handleFinishPressed}
+   809→            />
+   810→          ) : (
+   811→            <AddExerciseBar onAdd={() => navigate(`/exercises?date=${dateKey}`)} />
+   812→          )}
+   813→        </BottomBar>
+   814→      }
+   815→    >
+   816→      <ScrollBody>
+   817→        {isLoading ? (
+   818→          <DaySkeleton />
+   819→        ) : !workout ? (
+   820→          <TodayEmpty
+   821→            hasPrevious={hasPrevious}
+   822→            starting={creating}
+   823→            onStartNew={() => void startNewWorkout()}
+   824→            onCopyPrevious={() => void copyPreviousWorkout()}
+   825→          />
+   826→        ) : (
+   827→          <>
+   828→            {/* §4.11 RING rest display — FIRST child, pushes content down,
+   829→                removed when rest ends (no overlay; RestBar stays in the BottomBar) */}
+   830→            {ringRestActive ? (
+   831→              <RestRingBlock
+   832→                remainingSec={rest.remainingSec ?? 0}
+   833→                totalSec={rest.totalSec}
+   834→                onAdjust={rest.adjust}
+   835→                onSkip={rest.skip}
+   836→              />
+   837→            ) : null}
+   838→
+   839→            <MetaRow
+   840→              workout={workout}
+   841→              source={source}
+   842→              restRemainingSec={rest.remainingSec}
+   843→              onToggleTimer={() => void toggleTimer()}
+   844→              setsProgress={settings?.showSetsProgressBar !== false ? setsProgress : null}
+   845→              guidedPointer={guidedLabel}
+   846→              tipToggle={
+   847→                anyTips ? { open: tipsOpen, onToggle: () => setTipsOpen((v) => !v) } : null
+   848→              }
+   849→            />
+   850→
+   851→            {exercises.map((we) => {
+   852→              const group = we.groupId ? groupById.get(we.groupId) ?? null : null;
+   853→              const isCurrentGuidedCard = guidedCardWeId === we.id;
+   854→              // §4.11 guided video panel — only the CURRENT guided card, only
+   855→              // when a video exists (MediaBlock itself collapses to 0px otherwise)
+   856→              const showGuidedVideo =
+   857→                isCurrentGuidedCard &&
+   858→                !!settings?.showVideoPanel &&
+   859→                !!we.exercise.videoUrl;
+   860→              const showTipRow = tipsOpen && !!we.exercise.trainerTip;
+   861→              const underHeader =
+   862→                showGuidedVideo || showTipRow ? (
+   863→                  <>
+   864→                    {showGuidedVideo ? (
+   865→                      <div className="flex-none border-b border-border p-2">
+   866→                        <MediaBlock videoUrl={we.exercise.videoUrl} height={180} />
+   867→                      </div>
+   868→                    ) : null}
+   869→                    {showTipRow ? <TrainerTipRow tip={we.exercise.trainerTip!} /> : null}
+   870→                  </>
+   871→                ) : undefined;
+   872→              return (
+   873→                <div
+   874→                  key={we.id}
+   875→                  ref={(el) => {
+   876→                    if (el) cardRefs.current.set(we.id, el);
+   877→                    else cardRefs.current.delete(we.id);
+   878→                  }}
+   879→                  className="relative flex-none"
+   880→                >
+   881→                  <ExerciseCard
+   882→                    mode="edit"
+   883→                    exercise={toCardExercise(we)}
+   884→                    sets={cardSets(we)}
+   885→                    collapsed={collapsedIds.has(we.id)}
+   886→                    visibleColumns={visibleColumns}
+   887→                    groupColour={group?.colour}
+   888→                    groupName={group?.name}
+   889→                    groupCode={groupCodes.codes.get(we.id)}
+   890→                    metaExtra={bestByWeId.get(we.id)}
+   891→                    underHeader={underHeader}
+   892→                    className={isCurrentGuidedCard ? "ring-2 ring-primary/40" : undefined}
+   893→                    onAction={handleCardAction(we)}
+   894→                  />
+   895→                  {notesWeId === we.id && (
+   896→                    <ExerciseNotesPopover
+   897→                      exercise={we.exercise}
+   898→                      open
+   899→                      onClose={() => setNotesWeId(null)}
+   900→                    />
+   901→                  )}
+   902→                  {groupWeId === we.id && (
+   903→                    <ExerciseGroupPopover
+   904→                      workout={workout}
+   905→                      we={we}
+   906→                      open
+   907→                      onClose={() => setGroupWeId(null)}
+   908→                    />
+   909→                  )}
+   910→                </div>
+   911→              );
+   912→            })}
+   913→
+   914→            <SummaryRow workout={workout} unit={defaultUnitFor(settings)} />
+   915→
+   916→            {/* bottom breathing spacer — bars are flex siblings, nothing to clear */}
+   917→            <div className="h-4 flex-none" aria-hidden />
+   918→
+   919→            <ConfirmRemoveExercise
+   920→              exerciseName={removeWe?.exercise.name ?? ""}
+   921→              open={removeWeId != null}
+   922→              onClose={() => setRemoveWeId(null)}
+   923→              onConfirm={async () => {
+   924→                const id = removeWeId;
+   925→                setRemoveWeId(null);
+   926→                if (id) await removeExercise(id);
+   927→              }}
+   928→            />
+   929→
+   930→            {/* §4.11 finishBehaviour=ASK — Save/Discard dialogs (mounted only
+   931→                while the ASK stage is open; ALWAYS_SAVE never reaches it) */}
+   932→            {settings?.finishBehaviour === "ASK" ? (
+   933→              <FinishAskFlow
+   934→                workout={workout}
+   935→                open={finishAskOpen}
+   936→                onClose={() => setFinishAskOpen(false)}
+   937→                onSave={() => void finishWorkout()}
+   938→                dateKey={dateKey}
+   939→                onDiscarded={() => {
+   940→                  // a discarded day can't keep a rest countdown running
+   941→                  rest.skip();
+   942→                  setFinishAskOpen(false);
+   943→                }}
+   944→              />
+   945→            ) : null}
+   946→
+   947→            {sessionFromWorkout.dialog}
+   948→          </>
+   949→        )}
+   950→      </ScrollBody>
+   951→    </Screen>
+   952→  );
+   953→}
+   954→
+   955→function DaySkeleton() {
+   956→  return (
+   957→    <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading day">
+   958→      <div className="h-12 animate-pulse rounded-lg bg-muted/60" />
+   959→      {[0, 1, 2].map((i) => (
+   960→        <div key={i} className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   961→      ))}
+   962→    </div>
+   963→  );
+   964→}
+   965→

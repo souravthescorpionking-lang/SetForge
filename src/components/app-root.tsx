@@ -10,6 +10,7 @@ import { useApp } from "@/lib/client/store";
 import { QueryProvider } from "@/lib/client/query";
 import { flushOutbox, isOnline, outboxCount } from "@/lib/client/offline";
 import { armDailyReminder, rearmOnVisible } from "@/lib/client/notifications";
+import { setHapticsEnabled } from "@/lib/client/haptics";
 import { PwaBridge } from "@/components/shared/pwa";
 import { AppShell } from "@/features/shell/app-shell";
 import type { SessionDTO } from "@/lib/types";
@@ -49,6 +50,11 @@ function AppInner({ initialSession }: { initialSession: SessionDTO | null }) {
   useEffect(() => {
     armDailyReminder(settings?.reminderTime ?? null);
   }, [settings?.reminderTime]);
+
+  // Part 6: haptics master switch (defaults on — preserves prior behaviour)
+  useEffect(() => {
+    setHapticsEnabled(settings?.hapticsEnabled ?? true);
+  }, [settings?.hapticsEnabled]);
 
   // re-arm the reminder timer when the tab becomes visible again
   useEffect(() => {

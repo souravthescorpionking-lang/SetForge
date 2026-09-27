@@ -44,16 +44,40 @@ import HelpScreen from "@/features/screens/help";
 import AuthScreen from "@/features/screens/auth";
 import DevShowcaseScreen from "@/features/screens/dev-showcase";
 import ExerciseOverviewScreen from "@/features/screens/exercise-overview";
+// ---- Part 6 ----
+import LibraryScreen from "@/features/screens/library";
+import LibraryEntryScreen from "@/features/screens/library-entry";
+import ProgramDayScreen from "@/features/screens/program-day";
+import DayArrangeScreen from "@/features/screens/day-arrange";
+import ProgramBuilderScreen from "@/features/screens/program-builder";
+import TodayArrangeScreen from "@/features/screens/today-arrange";
+import DictionaryScreen from "@/features/screens/dictionary";
+import OnboardingScreen from "@/features/screens/onboarding";
+import ProfileScreen from "@/features/screens/profile";
+import BodyCompareScreen from "@/features/screens/body-compare";
+import { ScreenErrorBoundary } from "@/components/shared/screen-error-boundary";
+import { profileApi } from "@/lib/client/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export function AppShell({ initialSession }: { initialSession: SessionDTO | null }) {
   const storeSession = useApp((s) => s.session);
   const hydrated = useApp((s) => s.hydrated);
   const route = useHashRoute();
+  const queryClient = useQueryClient();
 
   // Until the store bootstrap effect runs, trust the SSR session (avoids an
   // auth-screen flash on logged-in loads). After logout the store stays
   // hydrated with a null session, so the gate still triggers correctly.
   const session = hydrated ? storeSession : initialSession;
+
+  // Part 6 onboarding gate: after login, while profile.onboardingCompletedAt is
+  // null, redirect to #/onboarding (Skip is always available there).
+  const { data: profile } = useQuery({
+    queryKey: ["profile"],
+    queryFn: () => profileApi.get(),
+    enabled: Boolean(session),
+    staleTime: Infinity,
+  });
 
   // Auth gate routing. replaceHash swaps the current history entry, so the
   // browser back button never gets stuck bouncing between gates.
@@ -62,8 +86,16 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
       if (route.name !== "auth") replaceHash("#/auth");
     } else if (route.name === "auth") {
       replaceHash("#/home");
+    } else if (
+      profile &&
+      profile.onboardingCompletedAt == null &&
+      route.name !== "onboarding" &&
+      route.name !== "settings" &&
+      route.name !== "help"
+    ) {
+      replaceHash("#/onboarding");
     }
-  }, [session, route.name]);
+  }, [session, route.name, profile, queryClient]);
 
   // Global keyboard shortcuts (desktop, audit M5):
   //   ?  → Help & Shortcuts     N → add exercise (picker)     / → focus search
@@ -110,7 +142,9 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground lg:flex-row">
       <NavPane session={session} />
-      <div className="flex min-w-0 flex-1 flex-col">{renderScreen(route)}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ScreenErrorBoundary route={route.name}>{renderScreen(route)}</ScreenErrorBoundary>
+      </div>
     </div>
   );
 }
@@ -163,5 +197,26 @@ function renderScreen(route: Route): ReactNode {
       return <DevShowcaseScreen />;
     case "exercise-overview":
       return <ExerciseOverviewScreen exerciseId={route.params.exerciseId} />;
+    // ---- Part 6 ----
+    case "library":
+      return <LibraryScreen />;
+    case "library-entry":
+      return <LibraryEntryScreen catalogKey={route.params.catalogKey} />;
+    case "program-day":
+      return <ProgramDayScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
+    case "day-arrange":
+      return <DayArrangeScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
+    case "today-arrange":
+      return <TodayArrangeScreen />;
+    case "program-builder":
+      return <ProgramBuilderScreen />;
+    case "dictionary":
+      return <DictionaryScreen />;
+    case "onboarding":
+      return <OnboardingScreen />;
+    case "profile":
+      return <ProfileScreen />;
+    case "body-compare":
+      return <BodyCompareScreen />;
   }
 }

@@ -30,6 +30,21 @@ export function errorBody(code: string, message: string, details?: unknown) {
 
 type HandlerCtx = { params: Promise<Record<string, string>> };
 
+/** Map a thrown error to the standard JSON error response (HttpError → status, Zod → 400). */
+export function errorResponse(e: unknown): NextResponse {
+  if (e instanceof HttpError) {
+    return NextResponse.json(errorBody(e.code, e.message, e.details), { status: e.status });
+  }
+  if (e instanceof z.ZodError) {
+    return NextResponse.json(
+      errorBody("VALIDATION_ERROR", "Validation failed", e.issues.map((i) => ({ path: i.path.join("."), message: i.message }))),
+      { status: 400 },
+    );
+  }
+  console.error("[api] unhandled error:", e);
+  return NextResponse.json(errorBody("INTERNAL", "Something went wrong"), { status: 500 });
+}
+
 /** Wraps a route handler: JSON envelope, error mapping, Zod → 400. */
 export function handler<Ctx extends HandlerCtx = HandlerCtx>(
   fn: (req: NextRequest, ctx: Ctx) => Promise<unknown>,
@@ -40,17 +55,7 @@ export function handler<Ctx extends HandlerCtx = HandlerCtx>(
       if (result instanceof NextResponse) return result;
       return NextResponse.json(result ?? { ok: true });
     } catch (e) {
-      if (e instanceof HttpError) {
-        return NextResponse.json(errorBody(e.code, e.message, e.details), { status: e.status });
-      }
-      if (e instanceof z.ZodError) {
-        return NextResponse.json(
-          errorBody("VALIDATION_ERROR", "Validation failed", e.issues.map((i) => ({ path: i.path.join("."), message: i.message }))),
-          { status: 400 },
-        );
-      }
-      console.error("[api] unhandled error:", e);
-      return NextResponse.json(errorBody("INTERNAL", "Something went wrong"), { status: 500 });
+      return errorResponse(e);
     }
   };
 }

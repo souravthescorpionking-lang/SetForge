@@ -6,6 +6,16 @@ body measurements and routines — with strict per-account data isolation.
 **Stack**: Next.js 16 (App Router) · TypeScript strict · Prisma (SQLite or Postgres) ·
 Tailwind CSS 4 + shadcn/ui · TanStack Query · Zod 4 · custom credentials auth.
 
+**Feature map**: today-session with guided mode (round-robin superset pointer, rest ring,
+video panel) · program hub (routines & sessions, difficulty/phase metadata, follow +
+cursor, program builder with phases/weekly templates) · exercise picker + 407-entry
+library catalog (filters, favourites, adopt) · training dictionary (25 terms) ·
+calendar + schedule (time-of-day, missed-day derivation) · history with weight tables ·
+body metrics (track/history/graph) with progress photos (4 slots per record) and an
+A/B photo compare screen · insights/records/stats/goals · tools (1RM, plates, interval
+timer) · profile hub + 6-step onboarding · offline outbox sync, PWA install,
+notifications, haptics, light/dark themes.
+
 ---
 
 ## 1. Quick start (local)
@@ -19,7 +29,15 @@ bun run dev                 # http://localhost:3000
 
 The first boot seeds system reference data (measurement units) automatically.
 Create an account through the UI — signup also seeds your default categories,
-exercises, plates, measurements and settings in one transaction.
+exercises, plates, measurements, routines/sessions (19 program templates) and
+settings in one transaction, then walks you through a 6-step onboarding wizard
+(units · goal · level · schedule · body · review — skippable).
+
+**Media in dev**: the sandbox `.env` sets `MEDIA_PROVIDER=local`
+(`MEDIA_LOCAL_DIR=db/media`) so progress photos work end-to-end; the default is
+`none`, under which the app degrades gracefully (upload UI hidden, `403` API).
+Photos are processed server-side with sharp: EXIF-orient + strip, longest edge
+≤ 1600 px, 320 px thumbnail, always JPEG — original bytes are never stored.
 
 > **Sandbox note (this repo's dev environment):** the dev database is managed with
 > `db:push` / `db:migrate`. `DB_AUTO_MIGRATE` therefore skips itself in `NODE_ENV=development`
@@ -50,6 +68,12 @@ invalid value produces a readable fatal error naming the variable.
 | `EMAIL_FROM` | sender address | From header for outgoing mail. |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | In-memory token-bucket window for auth endpoints. |
 | `RATE_LIMIT_MAX` | `20` | Requests per window per IP+route before `429`. |
+| `MEDIA_PROVIDER` | `none` | Progress-photo storage adapter: `none` (uploads → `403`, UI hides upload controls) · `local` (files under `MEDIA_LOCAL_DIR`, served auth-scoped via `/api/media/<key>`) · `s3` (lean SigV4 client — no vendor SDK). |
+| `MEDIA_LOCAL_DIR` | `./data/media` | Root directory for `MEDIA_PROVIDER=local`. Keys are namespaced `users/{userId}/…` with traversal-safe path resolution. |
+| `MEDIA_MAX_UPLOAD_MB` | `10` | Per-file cap for photo uploads (`413`-style `400` beyond it). |
+| `MEDIA_S3_ENDPOINT` / `MEDIA_S3_BUCKET` / `MEDIA_S3_REGION` / `MEDIA_S3_ACCESS_KEY` / `MEDIA_S3_SECRET_KEY` | — | S3-compatible storage config (any S3 API: AWS, R2, MinIO). |
+| `MEDIA_S3_PUBLIC_BASE_URL` | — | When set, photo URLs point at the public base; unset = auth-scoped `/api/media/<key>` URLs. |
+| `CATALOG_MEDIA_BASE_URL` | — | Optional prefix for relative thumbnail/video URLs in `catalog/exercises.v1.json` (the 407-entry exercise library). |
 
 ## 3. Database switching (tested workflow)
 

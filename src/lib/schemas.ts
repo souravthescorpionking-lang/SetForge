@@ -1,6 +1,6 @@
 // Zod request schemas — shared client + server. This is the validation contract.
 import { z } from "zod";
-import { EXERCISE_TYPES, GOAL_TYPES, GRAPH_METRICS, MEASUREMENT_GOAL_TYPES, REST_END_BEHAVIOURS, E1RM_METHODS, SET_TYPES, TEMPO_REGEX } from "./constants";
+import { EXERCISE_TYPES, GOAL_TYPES, GRAPH_METRICS, MEASUREMENT_GOAL_TYPES, REST_END_BEHAVIOURS, E1RM_METHODS, SET_TYPES, TEMPO_REGEX, REST_DISPLAYS, FINISH_BEHAVIOURS, CALENDAR_STYLES, DIFFICULTIES, PROFILE_LEVELS, PROFILE_GOALS, PHOTO_SLOTS, MUSCLES, EQUIPMENT } from "./constants";
 
 // ---- Part 5 enum-ish constants (declared before use) ----
 export const ROUTINE_KINDS = ["ROUTINE", "SESSION"] as const;
@@ -284,6 +284,21 @@ export const settingsUpdateSchema = z.object({
   advanceTrigger: z.enum(ADVANCE_TRIGGERS).optional(),
   showProjectedDays: z.boolean().optional(),
   reminderTime: reminderTimeSchema.optional(),
+  // ---- Part 6: feature expansion (defaults preserve Part 1-5 behaviour) ----
+  guidedMode: z.boolean().optional(),
+  restDisplay: z.enum(REST_DISPLAYS).optional(),
+  autoMoveNextSet: z.boolean().optional(),
+  hapticsEnabled: z.boolean().optional(),
+  showVideoPanel: z.boolean().optional(),
+  showMuscleChips: z.boolean().optional(),
+  showEquipmentChips: z.boolean().optional(),
+  finishBehaviour: z.enum(FINISH_BEHAVIOURS).optional(),
+  showSetsProgressBar: z.boolean().optional(),
+  showMaxWeightBar: z.boolean().optional(),
+  calendarStyle: z.enum(CALENDAR_STYLES).optional(),
+  tempoPresets: z.array(z.string().regex(TEMPO_REGEX, "Invalid tempo")).min(0).max(8).optional(),
+  showCaloriesCard: z.boolean().optional(),
+  showThumbnails: z.boolean().optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),
@@ -382,3 +397,103 @@ export const sessionFromWorkoutSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
 });
 
+
+// ---------- Part 6: feature expansion ----------
+
+const muscleList = z.array(z.enum(MUSCLES)).max(20);
+const equipmentList = z.array(z.enum(EQUIPMENT)).max(21);
+const labelList = z.array(z.string().trim().min(1).max(30)).max(20);
+
+export const profilePatchSchema = z.object({
+  age: z.number().int().min(10).max(100).nullish(),
+  heightCm: z.number().min(50).max(260).nullish(),
+  weightKg: z.number().min(20).max(400).nullish(),
+  level: z.enum(PROFILE_LEVELS).nullish(),
+  goal: z.enum(PROFILE_GOALS).nullish(),
+  daysPerWeekTarget: z.number().int().min(0).max(7).nullish(),
+});
+
+export const onboardingCompleteSchema = z.object({
+  unitSystem: z.enum(["metric", "imperial"]).optional(),
+  goal: z.enum(PROFILE_GOALS).nullish(),
+  level: z.enum(PROFILE_LEVELS).nullish(),
+  daysPerWeekTarget: z.number().int().min(0).max(7).nullish(),
+  heightCm: z.number().min(50).max(260).nullish(), // metric cm (client converts live)
+  weightKg: z.number().min(20).max(400).nullish(), // metric kg (client converts live)
+  age: z.number().int().min(10).max(100).nullish(),
+  skipped: z.boolean().optional(),
+});
+
+export const caloriesPutSchema = z.object({
+  kcal: z.number().int().min(0).max(20000).nullable(),
+  note: z.string().trim().max(200).nullable().optional(),
+});
+
+const phaseSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  dayIds: z.array(z.string().min(1)).max(400),
+});
+
+export const programMetaPatchSchema = z.object({
+  difficulty: z.enum(DIFFICULTIES).nullish(),
+  phases: z.array(phaseSchema).max(12).nullish(),
+  daysPerWeek: z.number().int().min(1).max(7).nullish(),
+  estMinutes: z.number().int().min(5).max(300).nullish(),
+  highlights: z.array(z.string().trim().min(1).max(60)).max(4).nullish(),
+  labels: labelList.nullish(),
+  isFavorite: z.boolean().optional(),
+});
+
+export const scheduleTimeSchema = z.object({
+  time: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "HH:MM").nullable(),
+});
+
+export const builderSetSchema = z.object({
+  weight: z.number().min(0).max(1000).nullish(),
+  reps: z.number().int().min(0).max(1000).nullish(),
+  restPlannedSec: z.number().int().min(0).max(900).nullish(),
+  setType: z.enum(SET_TYPES).nullish(),
+});
+export const builderSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  difficulty: z.enum(DIFFICULTIES).nullish(),
+  daysPerWeek: z.number().int().min(1).max(7).nullish(),
+  estMinutes: z.number().int().min(5).max(300).nullish(),
+  labels: labelList.optional(),
+  phases: z.array(z.object({ name: z.string().trim().min(1).max(40), weeks: z.number().int().min(1).max(12) })).min(1).max(12),
+  weekly: z.array(z.object({
+    weekday: z.number().int().min(0).max(6),
+    type: z.enum(DAY_TYPES),
+    name: z.string().trim().min(1).max(40).nullish(),
+  })).length(7),
+  exercises: z.record(z.string().trim().min(1).max(40), z.array(z.object({
+    exerciseId: z.string().min(1),
+    sets: z.array(builderSetSchema).max(20).optional(),
+  })).max(30)).optional(),
+});
+
+export const photoAttachSchema = z.object({
+  slot: z.enum(PHOTO_SLOTS),
+  mediaKey: z.string().min(1).max(300),
+  thumbKey: z.string().min(1).max(300).optional(),
+  width: z.number().int().min(1).max(10000),
+  height: z.number().int().min(1).max(10000),
+});
+
+export const weightTableQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(12).default(12),
+  before: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+export const exerciseCatalogPatchSchema = z.object({
+  primaryMuscles: muscleList.optional(),
+  secondaryMuscles: muscleList.optional(),
+  equipment: equipmentList.optional(),
+  trainerTip: z.string().trim().max(600).nullable().optional(),
+  setupNotes: z.string().trim().max(600).nullable().optional(),
+  targetNotes: z.string().trim().max(600).nullable().optional(),
+});
+
+// Auth email confirmation (AUTH_EMAIL_CONFIRM=true)
+export const resendConfirmationSchema = z.object({ email: emailField });
+export const confirmEmailSchema = z.object({ token: z.string().min(16).max(128) });

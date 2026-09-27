@@ -48,6 +48,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ArrowDown,
+  ArrowDownUp,
   ArrowUp,
   CalendarClock,
   Check,
@@ -55,6 +56,8 @@ import {
   ChevronLeft,
   Copy,
   Dumbbell,
+  ExternalLink,
+  Hammer,
   Layers,
   Moon,
   MoreVertical,
@@ -62,17 +65,22 @@ import {
   Play,
   Plus,
   SkipForward,
+  Star,
   StickyNote,
+  Tags,
   Trash2,
+  X,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/client/store";
-import { programsApi, routinesApi } from "@/lib/client/api";
+import { programsApi, programsMetaApi, routinesApi, scheduleApi } from "@/lib/client/api";
 import { qk, useDashboard, useInvalidate, useOnline } from "@/lib/client/query";
 import { useHashRoute } from "@/features/shell/router";
-import { formatDayLabel } from "@/lib/client/format";
+import { formatDayLabel, todayKey, addDaysKey } from "@/lib/client/format";
 import { DatePickerDialog, useScheduleCreate } from "@/features/schedule/schedule-shared";
+import { computeGroupCodes } from "@/lib/group-codes";
+import { MuscleDots } from "@/components/shared/muscle-dots";
 import type { CardAction, CardSet, CardVisibleColumns } from "@/components/exercise-card/exercise-card";
 import { ExerciseCard } from "@/components/exercise-card/exercise-card";
 import { useViewportWidth } from "@/components/set-row/viewport";
@@ -90,10 +98,21 @@ import {
   useProgramRun,
   useRoutineRun,
 } from "./screen-helpers";
+import { DayActionRow } from "./day-action-row";
+import { ProgramHeaderBlock, TotalsRow } from "./header-block";
+import { programExtraKeys, useProgramExtras, unmarkDayOffFull } from "./program-meta";
 import { cn } from "@/lib/utils";
 
 /** ≥768px: every day section opens (tablet/desktop accordion rule). */
 const WIDE_DAY_VIEWPORT = 768;
+
+const chipClass = (active: boolean) =>
+  cn(
+    "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors",
+    active
+      ? "border-primary/60 bg-primary/10 text-primary"
+      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+  );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DaySection — one accordion section: header + 0fr→1fr animated body.
@@ -219,6 +238,81 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
   const [sessionScheduleOpen, setSessionScheduleOpen] = useState(false);
   const [startBusy, setStartBusy] = useState(false);
 
+  // Part 6 §4.5 state: routine favourite / labels editor / phase filter /
+  // local completion deltas (Done chips + HeaderBlock ring stay live while
+  // the invalidated queries refetch)
+  const [favPending, setFavPending] = useState<boolean | null>(null);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const [addingLabel, setAddingLabel] = useState(false);
+  const [phaseChip, setPhaseChip] = useState<string>("ALL");
+  const [completedDelta, setCompletedDelta] = useState<Map<string, boolean>>(new Map());
+  const invalidateExtras = useProgramExtras();
+
+  // §4.5 — program totals + schedule entries (DONE entries feed the ring/Done
+  // chips; the window covers a full training year back + 2 months forward)
+  const totalsQuery = useQuery({
+    queryKey: programExtraKeys.totals(routineId),
+    queryFn: () => programsMetaApi.totals(routineId),
+    enabled: !!routine,
+  });
+  const scheduleEntriesQuery = useQuery({
+    queryKey: programExtraKeys.schedule(routineId),
+    queryFn: () =>
+      scheduleApi.list({ from: addDaysKey(todayKey(), -400), to: addDaysKey(todayKey(), 60) }),
+  });
+
+  const phases = routine?.phases ?? [];
+  const phaseDayIds =
+    phaseChip === "ALL"
+      ? null
+      : new Set(phases.find((p) => p.name === phaseChip)?.dayIds ?? []);
+
+  // completed days = activeRoutine.completedDayIds ∪ DONE schedule entries
+  // (§4.5 fallback: unfollowed routines count only their DONE entries)
+  const serverCompletedIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const id of followed?.completedDayIds ?? []) s.add(id);
+    for (const e of scheduleEntriesQuery.data?.entries ?? []) {
+      if (e.routineId === routineId && e.status === "DONE" && e.dayId) s.add(e.dayId);
+    }
+    return s;
+  }, [followed, scheduleEntriesQuery.data, routineId]);
+  const completedIds = useMemo(() => {
+    const s = new Set(serverCompletedIds);
+    for (const [id, on] of completedDelta) {
+      if (on) s.add(id);
+      else s.delete(id);
+    }
+    return s;
+  }, [serverCompletedIds, completedDelta]);
+  const applyCompletedDelta = (dayId: string, completed: boolean) => {
+    setCompletedDelta((prev) => {
+      const next = new Map(prev);
+      next.set(dayId, completed);
+      return next;
+    });
+  };
+
+  const workoutDays = useMemo(
+    () => days.filter((d) => (d.dayType ?? "WORKOUT") === "WORKOUT"),
+    [days],
+  );
+  const completedWorkoutCount = workoutDays.filter((d) => completedIds.has(d.id)).length;
+  const totalWorkoutCount = workoutDays.length;
+
+  // union of equipment across every day's exercises (HeaderBlock expansion)
+  const equipmentUnion = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of days) for (const re of d.exercises) for (const e of re.exercise.equipment ?? []) s.add(e);
+    return [...s];
+  }, [days]);
+
+  // routine favourite — optimistic pending flag, resynced during render
+  const routineIsFav = favPending ?? (routine?.isFavorite ?? false);
+  if (favPending != null && routine && favPending === (routine.isFavorite ?? false)) {
+    setFavPending(null);
+  }
+
   const effectiveOpen = (dayId: string) =>
     isWide ? true : (openDayId ?? days[0]?.id ?? "") === dayId;
 
@@ -279,6 +373,83 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
       invalidate.programs();
       toast.success(`Deleted “${routine?.name ?? "routine"}”`);
       navigate("/programs");
+    }
+  };
+
+  // ---------- Part 6 §4.5: favourite / labels / mark-off mutations ----------
+
+  const toggleRoutineFavourite = async () => {
+    if (!routine) return;
+    if (!online) {
+      toast.info("Favourite programs need a connection");
+      return;
+    }
+    const next = !routineIsFav;
+    setFavPending(next);
+    try {
+      await programsMetaApi.update(routineId, { isFavorite: next });
+      invalidate.routines();
+      invalidateExtras(routineId);
+      toast.success(
+        next ? `“${routine.name}” added to favourites` : `“${routine.name}” removed from favourites`,
+      );
+    } catch (e) {
+      setFavPending(null);
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const saveLabels = async (labels: string[]) => {
+    if (!routine) return;
+    if (!online) {
+      toast.info("Editing labels needs a connection");
+      return;
+    }
+    try {
+      await programsMetaApi.update(routineId, { labels });
+      invalidate.routines();
+      invalidateExtras(routineId);
+      toast.success("Labels saved");
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const markDayDone = async (day: RoutineDayDTO, quiet = false) => {
+    if (!online) {
+      toast.info("Marking a day off needs a connection");
+      return;
+    }
+    try {
+      const res = await programsMetaApi.markOff(routineId, day.id);
+      invalidateExtras(routineId);
+      applyCompletedDelta(day.id, true);
+      if (!quiet) {
+        toast.success(`Day marked off${res.advanced ? " · program advanced" : ""}`, {
+          action: { label: "Undo", onClick: () => void unmarkDayDone(day, true) },
+        });
+      }
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  const unmarkDayDone = async (day: RoutineDayDTO, quiet = false) => {
+    if (!online) {
+      toast.info("Unmarking a day needs a connection");
+      return;
+    }
+    try {
+      await unmarkDayOffFull(routineId, day.id);
+      invalidateExtras(routineId);
+      applyCompletedDelta(day.id, false);
+      if (!quiet) {
+        toast.success(`“${day.name}” unmarked`, {
+          action: { label: "Undo", onClick: () => void markDayDone(day, true) },
+        });
+      }
+    } catch (e) {
+      toast.error(errorMessage(e));
     }
   };
 
@@ -597,6 +768,18 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
             {day.name}
           </span>
         )}
+        {/* §4.5 read mode: ≤3 muscle dots · ~Xm · Done chip (after the name) */}
+        {!editing && !isRest ? (
+          <MuscleDots muscles={day.primaryMuscles} show={settings?.showMuscleChips ?? true} max={3} />
+        ) : null}
+        {!editing && !isRest && day.estMinutes != null ? (
+          <span
+            className="flex-none text-xs leading-none text-muted-foreground"
+            title="Estimated duration"
+          >
+            ~{day.estMinutes}m
+          </span>
+        ) : null}
         {isCursorDay ? (
           <span className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/5 px-2 text-[10px] font-bold uppercase leading-none text-primary">
             Today
@@ -650,7 +833,10 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   <DropdownMenuItem onClick={() => setRenamingDayId(day.id)}>
                     <Pencil className="h-4 w-4" aria-hidden /> Rename
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={index === 0} onClick={() => void reorderDay(days, index, -1)}>
+                  <DropdownMenuItem
+                    disabled={index === 0}
+                    onClick={() => void reorderDay(days, index, -1)}
+                  >
                     <ArrowUp className="h-4 w-4" aria-hidden /> Move up
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -659,6 +845,13 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   >
                     <ArrowDown className="h-4 w-4" aria-hidden /> Move down
                   </DropdownMenuItem>
+                  {!isRest ? (
+                    <DropdownMenuItem
+                      onClick={() => navigate(`/programs/${routineId}/day/${day.id}/arrange`)}
+                    >
+                      <ArrowDownUp className="h-4 w-4" aria-hidden /> Arrange exercises
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onClick={() => setDeleteDay(day)}
@@ -686,34 +879,63 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 <DropdownMenuItem onClick={() => setRenamingDayId(day.id)}>
                   <Pencil className="h-4 w-4" aria-hidden /> Rename
                 </DropdownMenuItem>
+                {!isRest ? (
+                  <DropdownMenuItem onClick={() => navigate(`/programs/${routineId}/day/${day.id}/arrange`)}>
+                    <ArrowDownUp className="h-4 w-4" aria-hidden /> Arrange exercises
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </span>
-        ) : isSession ? null : (
+        ) : (
           <>
-            {!isRest ? (
-              <Button
+            {/* §4.5: Done chip — tap to un-mark (Undo re-marks) */}
+            {completedIds.has(day.id) ? (
+              <button
                 type="button"
-                variant="outline"
-                className="h-11 flex-none gap-1 px-3 text-xs font-bold"
-                aria-label={`Schedule ${day.name}`}
-                onClick={() => setScheduleDay(day)}
+                className="flex h-8 w-12 flex-none items-center justify-center gap-1 rounded-md border border-emerald-600/30 bg-emerald-600/15 text-[11px] font-bold uppercase leading-none text-emerald-600 transition-colors hover:bg-emerald-600/25 dark:border-emerald-400/30 dark:text-emerald-400"
+                aria-label={`${day.name} marked off — tap to unmark`}
+                onClick={() => void unmarkDayDone(day)}
               >
-                <CalendarClock className="h-4 w-4" aria-hidden />
-                Schedule
-              </Button>
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                Done
+              </button>
             ) : null}
-            {!isRest ? (
-              <Button
-                type="button"
-                className="h-11 w-18 flex-none gap-1 px-0"
-                aria-label={`Log ${day.name} to today`}
-                onClick={() => navigate(`/programs/${routineId}/log/${day.id}`)}
-              >
-                <Zap className="h-4 w-4" aria-hidden />
-                Log
-              </Button>
-            ) : null}
+            {/* read-mode ⋮: Open day (§4.6 route) + the Part 5 log/schedule flows */}
+            <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-11 w-11 p-0"
+                    aria-label={`Actions for ${day.name}`}
+                  >
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={() => navigate(`/programs/${routineId}/day/${day.id}`)}>
+                    <ExternalLink className="h-4 w-4" aria-hidden /> Open day
+                  </DropdownMenuItem>
+                  {!isRest ? (
+                    <DropdownMenuItem onClick={() => navigate(`/programs/${routineId}/day/${day.id}/arrange`)}>
+                      <ArrowDownUp className="h-4 w-4" aria-hidden /> Arrange exercises
+                    </DropdownMenuItem>
+                  ) : null}
+                  {!isRest ? (
+                    <DropdownMenuItem onClick={() => navigate(`/programs/${routineId}/log/${day.id}`)}>
+                      <Zap className="h-4 w-4" aria-hidden /> Log day
+                    </DropdownMenuItem>
+                  ) : null}
+                  {!isRest ? (
+                    <DropdownMenuItem onClick={() => setScheduleDay(day)}>
+                      <CalendarClock className="h-4 w-4" aria-hidden /> Schedule…
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
           </>
         )}
       </div>
@@ -733,8 +955,22 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
         </div>
       );
     }
+    // §4.10: derived group codes (A1, A2…) for grouped template exercises
+    const { codes: groupCodes } = computeGroupCodes(exercises);
     return (
       <div className="flex flex-col gap-2 p-2">
+        {/* §4.5: shared DayActionRow (favourite · schedule · history · mark off) */}
+        {editing ? null : (
+          <DayActionRow
+            routineId={routineId}
+            dayId={day.id}
+            dayName={day.name}
+            isFavorite={day.isFavorite ?? false}
+            isCompleted={completedIds.has(day.id)}
+            onSchedule={() => setScheduleDay(day)}
+            onCompletedChange={(completed) => applyCompletedDelta(day.id, completed)}
+          />
+        )}
         {exercises.map((re) => {
           const openNotes = notesReId === re.id;
           return (
@@ -746,6 +982,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 collapsed={collapsedReIds.has(re.id)}
                 visibleColumns={visibleColumns}
                 headerLeading={editing ? <DragGlyph /> : undefined}
+                groupCode={groupCodes.get(re.id)}
                 onAction={handleCardAction(day, re)}
               />
               {openNotes ? (
@@ -780,6 +1017,74 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
   };
 
   const notesVisible = editing || !!(routine?.notes && routine.notes.trim().length > 0);
+
+  // §4.5 labels editor (TopBar ⋮ → Labels): chip row + remove × + new-label input
+  const labelsEditor = routine ? (
+    <div className="flex flex-none flex-col gap-2 rounded-lg border bg-card p-2" aria-label="Program labels">
+      <div
+        data-row
+        data-chip-scroller
+        className="no-scrollbar flex h-10 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+      >
+        {(routine.labels ?? []).length === 0 ? (
+          <span className="flex-none text-xs text-muted-foreground">No labels yet — add one below.</span>
+        ) : (
+          (routine.labels ?? []).map((l) => (
+            <span
+              key={l}
+              className="flex h-8 flex-none items-center gap-1 rounded-full border px-3 text-xs font-semibold"
+            >
+              {l}
+              <button
+                type="button"
+                aria-label={`Remove label ${l}`}
+                className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => void saveLabels((routine.labels ?? []).filter((x) => x !== l))}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      {addingLabel ? (
+        <div
+          data-row
+          className="flex h-12 items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-primary/40 bg-primary/5 pl-2 pr-1"
+        >
+          <Tags className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
+          <InlineInput
+            value=""
+            placeholder="New label…"
+            ariaLabel="New label"
+            onCommit={(name) => {
+              setAddingLabel(false);
+              const label = name.trim();
+              if (!label) return;
+              const labels = routine.labels ?? [];
+              if (labels.includes(label)) {
+                toast.info("That label already exists");
+                return;
+              }
+              void saveLabels([...labels, label]);
+            }}
+            onCancel={() => setAddingLabel(false)}
+            className="h-11 min-w-0 flex-1"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-row
+          className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+          onClick={() => setAddingLabel(true)}
+        >
+          <Plus className="h-4 w-4 flex-none" aria-hidden />
+          New label
+        </button>
+      )}
+    </div>
+  ) : null;
 
   // ---------- render ----------
   return (
@@ -829,6 +1134,21 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
           actions={
             routine ? (
               <>
+                {/* §4.5: routine favourite (optimistic) */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-11 w-11 flex-none",
+                    routineIsFav && "text-amber-500 hover:text-amber-500",
+                  )}
+                  aria-pressed={routineIsFav}
+                  aria-label={routineIsFav ? `Unfavourite ${routine.name}` : `Favourite ${routine.name}`}
+                  onClick={() => void toggleRoutineFavourite()}
+                >
+                  <Star className="h-5 w-5" aria-hidden fill={routineIsFav ? "currentColor" : "none"} />
+                </Button>
                 <Button
                   type="button"
                   variant={editing ? "default" : "outline"}
@@ -857,6 +1177,14 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     <DropdownMenuItem onClick={() => setRenamingRoutine(true)}>
                       <Pencil className="h-4 w-4" aria-hidden /> Rename
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setLabelsOpen((o) => !o);
+                        setAddingLabel(false);
+                      }}
+                    >
+                      <Tags className="h-4 w-4" aria-hidden /> Labels
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => void copyRoutine()}>
                       <Copy className="h-4 w-4" aria-hidden /> Copy
                     </DropdownMenuItem>
@@ -867,6 +1195,9 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                       }}
                     >
                       <Layers className="h-4 w-4" aria-hidden /> Reorder days
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate("/programs/new/builder")}>
+                      <Hammer className="h-4 w-4" aria-hidden /> Program builder
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
@@ -1058,6 +1389,59 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
           </div>
         ) : routine ? (
           <>
+            {/* §4.5 labels editor — opened from the TopBar ⋮ */}
+            {labelsOpen ? labelsEditor : null}
+
+            {/* §4.5 program overview: HeaderBlock (ring + difficulty/highlights)
+                · TotalsRow · phase chips — read mode only */}
+            {!editing ? (
+              <>
+                <ProgramHeaderBlock
+                  completed={completedWorkoutCount}
+                  total={totalWorkoutCount}
+                  difficulty={routine.difficulty ?? null}
+                  daysPerWeek={routine.daysPerWeek ?? null}
+                  estMinutes={routine.estMinutes ?? null}
+                  highlights={routine.highlights ?? []}
+                  equipment={equipmentUnion}
+                  showEquipmentChips={settings?.showEquipmentChips ?? true}
+                />
+                <TotalsRow totals={totalsQuery.data} />
+                {phases.length > 0 ? (
+                  <div
+                    data-row
+                    data-chip-scroller
+                    role="group"
+                    aria-label="Phase filter"
+                    className="no-scrollbar flex h-10 w-full flex-none items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={phaseChip === "ALL"}
+                      className={chipClass(phaseChip === "ALL")}
+                      onClick={() => setPhaseChip("ALL")}
+                    >
+                      All
+                    </button>
+                    {phases.map((p, i) => {
+                      const key = p.name || `Phase ${i + 1}`;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          aria-pressed={phaseChip === key}
+                          className={chipClass(phaseChip === key)}
+                          onClick={() => setPhaseChip(key)}
+                        >
+                          {key}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
             {followed && notesVisible ? (
               // notes relocate into the body while the cursor strip owns the SubBar
               <button
@@ -1106,11 +1490,14 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               </p>
             ) : null}
 
-            {days.map((day, index) => (
-              <DaySection key={day.id} open={effectiveOpen(day.id)} header={renderDayHeader(day, index)}>
-                {renderDayBody(day)}
-              </DaySection>
-            ))}
+            {days
+              .map((day, index) => ({ day, index }))
+              .filter(({ day }) => !phaseDayIds || phaseDayIds.has(day.id))
+              .map(({ day, index }) => (
+                <DaySection key={day.id} open={effectiveOpen(day.id)} header={renderDayHeader(day, index)}>
+                  {renderDayBody(day)}
+                </DaySection>
+              ))}
 
             {days.length === 0 ? (
               <div className="flex h-[200px] flex-none flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">

@@ -66,6 +66,14 @@ export type CardVisibleColumns = {
 
 // ---------- action contract (discriminated union) ----------
 
+/** Field keys an "apply to all sets" fan-out can carry (§4.10d). */
+export type ApplyToAllFields = Partial<
+  Pick<
+    CardSet,
+    "weightKg" | "reps" | "distanceM" | "timeSec" | "rpe" | "tempo" | "restPlannedSec"
+  >
+>;
+
 export type CardAction =
   | { type: "toggle-collapse" }
   | { type: "add-set" }
@@ -82,7 +90,11 @@ export type CardAction =
   | { type: "replace" }
   | { type: "remove" }
   | { type: "select" }
-  | { type: "open" };
+  | { type: "open" }
+  /** §4.10d builder speed: copy this row's selected field values onto every
+   *  set of the card. ExerciseCard fans this out into per-set update-set
+   *  actions internally — consumers never need to handle it. */
+  | { type: "apply-to-all"; fields: ApplyToAllFields };
 
 // ---------- toCardSet mapper ----------
 

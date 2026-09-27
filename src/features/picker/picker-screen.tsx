@@ -2,40 +2,59 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PickerScreen — the full-screen exercise picker (#/exercises), Part 3 ORDER OF
-// WORK step 5. NOT a sheet: a real screen composed from the layout primitives.
+// WORK step 5 + Part 6 §4.3 upgrades. NOT a sheet: a real screen composed from
+// the layout primitives.
 //
 //   TopBar (56)  : back (→ #/today?date=…) · search input (fills) · ⋮ (New
 //                  exercise → INLINE editor block at the top of the list)
-//   SubBar (48)  : horizontal chip scroller (the ONLY extra scroll container
-//                  allowed on a screen): All · Favorites · Recent · categories.
-//                  Single row, 40px, overflow-x scroll, no wrap.
+//   SubBar area  : horizontal chip scroller (the ONLY extra scroll container
+//                  allowed on a screen): All · Favorites · Recent · categories
+//                  · Equipment ▾ · Muscle ▾ (§4.3a). Single row, 40px,
+//                  overflow-x scroll, no wrap. Tapping a ▾ chip opens a SECOND
+//                  40px filter row directly beneath it (same SubBar slot — the
+//                  slot is a plain flex sibling, so both rows stack without
+//                  touching the 48px SubBar law elsewhere). Multi-select;
+//                  applied chips carry × (tap to remove). Muscle/equipment
+//                  filtering is client-side over the loaded list.
 //   ScrollBody   : sections with 32px sticky-in-body headers; 48px rows:
-//                  [star 24px] name (ellipsis) | meta 96px right `12 · 3d`
-//                  (total sets logged · days since last) | ⋮ (Edit inline /
-//                  Favorite / History / Delete confirm)
-//   BottomBar    : multi-select only — `Add N`.
+//                  [star 24px] [A1 code chip — select mode only] name (ellipsis)
+//                  [≤3 muscle dots when showMuscleChips — §4.3b] | meta 96px
+//                  right `12 · 3d` | ⋮ (Select / Edit inline / Favorite /
+//                  History / Delete confirm)
+//   BottomBar    : select mode — `Cancel · Add N · Add as superset` (§4.3c/d).
 //
 // Query-param contract (read via Route.query):
 //   date=YYYY-MM-DD  day context (default today) — picks target this day
 //   replace={weId}   replace mode: single-select; picking swaps that workout
-//                    exercise (remove + add + copy the logged sets)
-//   multi=1          multi-select mode with the BottomBar `Add N`
+//                    exercise (remove + add + copy the logged sets). Select
+//                    mode is DISABLED here (replace is strictly single).
+//   multi=1          multi-select mode with the BottomBar `Add N` (URL-driven;
+//                    also gains `Add as superset`)
+//   context=routine&routineId={id}&dayId={dayId}  routine-day add context
 //   (plain visit)    browse/manage mode — tapping a row opens the
 //                    exercise-overview screen (#/exercise-overview/{id})
+//
+// §4.3c select mode: entered by long-press (420ms — SetRow TypeCell precedent)
+// or the row ⋮ “Select” item. Row taps toggle selection (bg-primary/10);
+// selection order defines the superset member order (A1, A2… preview chips are
+// DERIVED via computeGroupCodes — never stored). `Add as superset` adds the
+// exercises in order then creates ONE WorkoutGroup holding them (workout
+// context); routine-day context has no group API yet → sequential add + toast
+// (documented fallback). Exit: Esc, the Cancel chip, or emptying the selection.
 //
 // p3-3 gap #3 fixed here: picking for a day with no workout createOrGets the
 // workout first, then adds the exercise (legacy quick-add flow).
 //
 // Chip-scroller note: the scroller is a deliberate horizontal scroll container
 // (data-chip-scroller, no-scrollbar). Chips that are scrolled out of the
-// scroller's clip rect get visibility:hidden via an IntersectionObserver —
+// scroller's clip rect get visibility:hidden via useChipScrollerVisibility —
 // they are genuinely not visible, and this keeps their raw rects from tripping
 // right-edge overflow audits while the row stays truly scrollable.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,29 +84,63 @@ import {
 import {
   ArrowLeftRight,
   Check,
+  ChevronDown,
   ChevronLeft,
   History,
+  Link2,
+  ListChecks,
   MoreVertical,
   Pencil,
   Plus,
   Search,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
 import { exercisesApi, recordsApi, routinesApi, workoutsApi } from "@/lib/client/api";
 import { qk, useCategories, useExercises, useInvalidate, useWorkoutByDate } from "@/lib/client/query";
+import { hapticSelection, hapticTap } from "@/lib/client/haptics";
 import { todayKey } from "@/lib/client/format";
 import { useHashRoute } from "@/features/shell/router";
-import { EXERCISE_TYPES } from "@/lib/constants";
+import { computeGroupCodes } from "@/lib/group-codes";
+import { MuscleDots } from "@/components/shared/muscle-dots";
+import { useChipScrollerVisibility } from "@/features/picker/chip-visibility";
+import {
+  EQUIPMENT,
+  EQUIPMENT_LABELS,
+  EXERCISE_TYPES,
+  MUSCLES,
+  MUSCLE_LABELS,
+  muscleColour,
+} from "@/lib/constants";
 import { typeLabel } from "@/features/exercises/labels";
 import { useToggleFavourite } from "@/features/exercises/use-favourite";
 import type { CategoryDTO, ExerciseDTO, SetDTO } from "@/lib/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_UNIT = "__default__";
+const LONG_PRESS_MS = 420; // SetRow TypeCell long-press precedent
+const HOLD_SLOP_PX = 8; // pointer travel that cancels a long-press
+
+/** Filter dimension for the second chip row (§4.3a). */
+type FilterDim = "muscle" | "equipment";
+
+/**
+ * True when an event originates from an interactive control INSIDE the row —
+ * or from portal content that React bubbles through the row (Radix menu items
+ * live in a body portal but still propagate synthetic events up the React tree
+ * to the row, so [role=menuitem]/[role=menu] must be guarded too — without it
+ * every row-menu action double-fires the row tap; pre-existing picker bug,
+ * fixed with §4.3 because the new “Select” item needs a clean path).
+ */
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  const el = target instanceof HTMLElement ? target : null;
+  if (!el) return false;
+  return !!el.closest("button, input, a, [role=menuitem], [role=menu], [data-radix-popper-content-wrapper]");
+}
 
 /** `12 · 3d` — total sets logged · days since last performed. */
 function metaLabel(ex: ExerciseDTO, setCount: number | undefined): string {
@@ -102,11 +155,25 @@ function metaLabel(ex: ExerciseDTO, setCount: number | undefined): string {
   return `${sets} · ${since}`;
 }
 
+/** Shared chip look for the main ChipRow and the filter rows (40px rows, 32px chips). */
+function pickerChipClass(active: boolean) {
+  return cn(
+    "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors",
+    active
+      ? "border-primary/60 bg-primary/10 text-primary"
+      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+  );
+}
+
 export default function PickerScreen() {
   const navigate = useApp((s) => s.navigate);
+  const settings = useApp((s) => s.settings);
   const route = useHashRoute();
   const invalidate = useInvalidate();
   const toggleFavourite = useToggleFavourite();
+
+  // §4.3b: muscle dots honour the Display setting (default true).
+  const showMuscleDots = settings?.showMuscleChips ?? true;
 
   // ---------- route query ----------
   const routeDate = route.name === "exercises" ? route.query.get("date") : null;
@@ -142,7 +209,7 @@ export default function PickerScreen() {
   }, [searchInput]);
   const searchActive = search.length > 0;
 
-  // ---------- chip filter ----------
+  // ---------- chip filter (server-side: search + category + favourites) ----------
   const [chip, setChip] = useState<string>("ALL"); // ALL | FAVORITES | RECENT | categoryId
 
   const params = useMemo(
@@ -155,6 +222,42 @@ export default function PickerScreen() {
   );
   const { data: exercises, isLoading } = useExercises(params);
   const list = exercises ?? [];
+
+  // ---------- §4.3a: Equipment / Muscle client-side filters ----------
+  // Server handles search + category; muscle/equipment filter the loaded list
+  // client-side (ExerciseDTO carries optional arrays — missing counts as []).
+  const [filterRow, setFilterRow] = useState<FilterDim | null>(null);
+  const [muscleFilters, setMuscleFilters] = useState<string[]>([]);
+  const [equipmentFilters, setEquipmentFilters] = useState<string[]>([]);
+  const filtersActive = muscleFilters.length > 0 || equipmentFilters.length > 0;
+
+  const toggleFilterRow = (dim: FilterDim) => {
+    hapticSelection();
+    setFilterRow((prev) => (prev === dim ? null : dim));
+  };
+  const toggleMuscleFilter = (m: string) => {
+    hapticSelection();
+    setMuscleFilters((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
+  };
+  const toggleEquipmentFilter = (eq: string) => {
+    hapticSelection();
+    setEquipmentFilters((prev) => (prev.includes(eq) ? prev.filter((x) => x !== eq) : [...prev, eq]));
+  };
+
+  const filteredList = useMemo(() => {
+    if (!filtersActive) return list;
+    return list.filter((ex) => {
+      if (muscleFilters.length > 0) {
+        const muscles = [...(ex.primaryMuscles ?? []), ...(ex.secondaryMuscles ?? [])];
+        if (!muscleFilters.some((m) => muscles.includes(m))) return false;
+      }
+      if (equipmentFilters.length > 0) {
+        const equip = ex.equipment ?? [];
+        if (!equipmentFilters.some((eq) => equip.includes(eq))) return false;
+      }
+      return true;
+    });
+  }, [list, muscleFilters, equipmentFilters, filtersActive]);
 
   // total sets logged per exercise (meta column)
   const records = useQuery({
@@ -172,13 +275,13 @@ export default function PickerScreen() {
   type Section = { key: string; title: string; colour?: string; items: ExerciseDTO[] };
   const sections = useMemo<Section[]>(() => {
     if (searchActive) {
-      return [{ key: "results", title: `${list.length} result${list.length === 1 ? "" : "s"}`, items: list }];
+      return [{ key: "results", title: `${filteredList.length} result${filteredList.length === 1 ? "" : "s"}`, items: filteredList }];
     }
     if (chip === "FAVORITES") {
-      return [{ key: "favorites", title: "Favorites", items: list.filter((e) => e.isFavorite) }];
+      return [{ key: "favorites", title: "Favorites", items: filteredList.filter((e) => e.isFavorite) }];
     }
     if (chip === "RECENT") {
-      const recent = list
+      const recent = filteredList
         .filter((e) => e.lastPerformed)
         .sort((a, b) => (a.lastPerformed! < b.lastPerformed! ? 1 : -1))
         .slice(0, 10);
@@ -186,27 +289,35 @@ export default function PickerScreen() {
     }
     if (chip !== "ALL") {
       const cat = categories.find((c) => c.id === chip);
-      return [{ key: chip, title: cat?.name ?? "Category", colour: cat?.colour, items: list.filter((e) => e.categoryId === chip) }];
+      return [{ key: chip, title: cat?.name ?? "Category", colour: cat?.colour, items: filteredList.filter((e) => e.categoryId === chip) }];
     }
     // ALL: Favorites / Recent (top 5) / per-category — a picker groups the
     // same exercise under several browsing angles by design.
     const out: Section[] = [];
-    const favs = list.filter((e) => e.isFavorite);
+    const favs = filteredList.filter((e) => e.isFavorite);
     if (favs.length > 0) out.push({ key: "favorites", title: "Favorites", items: favs });
-    const recent = list
+    const recent = filteredList
       .filter((e) => e.lastPerformed)
       .sort((a, b) => (a.lastPerformed! < b.lastPerformed! ? 1 : -1))
       .slice(0, 5);
     if (recent.length > 0) out.push({ key: "recent", title: "Recent", items: recent });
     for (const cat of categories) {
-      const items = list.filter((e) => e.categoryId === cat.id);
+      const items = filteredList.filter((e) => e.categoryId === cat.id);
       if (items.length > 0) out.push({ key: cat.id, title: cat.name, colour: cat.colour, items });
     }
     const known = new Set(categories.map((c) => c.id));
-    const uncat = list.filter((e) => !known.has(e.categoryId));
+    const uncat = filteredList.filter((e) => !known.has(e.categoryId));
     if (uncat.length > 0) out.push({ key: "uncat", title: "No category", items: uncat });
     return out;
-  }, [list, categories, chip, searchActive]);
+  }, [filteredList, categories, chip, searchActive]);
+
+  const emptyMessage = searchActive && filtersActive
+    ? "No exercises match your search and filters."
+    : searchActive
+      ? "No exercises match your search."
+      : filtersActive
+        ? "No exercises match your filters."
+        : "No exercises here yet.";
 
   // the routine day being edited (routine mode: duplicate guard + banner)
   const { data: routineCtxData } = useQuery({
@@ -224,13 +335,75 @@ export default function PickerScreen() {
   // ---------- ui state ----------
   const [editorFor, setEditorFor] = useState<string | null>(null); // "new" | exercise.id
   const [deleteTarget, setDeleteTarget] = useState<ExerciseDTO | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // §4.3c: ordered selection — the order defines superset member order (A1, A2…).
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectMode, setSelectMode] = useState(false); // internal select mode (⋮ Select / long-press)
   const [busy, setBusy] = useState(false);
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectActive = multiMode || selectMode;
+  const routineDayExerciseIds = useMemo(
+    () => new Set(routineDayExercises.map((re) => re.exerciseId)),
+    [routineDayExercises],
+  );
 
   const existingExerciseIds = useMemo(
     () => new Set((workout?.exercises ?? []).map((w) => w.exerciseId)),
     [workout],
   );
+
+  // §4.3c: A1/A2… preview chips are DERIVED (computeGroupCodes) — display only.
+  const previewCodes = useMemo(() => {
+    if (!selectActive || selectedIds.length === 0) return new Map<string, string>();
+    return computeGroupCodes(selectedIds.map((id, i) => ({ id, groupId: "preview", sortOrder: i }))).codes;
+  }, [selectActive, selectedIds]);
+
+  // ---------- §4.3c/d: select-mode enter / toggle / exit ----------
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }, []);
+
+  const enterSelectWith = useCallback(
+    (ex: ExerciseDTO) => {
+      if (replaceWeId) return; // replace mode is strictly single-select
+      hapticTap(); // mode enter
+      setSelectMode(true);
+      setSelectedIds((prev) => (prev.includes(ex.id) ? prev : [...prev, ex.id]));
+    },
+    [replaceWeId],
+  );
+
+  const toggleSelected = (id: string) => {
+    hapticSelection();
+    const next = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
+    setSelectedIds(next);
+    // §4.3d: emptying the selection returns to normal mode.
+    if (next.length === 0 && selectMode) setSelectMode(false);
+  };
+
+  // §4.3d: Esc exits select mode (open menus / alert dialogs consume Esc first).
+  useEffect(() => {
+    if (!selectMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[data-state="open"][role="menu"], [role="alertdialog"][data-state="open"]')) return;
+      exitSelectMode();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectMode, exitSelectMode]);
+
+  // long-press machinery (shared across rows — only one hold can be active)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+  const longPressed = useRef(false);
+  const endHold = useCallback(() => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holdStart.current = null;
+  }, []);
+  useEffect(() => () => endHold(), [endHold]);
 
   // ---------- picking ----------
   const finishBack = () => navigate(backHref);
@@ -300,12 +473,35 @@ export default function PickerScreen() {
     }
   };
 
+  // §4.3c `Add {n}` — plain multi-add in EITHER context the picker serves.
   const addSelected = async () => {
     if (busy) return;
     const ids = [...selectedIds];
     if (ids.length === 0) return;
     setBusy(true);
     try {
+      if (routineMode) {
+        let added = 0;
+        let skipped = 0;
+        for (const id of ids) {
+          if (routineDayExerciseIds.has(id)) {
+            skipped++;
+            continue;
+          }
+          await routinesApi.addExercise(routineCtxId!, routineCtxDayId!, id);
+          added++;
+        }
+        invalidate.routines();
+        if (added === 0) {
+          toast.info("Already in this day");
+          return;
+        }
+        toast.success(
+          `Added ${added} exercise${added === 1 ? "" : "s"}${skipped > 0 ? ` · ${skipped} already in day` : ""}`,
+        );
+        finishBack();
+        return;
+      }
       const w = await workoutsApi.createOrGet(dateKey);
       let added = 0;
       for (const id of ids) {
@@ -315,7 +511,108 @@ export default function PickerScreen() {
       }
       invalidate.workout(dateKey);
       invalidate.exercises();
+      if (added === 0) {
+        toast.info("Already in this workout");
+        return;
+      }
       toast.success(`Added ${added} exercise${added === 1 ? "" : "s"}`);
+      finishBack();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not add exercises");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // §4.3c `Add as superset` — add in order, then create ONE group holding them.
+  //   workout context : workoutsApi.createGroup({ exerciseIds }) — codes are
+  //                     DERIVED display (computeGroupCodes) on the Today screen.
+  //   routine-day     : no routine-group creation API exists yet (checked:
+  //                     routinesApi has updateExercise(groupId) but no group
+  //                     create; card-popovers is workout-only) → §4.3 spec
+  //                     fallback: sequential add + toast.
+  const addSelectedAsSuperset = async () => {
+    if (busy) return;
+    const ids = [...selectedIds];
+    if (ids.length < 2) return;
+    setBusy(true);
+    try {
+      if (routineMode) {
+        let added = 0;
+        let skipped = 0;
+        for (const id of ids) {
+          if (routineDayExerciseIds.has(id)) {
+            skipped++;
+            continue;
+          }
+          await routinesApi.addExercise(routineCtxId!, routineCtxDayId!, id);
+          added++;
+        }
+        invalidate.routines();
+        if (added === 0) {
+          toast.info("Already in this day");
+          return;
+        }
+        toast.success(`Added ${added} exercise${added === 1 ? "" : "s"}`, {
+          description: "Superset grouping arrives with the day editor",
+        });
+        finishBack();
+        return;
+      }
+      // workout context — createOrGet FIRST (p3-3 gap #3), add in order, group.
+      const w = await workoutsApi.createOrGet(dateKey);
+      const addedWeIds: string[] = [];
+      let skipped = 0;
+      for (const id of ids) {
+        if (existingExerciseIds.has(id)) {
+          skipped++;
+          continue;
+        }
+        const res = await workoutsApi.addExercise(w.id, id);
+        addedWeIds.push(res.workoutExerciseId);
+      }
+      invalidate.workout(dateKey);
+      invalidate.exercises();
+      if (addedWeIds.length === 0) {
+        toast.info("Already in this workout");
+        return;
+      }
+      let groupId: string | null = null;
+      if (addedWeIds.length >= 2) {
+        const group = await workoutsApi.createGroup(w.id, {
+          name: "Superset",
+          exerciseIds: addedWeIds,
+        });
+        groupId = group.id;
+        invalidate.workout(dateKey);
+      }
+      const workoutId = w.id;
+      const weIds = addedWeIds;
+      const n = addedWeIds.length;
+      if (groupId) {
+        toast.success(`Superset of ${n} added`, {
+          description: skipped > 0 ? `${skipped} already in workout — group holds the ${n} new` : undefined,
+          action: {
+            label: "Undo",
+            onClick: async () => {
+              try {
+                for (const weId of weIds) await workoutsApi.removeExercise(workoutId, weId);
+                await workoutsApi.removeGroup(workoutId, groupId!);
+                invalidate.workout(dateKey);
+                toast.success("Superset undone");
+              } catch {
+                toast.error("Could not undo — remove the exercises from the workout");
+              }
+            },
+          },
+        });
+      } else {
+        // <2 NEW exercises among the selection → plain add (a group of 1 is
+        // meaningless); already-present ones keep their own grouping.
+        toast.success(`Added ${n} exercise${n === 1 ? "" : "s"}`, {
+          description: "Not enough new exercises to form a superset",
+        });
+      }
       finishBack();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not add exercises");
@@ -339,13 +636,8 @@ export default function PickerScreen() {
 
   // ---------- row rendering ----------
   const onRowTap = (ex: ExerciseDTO) => {
-    if (multiMode) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(ex.id)) next.delete(ex.id);
-        else next.add(ex.id);
-        return next;
-      });
+    if (selectActive) {
+      toggleSelected(ex.id);
       return;
     }
     if (replaceWeId || pickMode) void pickExercise(ex);
@@ -353,7 +645,8 @@ export default function PickerScreen() {
   };
 
   const renderRow = (ex: ExerciseDTO, sectionKey: string) => {
-    const selected = selectedIds.has(ex.id);
+    const selected = selectedSet.has(ex.id);
+    const code = selectActive && selected ? previewCodes.get(ex.id) : undefined;
     return (
       <div key={`${sectionKey}:${ex.id}`} className="flex flex-col">
         <div
@@ -361,12 +654,41 @@ export default function PickerScreen() {
           role="button"
           tabIndex={0}
           aria-label={`${ex.name} — ${metaLabel(ex, setCountById.get(ex.id))}`}
+          aria-pressed={selectActive ? selected : undefined}
           className={cn(
-            "flex h-12 cursor-pointer items-center gap-1 overflow-hidden whitespace-nowrap px-3 transition-colors hover:bg-accent/40",
+            "flex h-12 cursor-pointer touch-manipulation select-none items-center gap-1 overflow-hidden whitespace-nowrap px-3 transition-colors hover:bg-accent/40",
             selected && "bg-primary/10",
           )}
+          onPointerDown={(e) => {
+            // long-press → select mode (420ms, SetRow precedent). Buttons,
+            // inputs and portal menu items handle their own presses.
+            if (isInteractiveTarget(e.target)) return;
+            holdStart.current = { x: e.clientX, y: e.clientY };
+            longPressed.current = false;
+            holdTimer.current = setTimeout(() => {
+              longPressed.current = true;
+              enterSelectWith(ex);
+            }, LONG_PRESS_MS);
+          }}
+          onPointerMove={(e) => {
+            const s = holdStart.current;
+            if (s && (Math.abs(e.clientX - s.x) > HOLD_SLOP_PX || Math.abs(e.clientY - s.y) > HOLD_SLOP_PX)) endHold();
+          }}
+          onPointerUp={endHold}
+          onPointerCancel={endHold}
+          onPointerLeave={endHold}
+          onContextMenu={(e) => {
+            // right-click / touch-hold browser menu → select mode instead
+            e.preventDefault();
+            endHold();
+            enterSelectWith(ex);
+          }}
           onClick={(e) => {
-            if ((e.target as HTMLElement).closest("button, input, a")) return;
+            if (isInteractiveTarget(e.target)) return;
+            if (longPressed.current) {
+              longPressed.current = false;
+              return; // the long-press already acted
+            }
             onRowTap(ex);
           }}
           onKeyDown={(e) => {
@@ -393,7 +715,17 @@ export default function PickerScreen() {
               aria-hidden
             />
           </Button>
+          {code ? (
+            <span
+              className="flex h-6 w-8 flex-none items-center justify-center rounded bg-muted/60 text-[10px] font-bold tabular-nums"
+              title={`Group code ${code}`}
+              aria-hidden
+            >
+              {code}
+            </span>
+          ) : null}
           <span className="min-w-0 flex-1 truncate px-1 text-sm font-medium">{ex.name}</span>
+          <MuscleDots muscles={ex.primaryMuscles} show={showMuscleDots} />
           <span className="flex w-24 flex-none items-center justify-end text-right text-xs tabular-nums text-muted-foreground">
             <span className="truncate">{metaLabel(ex, setCountById.get(ex.id))}</span>
           </span>
@@ -409,6 +741,11 @@ export default function PickerScreen() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              {!selectActive && !replaceWeId ? (
+                <DropdownMenuItem onClick={() => enterSelectWith(ex)}>
+                  <ListChecks className="h-4 w-4" aria-hidden /> Select
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem onClick={() => setEditorFor(ex.id)}>
                 <Pencil className="h-4 w-4" aria-hidden /> Edit
               </DropdownMenuItem>
@@ -496,18 +833,63 @@ export default function PickerScreen() {
           }
         />
       }
-      subBar={<ChipScroller categories={categories} chip={chip} onSelect={setChip} />}
+      subBar={
+        <>
+          <ChipScroller
+            categories={categories}
+            chip={chip}
+            onSelect={(v) => {
+              hapticSelection();
+              setChip(v);
+            }}
+            muscleCount={muscleFilters.length}
+            equipmentCount={equipmentFilters.length}
+            openFilter={filterRow}
+            onToggleFilter={toggleFilterRow}
+          />
+          {filterRow ? (
+            <FilterChipRow
+              key={filterRow}
+              kind={filterRow}
+              selected={filterRow === "muscle" ? muscleFilters : equipmentFilters}
+              onToggle={filterRow === "muscle" ? toggleMuscleFilter : toggleEquipmentFilter}
+            />
+          ) : null}
+        </>
+      }
       bottomBar={
-        multiMode && selectedIds.size > 0 ? (
+        selectActive && selectedIds.length > 0 ? (
           <BottomBar>
+            {selectMode ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 flex-none gap-1 px-3"
+                onClick={exitSelectMode}
+                aria-label="Cancel selection"
+              >
+                <X className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Cancel</span>
+              </Button>
+            ) : null}
             <Button
               type="button"
-              className="h-11 w-full gap-2 text-base font-bold"
+              className="h-11 min-w-0 flex-1 gap-2 text-sm font-bold sm:text-base"
               disabled={busy}
               onClick={() => void addSelected()}
             >
-              <Check className="h-5 w-5" aria-hidden />
-              Add {selectedIds.size}
+              <Check className="h-5 w-5 flex-none" aria-hidden />
+              <span className="truncate">Add {selectedIds.length}</span>
+            </Button>
+            <Button
+              type="button"
+              className="h-11 min-w-0 flex-1 gap-2 text-sm font-bold sm:text-base"
+              disabled={busy || selectedIds.length < 2}
+              title={selectedIds.length < 2 ? "Select at least 2 exercises" : "Add as a superset group"}
+              onClick={() => void addSelectedAsSuperset()}
+            >
+              <Link2 className="h-5 w-5 flex-none" aria-hidden />
+              <span className="truncate">Add as superset</span>
             </Button>
           </BottomBar>
         ) : undefined
@@ -553,9 +935,7 @@ export default function PickerScreen() {
             ))}
           </div>
         ) : sections.length === 0 || sections.every((s) => s.items.length === 0) ? (
-          <p className="px-1 py-8 text-center text-sm text-muted-foreground">
-            {searchActive ? "No exercises match your search." : "No exercises here yet."}
-          </p>
+          <p className="px-1 py-8 text-center text-sm text-muted-foreground">{emptyMessage}</p>
         ) : (
           sections.map((section) => (
             <section key={section.key} className="flex flex-col">
@@ -588,68 +968,58 @@ export default function PickerScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chip scroller — the single allowed horizontal scroll container
+// Chip scroller — the main filter row (the single allowed horizontal scroll
+// container, plus its §4.3a Equipment ▾ / Muscle ▾ openers).
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ChipScroller({
   categories,
   chip,
   onSelect,
+  muscleCount,
+  equipmentCount,
+  openFilter,
+  onToggleFilter,
 }: {
   categories: CategoryDTO[];
   chip: string;
   onSelect: (value: string) => void;
+  muscleCount: number;
+  equipmentCount: number;
+  openFilter: FilterDim | null;
+  onToggleFilter: (dim: FilterDim) => void;
 }) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-
   // Chips that the scroller clips away are genuinely invisible — mark them
   // visibility:hidden so right-edge overflow audits only see what the user
-  // sees, while the strip stays a real horizontal scroll container (layout is
-  // untouched; visibility:hidden keeps scrollWidth). A chip counts as visible
-  // iff it intersects the scroller's clip rect AND its right edge is inside
-  // the viewport (straddlers would trip raw-rect edge audits, so the last
-  // sliver hides instead). Re-checked on scroll/resize/font-load reflows.
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const update = () => {
-      const vw = document.documentElement.clientWidth;
-      const clip = scroller.getBoundingClientRect();
-      for (const child of Array.from(scroller.children)) {
-        const r = child.getBoundingClientRect();
-        const intersectsClip = r.right > clip.left - 1 && r.left < clip.right + 1;
-        const insideViewport = r.right <= vw + 1;
-        (child as HTMLElement).style.visibility =
-          intersectsClip && insideViewport ? "" : "hidden";
-      }
-    };
-    update();
-    const raf = requestAnimationFrame(() => requestAnimationFrame(update));
-    const t1 = window.setTimeout(update, 300);
-    const t2 = window.setTimeout(update, 900);
-    const onScroll = () => update();
-    scroller.addEventListener("scroll", onScroll, { passive: true });
-    const onResize = () => update();
-    window.addEventListener("resize", onResize);
-    const ro = new ResizeObserver(() => update());
-    ro.observe(scroller);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      scroller.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onResize);
-      ro.disconnect();
-    };
-  }, [categories.length]);
+  // sees (see chip-visibility.ts). Re-armed when the chip set / filter counts
+  // change (widths shift).
+  const resetKey = `${categories.length}:${muscleCount}:${equipmentCount}:${openFilter ?? "-"}`;
+  const scrollerRef = useChipScrollerVisibility<HTMLDivElement>(resetKey);
 
-  const chipClass = (active: boolean) =>
-    cn(
-      "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors",
-      active
-        ? "border-primary/60 bg-primary/10 text-primary"
-        : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+  const filterChip = (dim: FilterDim, label: string, count: number) => {
+    const active = count > 0 || openFilter === dim;
+    return (
+      <button
+        type="button"
+        className={pickerChipClass(active)}
+        aria-pressed={count > 0}
+        aria-expanded={openFilter === dim}
+        title={count > 0 ? `${count} ${label.toLowerCase()} filter${count === 1 ? "" : "s"} applied` : `Filter by ${label.toLowerCase()}`}
+        onClick={() => onToggleFilter(dim)}
+      >
+        {label}
+        {count > 0 ? (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none tabular-nums text-primary-foreground">
+            {count}
+          </span>
+        ) : null}
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 flex-none transition-transform", openFilter === dim && "rotate-180")}
+          aria-hidden
+        />
+      </button>
     );
+  };
 
   return (
     <div
@@ -658,19 +1028,19 @@ function ChipScroller({
       data-row
       className="no-scrollbar flex h-10 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
     >
-      <button type="button" className={chipClass(chip === "ALL")} onClick={() => onSelect("ALL")}>
+      <button type="button" className={pickerChipClass(chip === "ALL")} onClick={() => onSelect("ALL")}>
         All
       </button>
       <button
         type="button"
-        className={chipClass(chip === "FAVORITES")}
+        className={pickerChipClass(chip === "FAVORITES")}
         onClick={() => onSelect("FAVORITES")}
       >
         Favorites
       </button>
       <button
         type="button"
-        className={chipClass(chip === "RECENT")}
+        className={pickerChipClass(chip === "RECENT")}
         onClick={() => onSelect("RECENT")}
       >
         Recent
@@ -679,7 +1049,7 @@ function ChipScroller({
         <button
           key={c.id}
           type="button"
-          className={chipClass(chip === c.id)}
+          className={pickerChipClass(chip === c.id)}
           onClick={() => onSelect(c.id)}
         >
           <span
@@ -690,6 +1060,73 @@ function ChipScroller({
           {c.name}
         </button>
       ))}
+      {filterChip("equipment", "Equipment", equipmentCount)}
+      {filterChip("muscle", "Muscle", muscleCount)}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FilterChipRow — the SECOND 40px chip row (§4.3a), rendered in the SubBar slot
+// directly beneath the main ChipRow while open. Multi-select; applied chips
+// carry × (tap to remove). Full taxonomy from constants (MUSCLES / EQUIPMENT)
+// so the row is usable even before catalog metadata is backfilled — exercises
+// without muscle/equipment data simply match nothing (missing = []).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FilterChipRow({
+  kind,
+  selected,
+  onToggle,
+}: {
+  kind: FilterDim;
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  const scrollerRef = useChipScrollerVisibility<HTMLDivElement>(selected.length);
+
+  const options: Array<{ value: string; label: string; colour?: string }> =
+    kind === "muscle"
+      ? MUSCLES.map((m) => ({ value: m, label: MUSCLE_LABELS[m], colour: muscleColour(m) }))
+      : EQUIPMENT.map((e) => ({ value: e, label: EQUIPMENT_LABELS[e] }));
+
+  return (
+    <div
+      data-row
+      className="flex h-10 w-full flex-none items-center border-b border-border bg-background"
+    >
+      <div
+        ref={scrollerRef}
+        data-chip-scroller
+        className="no-scrollbar flex h-10 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+      >
+        <span className="flex flex-none items-center pl-4 pr-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          {kind === "muscle" ? "Muscle" : "Equipment"}
+        </span>
+        {options.map((o) => {
+          const active = selected.includes(o.value);
+          return (
+            <button
+              key={o.value}
+              type="button"
+              className={pickerChipClass(active)}
+              aria-pressed={active}
+              title={active ? `Remove ${o.label} filter` : `Filter by ${o.label}`}
+              onClick={() => onToggle(o.value)}
+            >
+              {o.colour ? (
+                <span
+                  className="h-2 w-2 flex-none rounded-full"
+                  style={{ backgroundColor: o.colour }}
+                  aria-hidden
+                />
+              ) : null}
+              {o.label}
+              {active ? <X className="h-3 w-3 flex-none" aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -62,7 +62,11 @@ export async function listAllRecords(userId: string) {
   const repLimit = settings?.estOneRmRepLimit ?? 10;
   const method = settings?.e1rmMethod ?? "BRZYCKI";
   const exercises = await db.exercise.findMany({ where: { userId }, include: { category: true }, orderBy: { name: "asc" } });
-  const out = [];
+  const out: Array<{
+    exerciseId: string; exerciseName: string; categoryColour: string | null; setCount: number;
+    bestWeight: number | null; bestWeightReps: number | null; bestWeightDate: string | null;
+    estimatedOneRm: number | null; volume: number;
+  }> = [];
   for (const ex of exercises) {
     const sets = await allSetsForExercise(userId, ex.id);
     if (sets.length === 0) continue;
@@ -416,7 +420,7 @@ export async function listGoals(userId: string) {
     include: { exercise: { select: { id: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });
-  const out = [];
+  const out: Array<ReturnType<typeof mapGoal> & { current: number; target: number; pct: number; achieved: boolean }> = [];
   for (const g of goals) {
     const dto = mapGoal(g);
     const target = goalTarget(g);

@@ -1,0 +1,1209 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// Settings sections (p3-8) — the four grouped lists of the Settings screen.
+     5→//
+     6→// LAWS obeyed here:
+     7→//   • Screen = primitives only; NO cards — sections are plain grouped lists.
+     8→//   • Every row is a 56px [data-row]: single line, label flex-1 ellipsis,
+     9→//     control right (Switch | value + chevron | action chevron).
+    10→//   • Section headers are 32px (h-8) muted text — NOT data-rows.
+    11→//   • Spacing tokens only (4/8/12/16/24/32); radius 8 (rounded-lg).
+    12→//   • NO Dialogs — the only confirms are the two confirm-destructive
+    13→//     AlertDialogs (Sign out · Clear data). Everything else is inline
+    14→//     expansion (password change, import, delete-account typed confirm).
+    15→//
+    16→// All functional wiring is ported from the legacy sections
+    17→// (preferences-section / account-section / data-section / app-section):
+    18→// store optimistic patches, theme preview, debounced numeric patches,
+    19→// account APIs, offline queueing and toasts.
+    20→// ─────────────────────────────────────────────────────────────────────────────
+    21→
+    22→import { useEffect, useRef, useState } from "react";
+    23→import type { ReactNode } from "react";
+    24→import { useQueryClient } from "@tanstack/react-query";
+    25→import { useTheme } from "next-themes";
+    26→import {
+    27→  AlertDialog,
+    28→  AlertDialogAction,
+    29→  AlertDialogCancel,
+    30→  AlertDialogContent,
+    31→  AlertDialogDescription,
+    32→  AlertDialogFooter,
+    33→  AlertDialogHeader,
+    34→  AlertDialogTitle,
+    35→} from "@/components/ui/alert-dialog";
+    36→import { Button } from "@/components/ui/button";
+    37→import {
+    38→  DropdownMenu,
+    39→  DropdownMenuContent,
+    40→  DropdownMenuItem,
+    41→  DropdownMenuTrigger,
+    42→} from "@/components/ui/dropdown-menu";
+    43→import { Input } from "@/components/ui/input";
+    44→import { Switch } from "@/components/ui/switch";
+    45→import { authApi, accountApi, recordsApi } from "@/lib/client/api";
+    46→import { useInvalidate, useOnline } from "@/lib/client/query";
+    47→import { useApp } from "@/lib/client/store";
+    48→import { todayKey } from "@/lib/client/format";
+    49→import { wipeLocalData } from "@/lib/client/offline";
+    50→import { clearSwCaches, isStandalone, useInstallPrompt } from "@/components/shared/pwa";
+    51→import { armDailyReminder, requestReminderPermission } from "@/lib/client/notifications";
+    52→import type { SettingsDTO } from "@/lib/types";
+    53→import { toast } from "sonner";
+    54→import { Check, ChevronRight, Loader2, LogOut, Trash2, TriangleAlert, X } from "lucide-react";
+    55→import { cn } from "@/lib/utils";
+    56→import { replaceHash } from "@/features/shell/router";
+    57→
+    58→export const APP_VERSION = "1.0.0";
+    59→
+    60→const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
+    61→
+    62→// ── shared row primitives ────────────────────────────────────────────────────
+    63→
+    64→/** 32px section header — muted, uppercase, NOT a data-row. */
+    65→export function SectionHeader({ title }: { title: string }) {
+    66→  return (
+    67→    <p className="flex h-8 flex-none items-center overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+    68→      <span className="truncate">{title}</span>
+    69→    </p>
+    70→  );
+    71→}
+    72→
+    73→const ROW_CLS = "flex h-14 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1";
+    74→
+    75→/** Base 56px data-row: label flex-1 ellipsis | control right. */
+    76→function Row({
+    77→  label,
+    78→  hint,
+    79→  control,
+    80→  className,
+    81→}: {
+    82→  label: string;
+    83→  /** Optional one-word trailing muted hint rendered after the label (same line). */
+    84→  hint?: string;
+    85→  control?: ReactNode;
+    86→  className?: string;
+    87→}) {
+    88→  return (
+    89→    <div data-row className={cn(ROW_CLS, className)}>
+    90→      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+    91→        {label}
+    92→        {hint ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">{hint}</span> : null}
+    93→      </span>
+    94→      {control}
+    95→    </div>
+    96→  );
+    97→}
+    98→
+    99→/** 56px data-row with a Switch control (settings toggle). */
+   100→export function SwitchRow({
+   101→  label,
+   102→  hint,
+   103→  checked,
+   104→  onCheckedChange,
+   105→  ariaLabel,
+   106→}: {
+   107→  label: string;
+   108→  hint?: string;
+   109→  checked: boolean;
+   110→  onCheckedChange: (v: boolean) => void;
+   111→  ariaLabel?: string;
+   112→}) {
+   113→  return (
+   114→    <Row
+   115→      label={label}
+   116→      hint={hint}
+   117→      control={<Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={ariaLabel ?? label} />}
+   118→    />
+   119→  );
+   120→}
+   121→
+   122→/** 56px data-row: label | current value + chevron; whole row opens a small menu. */
+   123→export function MenuRow<T extends string | number>({
+   124→  label,
+   125→  hint,
+   126→  value,
+   127→  options,
+   128→  onSelect,
+   129→}: {
+   130→  label: string;
+   131→  hint?: string;
+   132→  value: T;
+   133→  options: Array<{ value: T; label: string }>;
+   134→  onSelect: (v: T) => void;
+   135→}) {
+   136→  const current = options.find((o) => o.value === value)?.label ?? String(value);
+   137→  return (
+   138→    <DropdownMenu>
+   139→      <DropdownMenuTrigger asChild>
+   140→        <button
+   141→          type="button"
+   142→          data-row
+   143→          className={cn(ROW_CLS, "w-full text-left hover:bg-accent/40")}
+   144→          aria-label={`${label}: ${current}`}
+   145→        >
+   146→          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+   147→            {label}
+   148→            {hint ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">{hint}</span> : null}
+   149→          </span>
+   150→          <span className="flex-none text-sm tabular-nums text-muted-foreground">{current}</span>
+   151→          <ChevronRight className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+   152→        </button>
+   153→      </DropdownMenuTrigger>
+   154→      <DropdownMenuContent align="end" className="w-44">
+   155→        {options.map((o) => (
+   156→          <DropdownMenuItem key={String(o.value)} onClick={() => onSelect(o.value)}>
+   157→            <span className="flex-1">{o.label}</span>
+   158→            {o.value === value ? <Check className="h-4 w-4 text-primary" aria-hidden /> : null}
+   159→          </DropdownMenuItem>
+   160→        ))}
+   161→      </DropdownMenuContent>
+   162→    </DropdownMenu>
+   163→  );
+   164→}
+   165→
+   166→/** 56px data-row action: label | chevron (or custom trailing). */
+   167→export function ActionRow({
+   168→  label,
+   169→  hint,
+   170→  onClick,
+   171→  trailing,
+   172→  destructive,
+   173→  disabled,
+   174→  ariaLabel,
+   175→}: {
+   176→  label: string;
+   177→  hint?: string;
+   178→  onClick: () => void;
+   179→  trailing?: ReactNode;
+   180→  destructive?: boolean;
+   181→  disabled?: boolean;
+   182→  ariaLabel?: string;
+   183→}) {
+   184→  return (
+   185→    <button
+   186→      type="button"
+   187→      data-row
+   188→      disabled={disabled}
+   189→      onClick={onClick}
+   190→      aria-label={ariaLabel ?? label}
+   191→      className={cn(
+   192→        ROW_CLS,
+   193→        "w-full text-left hover:bg-accent/40 disabled:pointer-events-none disabled:opacity-50",
+   194→        destructive && "text-destructive",
+   195→      )}
+   196→    >
+   197→      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+   198→        {label}
+   199→        {hint ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">{hint}</span> : null}
+   200→      </span>
+   201→      {trailing ?? <ChevronRight className={cn("h-4 w-4 flex-none", destructive ? "text-destructive/70" : "text-muted-foreground")} aria-hidden />}
+   202→    </button>
+   203→  );
+   204→}
+   205→
+   206→/** 56px data-row: label | value text (no interaction). */
+   207→export function ValueRow({ label, value, valueClassName }: { label: string; value: ReactNode; valueClassName?: string }) {
+   208→  return (
+   209→    <Row
+   210→      label={label}
+   211→      control={<span className={cn("flex-none text-sm tabular-nums text-muted-foreground", valueClassName)}>{value}</span>}
+   212→    />
+   213→  );
+   214→}
+   215→
+   216→// ── Preferences ──────────────────────────────────────────────────────────────
+   217→
+   218→export function PreferencesSection() {
+   219→  const settings = useApp((s) => s.settings);
+   220→  const updateSettings = useApp((s) => s.updateSettings);
+   221→  const { setTheme } = useTheme();
+   222→  const unit = settings?.unitSystem === "imperial" ? "lb" : "kg";
+   223→
+   224→  // Coalesce rapid numeric edits into one PATCH (ported from legacy).
+   225→  const pendingRef = useRef<Partial<SettingsDTO> | null>(null);
+   226→  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   227→  useEffect(() => {
+   228→    const update = updateSettings;
+   229→    return () => {
+   230→      if (timerRef.current) clearTimeout(timerRef.current);
+   231→      if (pendingRef.current) void update(pendingRef.current).catch(() => undefined);
+   232→      pendingRef.current = null;
+   233→    };
+   234→  }, [updateSettings]);
+   235→
+   236→  if (!settings) return null;
+   237→
+   238→  const patch = (p: Partial<SettingsDTO>) => {
+   239→    void updateSettings(p).catch(() => undefined); // store already toasts on failure
+   240→  };
+   241→
+   242→  return (
+   243→    <section aria-label="Preferences" className="flex flex-col">
+   244→      <SectionHeader title="Preferences" />
+   245→      <MenuRow
+   246→        label="Theme"
+   247→        value={settings.theme}
+   248→        options={[
+   249→          { value: "light", label: "Light" },
+   250→          { value: "dark", label: "Dark" },
+   251→          { value: "system", label: "System" },
+   252→        ]}
+   253→        onSelect={(v) => {
+   254→          setTheme(v); // instant preview (app-root syncs afterwards)
+   255→          patch({ theme: v });
+   256→        }}
+   257→      />
+   258→      <MenuRow
+   259→        label="Units"
+   260→        hint="kg / lb"
+   261→        value={settings.unitSystem}
+   262→        options={[
+   263→          { value: "metric", label: "Metric (kg)" },
+   264→          { value: "imperial", label: "Imperial (lb)" },
+   265→        ]}
+   266→        onSelect={(v) => patch({ unitSystem: v })}
+   267→      />
+   268→      <MenuRow
+   269→        label="Week starts on"
+   270→        value={settings.weekStart}
+   271→        options={[
+   272→          { value: 1, label: "Monday" },
+   273→          { value: 0, label: "Sunday" },
+   274→        ]}
+   275→        onSelect={(v) => patch({ weekStart: v })}
+   276→      />
+   277→      <MenuRow
+   278→        label="Weight step"
+   279→        hint={unit}
+   280→        value={settings.defaultWeightIncrement}
+   281→        options={[0.5, 1, 1.25, 2.5, 5, 10].map((n) => ({ value: n, label: `${n} ${unit}` }))}
+   282→        onSelect={(v) => patch({ defaultWeightIncrement: v })}
+   283→      />
+   284→      <MenuRow
+   285→        label="Home sets shown"
+   286→        value={settings.homeSetsShown}
+   287→        options={[1, 2, 3, 4, 5, 6, 8].map((n) => ({ value: n, label: String(n) }))}
+   288→        onSelect={(v) => patch({ homeSetsShown: v })}
+   289→      />
+   290→      <MenuRow
+   291→        label="Weekly workout target"
+   292→        value={settings.weeklyWorkoutTarget}
+   293→        options={[0, 2, 3, 4, 5, 6, 7].map((n) => ({ value: n, label: n === 0 ? "Off" : String(n) }))}
+   294→        onSelect={(v) => patch({ weeklyWorkoutTarget: v })}
+   295→      />
+   296→      <MenuRow
+   297→        label="Est-1RM rep limit"
+   298→        value={settings.estOneRmRepLimit}
+   299→        options={[8, 10, 12, 15].map((n) => ({ value: n, label: `${n} reps` }))}
+   300→        onSelect={(v) => patch({ estOneRmRepLimit: v })}
+   301→      />
+   302→      <MenuRow
+   303→        label="e1RM method"
+   304→        value={settings.e1rmMethod}
+   305→        options={[
+   306→          { value: "BRZYCKI", label: "Brzycki" },
+   307→          { value: "EPLEY", label: "Epley" },
+   308→          { value: "RPE", label: "RPE-adjusted" },
+   309→        ]}
+   310→        onSelect={(v) => patch({ e1rmMethod: v })}
+   311→      />
+   312→      <MenuRow
+   313→        label="When rest ends"
+   314→        value={settings.restEndBehaviour}
+   315→        options={[
+   316→          { value: "NOTIFY", label: "Notify" },
+   317→          { value: "NOTIFY_AND_FOCUS_NEXT", label: "Notify + focus next" },
+   318→        ]}
+   319→        onSelect={(v) => patch({ restEndBehaviour: v })}
+   320→      />
+   321→      <SwitchRow label="Set type column" hint="N W D F A" checked={settings.showSetType} onCheckedChange={(v) => patch({ showSetType: v })} />
+   322→      <SwitchRow label="RPE column" checked={settings.showRpe} onCheckedChange={(v) => patch({ showRpe: v })} />
+   323→      <SwitchRow label="Tempo column" checked={settings.showTempo} onCheckedChange={(v) => patch({ showTempo: v })} />
+   324→      <SwitchRow label="Rest column" checked={settings.showRest} onCheckedChange={(v) => patch({ showRest: v })} />
+   325→      <SwitchRow label="Show category" checked={settings.showCategory} onCheckedChange={(v) => patch({ showCategory: v })} />
+   326→      <SwitchRow label="Track PRs" checked={settings.trackPR} onCheckedChange={(v) => patch({ trackPR: v })} />
+   327→      <SwitchRow label="Mark sets complete" checked={settings.markSetsComplete} onCheckedChange={(v) => patch({ markSetsComplete: v })} />
+   328→      <SwitchRow label="Auto-select next set" checked={settings.autoSelectNextSet} onCheckedChange={(v) => patch({ autoSelectNextSet: v })} />
+   329→      <SwitchRow label="Rest from row" checked={settings.autoRestFromRow} onCheckedChange={(v) => patch({ autoRestFromRow: v })} />
+   330→      <SwitchRow label="Keep screen on" hint="wake lock" checked={settings.keepScreenOn} onCheckedChange={(v) => patch({ keepScreenOn: v })} />
+   331→    </section>
+   332→  );
+   333→}
+   334→
+   335→// ── Account ──────────────────────────────────────────────────────────────────
+   336→
+   337→/** Sign out + full local wipe (logic ported from legacy useLogout). */
+   338→function useSignOut() {
+   339→  const setSession = useApp((s) => s.setSession);
+   340→  const qc = useQueryClient();
+   341→  return async () => {
+   342→    try {
+   343→      await authApi.logout();
+   344→    } finally {
+   345→      clearSwCaches();
+   346→      wipeLocalData();
+   347→      qc.clear();
+   348→      setSession(null); // AppShell gate forces #/auth
+   349→      toast.success("Signed out — local data cleared");
+   350→    }
+   351→  };
+   352→}
+   353→
+   354→export function AccountSection() {
+   355→  const session = useApp((s) => s.session);
+   356→  const online = useOnline();
+   357→  const logout = useSignOut();
+   358→
+   359→  const [pwOpen, setPwOpen] = useState(false);
+   360→  const [currentPw, setCurrentPw] = useState("");
+   361→  const [newPw, setNewPw] = useState("");
+   362→  const [confirmPw, setConfirmPw] = useState("");
+   363→  const [pwError, setPwError] = useState<string | null>(null);
+   364→  const [pwBusy, setPwBusy] = useState(false);
+   365→
+   366→  const [delOpen, setDelOpen] = useState(false);
+   367→  const [delTyped, setDelTyped] = useState("");
+   368→  const [deleting, setDeleting] = useState(false);
+   369→
+   370→  const [signOutOpen, setSignOutOpen] = useState(false);
+   371→
+   372→  if (!session) return null;
+   373→
+   374→  const initials =
+   375→    (session.user.name ?? session.user.email)
+   376→      .split(/[\s@.]/)
+   377→      .filter(Boolean)
+   378→      .slice(0, 2)
+   379→      .map((p) => p[0]?.toUpperCase())
+   380→      .join("") || "SF";
+   381→
+   382→  const submitPassword = async () => {
+   383→    setPwError(null);
+   384→    if (newPw.length < 8) {
+   385→      setPwError("New password must be at least 8 characters.");
+   386→      return;
+   387→    }
+   388→    if (newPw !== confirmPw) {
+   389→      setPwError("New passwords don't match.");
+   390→      return;
+   391→    }
+   392→    setPwBusy(true);
+   393→    try {
+   394→      await accountApi.changePassword({ currentPassword: currentPw, newPassword: newPw });
+   395→      toast.success("Password changed — other sessions signed out");
+   396→      setPwOpen(false);
+   397→      setCurrentPw("");
+   398→      setNewPw("");
+   399→      setConfirmPw("");
+   400→    } catch (e) {
+   401→      setPwError(e instanceof Error ? e.message : "Could not change password");
+   402→    } finally {
+   403→      setPwBusy(false);
+   404→    }
+   405→  };
+   406→
+   407→  const confirmDeleteAccount = async () => {
+   408→    setDeleting(true);
+   409→    try {
+   410→      await accountApi.delete();
+   411→      toast.success("Account deleted — all data removed");
+   412→    } catch (e) {
+   413→      toast.error(e instanceof Error ? e.message : "Could not delete account");
+   414→      setDeleting(false);
+   415→      return;
+   416→    }
+   417→    await logout();
+   418→  };
+   419→
+   420→  return (
+   421→    <section aria-label="Account" className="flex flex-col">
+   422→      <SectionHeader title="Account" />
+   423→
+   424→      {/* signed-in identity */}
+   425→      <div data-row className={ROW_CLS}>
+   426→        <span
+   427→          aria-hidden
+   428→          className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"
+   429→        >
+   430→          {initials}
+   431→        </span>
+   432→        <span className="min-w-0 flex-1 truncate text-sm font-medium">{session.user.email}</span>
+   433→        <span className="max-w-24 flex-none truncate text-xs text-muted-foreground">{session.user.name ?? "Athlete"}</span>
+   434→      </div>
+   435→
+   436→      {/* change password — inline expansion (legacy Dialog → inline block) */}
+   437→      <ActionRow label="Change password" onClick={() => setPwOpen((v) => !v)} />
+   438→      {pwOpen ? (
+   439→        <div className="flex flex-none flex-col gap-1 border-b border-border/50 bg-muted/20 p-2" aria-label="Change password form">
+   440→          <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
+   441→            <span className="w-20 flex-none text-xs text-muted-foreground">Current</span>
+   442→            <Input
+   443→              type="password"
+   444→              autoComplete="current-password"
+   445→              className="h-12 flex-1 rounded-lg"
+   446→              value={currentPw}
+   447→              onChange={(e) => setCurrentPw(e.target.value)}
+   448→              aria-label="Current password"
+   449→              placeholder="••••••••"
+   450→            />
+   451→          </div>
+   452→          <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
+   453→            <span className="w-20 flex-none text-xs text-muted-foreground">New</span>
+   454→            <Input
+   455→              type="password"
+   456→              autoComplete="new-password"
+   457→              className="h-12 flex-1 rounded-lg"
+   458→              value={newPw}
+   459→              onChange={(e) => setNewPw(e.target.value)}
+   460→              aria-label="New password"
+   461→              placeholder="At least 8 characters"
+   462→            />
+   463→          </div>
+   464→          <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
+   465→            <span className="w-20 flex-none text-xs text-muted-foreground">Confirm</span>
+   466→            <Input
+   467→              type="password"
+   468→              autoComplete="new-password"
+   469→              className="h-12 flex-1 rounded-lg"
+   470→              value={confirmPw}
+   471→              onChange={(e) => setConfirmPw(e.target.value)}
+   472→              aria-label="Confirm new password"
+   473→              placeholder="Repeat new password"
+   474→            />
+   475→            <Button
+   476→              type="button"
+   477→              className="h-12 flex-none rounded-lg px-4"
+   478→              disabled={pwBusy || !currentPw || newPw.length < 8 || newPw !== confirmPw}
+   479→              onClick={() => void submitPassword()}
+   480→            >
+   481→              {pwBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+   482→              Update
+   483→            </Button>
+   484→          </div>
+   485→          {pwError ? (
+   486→            <p className="flex-none px-1 text-xs text-destructive" role="alert">
+   487→              {pwError}
+   488→            </p>
+   489→          ) : (
+   490→            <p className="flex-none px-1 text-xs text-muted-foreground">
+   491→              Minimum 8 characters · other sessions are signed out.
+   492→            </p>
+   493→          )}
+   494→        </div>
+   495→      ) : null}
+   496→
+   497→      {/* sign out — confirm-destructive */}
+   498→      <ActionRow label="Sign out" onClick={() => setSignOutOpen(true)} />
+   499→      <AlertDialog open={signOutOpen} onOpenChange={setSignOutOpen}>
+   500→        <AlertDialogContent>
+   501→          <AlertDialogHeader>
+   502→            <AlertDialogTitle>Sign out?</AlertDialogTitle>
+   503→            <AlertDialogDescription>
+   504→              This ends your session and clears offline data stored on this device. You can sign back in
+   505→              any time.
+   506→            </AlertDialogDescription>
+   507→          </AlertDialogHeader>
+   508→          <AlertDialogFooter>
+   509→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   510→            <AlertDialogAction
+   511→              className="bg-destructive text-white hover:bg-destructive/90"
+   512→              onClick={(e) => {
+   513→                e.preventDefault();
+   514→                setSignOutOpen(false);
+   515→                void logout();
+   516→              }}
+   517→            >
+   518→              <LogOut className="h-4 w-4" aria-hidden /> Sign out
+   519→            </AlertDialogAction>
+   520→          </AlertDialogFooter>
+   521→        </AlertDialogContent>
+   522→      </AlertDialog>
+   523→
+   524→      {/* delete account — inline typed-DELETE confirm (no dialog) */}
+   525→      <ActionRow label="Delete account" destructive onClick={() => { setDelTyped(""); setDelOpen((v) => !v); }} />
+   526→      {delOpen ? (
+   527→        <div className="flex flex-none flex-col gap-1 border-b border-border/50 bg-destructive/5 p-2" aria-label="Delete account confirm">
+   528→          <p className="flex flex-none items-start gap-1.5 px-1 text-xs leading-relaxed text-destructive">
+   529→            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden />
+   530→            Permanently deletes your account and every piece of data in it — workouts, PRs, routines,
+   531→            body logs. No undo.
+   532→          </p>
+   533→          <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
+   534→            <span className="w-20 flex-none text-xs text-muted-foreground">Type DELETE</span>
+   535→            <Input
+   536→              className="h-12 flex-1 rounded-lg font-mono tracking-widest"
+   537→              value={delTyped}
+   538→              onChange={(e) => setDelTyped(e.target.value)}
+   539→              placeholder="DELETE"
+   540→              autoComplete="off"
+   541→              aria-label="Type DELETE to confirm account deletion"
+   542→            />
+   543→            <Button
+   544→              type="button"
+   545→              variant="destructive"
+   546→              className="h-12 flex-none rounded-lg px-4"
+   547→              disabled={delTyped.trim().toUpperCase() !== "DELETE" || deleting || !online}
+   548→              onClick={() => void confirmDeleteAccount()}
+   549→            >
+   550→              {deleting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+   551→              Delete
+   552→            </Button>
+   553→          </div>
+   554→        </div>
+   555→      ) : null}
+   556→    </section>
+   557→  );
+   558→}
+   559→
+   560→// ── Data ─────────────────────────────────────────────────────────────────────
+   561→
+   562→function downloadBlob(blob: Blob, filename: string) {
+   563→  const url = URL.createObjectURL(blob);
+   564→  const a = document.createElement("a");
+   565→  a.href = url;
+   566→  a.download = filename;
+   567→  document.body.appendChild(a);
+   568→  a.click();
+   569→  a.remove();
+   570→  setTimeout(() => URL.revokeObjectURL(url), 2000);
+   571→}
+   572→
+   573→export function DataSection() {
+   574→  const invalidate = useInvalidate();
+   575→  const online = useOnline();
+   576→
+   577→  const [exporting, setExporting] = useState(false);
+   578→  const [csvBusy, setCsvBusy] = useState<"workouts" | "body" | null>(null);
+   579→  const [recalcing, setRecalcing] = useState(false);
+   580→
+   581→  // ----- import (legacy dialog → inline expansion) -----
+   582→  const fileInputRef = useRef<HTMLInputElement>(null);
+   583→  const [importOpen, setImportOpen] = useState(false);
+   584→  const [pendingImport, setPendingImport] = useState<unknown | null>(null);
+   585→  const [importMode, setImportMode] = useState<"replace" | "merge">("merge");
+   586→  const [importing, setImporting] = useState(false);
+   587→  const [importFileName, setImportFileName] = useState<string | null>(null);
+   588→
+   589→  const resetFileInput = () => {
+   590→    setImportFileName(null);
+   591→    if (fileInputRef.current) fileInputRef.current.value = "";
+   592→  };
+   593→
+   594→  const onFileChosen = async (file: File) => {
+   595→    setImportFileName(file.name);
+   596→    if (file.size > MAX_IMPORT_BYTES) {
+   597→      toast.error("File too large — backups are limited to 50 MB");
+   598→      resetFileInput();
+   599→      return;
+   600→    }
+   601→    try {
+   602→      const text = await file.text();
+   603→      const data = JSON.parse(text);
+   604→      if (typeof data !== "object" || data === null || Array.isArray(data)) {
+   605→        throw new Error("not an object");
+   606→      }
+   607→      setPendingImport(data);
+   608→    } catch {
+   609→      toast.error("That file is not valid JSON — expected a SetForge backup");
+   610→      resetFileInput();
+   611→    }
+   612→  };
+   613→
+   614→  const confirmImport = async () => {
+   615→    if (pendingImport == null) return;
+   616→    setImporting(true);
+   617→    try {
+   618→      const res = await accountApi.importBackup(pendingImport, importMode);
+   619→      toast.success(
+   620→        `Import complete — ${res.importedWorkouts} workout${res.importedWorkouts === 1 ? "" : "s"} restored`,
+   621→      );
+   622→      setPendingImport(null);
+   623→      resetFileInput();
+   624→      invalidate.all();
+   625→    } catch (e) {
+   626→      toast.error(e instanceof Error ? e.message : "Import failed");
+   627→    } finally {
+   628→      setImporting(false);
+   629→    }
+   630→  };
+   631→
+   632→  // ----- clear data (delete workout history) — confirm-destructive -----
+   633→  const [clearOpen, setClearOpen] = useState(false);
+   634→  const [clearing, setClearing] = useState(false);
+   635→
+   636→  const confirmClear = async () => {
+   637→    setClearing(true);
+   638→    try {
+   639→      const res = await accountApi.deleteHistory({ mode: "all" });
+   640→      toast.success(
+   641→        `Deleted ${res.deletedWorkouts} workout${res.deletedWorkouts === 1 ? "" : "s"} — PRs recalculated`,
+   642→      );
+   643→      setClearOpen(false);
+   644→      invalidate.all();
+   645→    } catch (e) {
+   646→      toast.error(e instanceof Error ? e.message : "Could not delete history");
+   647→    } finally {
+   648→      setClearing(false);
+   649→    }
+   650→  };
+   651→
+   652→  // ----- actions -----
+   653→  const exportBackup = async () => {
+   654→    setExporting(true);
+   655→    try {
+   656→      const backup = await accountApi.exportBackup();
+   657→      downloadBlob(
+   658→        new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
+   659→        `setforge-backup-${todayKey()}.json`,
+   660→      );
+   661→      toast.success("Backup downloaded — keep it somewhere safe");
+   662→    } catch (e) {
+   663→      toast.error(e instanceof Error ? e.message : "Export failed");
+   664→    } finally {
+   665→      setExporting(false);
+   666→    }
+   667→  };
+   668→
+   669→  const exportCsv = async (type: "workouts" | "body") => {
+   670→    setCsvBusy(type);
+   671→    try {
+   672→      const blob = await accountApi.exportCsv(type);
+   673→      downloadBlob(blob, `setforge-${type}-${todayKey()}.csv`);
+   674→      toast.success(`${type === "workouts" ? "Workouts" : "Body"} CSV downloaded`);
+   675→    } catch (e) {
+   676→      toast.error(e instanceof Error ? e.message : "Export failed");
+   677→    } finally {
+   678→      setCsvBusy(null);
+   679→    }
+   680→  };
+   681→
+   682→  const recalculate = async () => {
+   683→    setRecalcing(true);
+   684→    try {
+   685→      const res = await recordsApi.recalculate();
+   686→      toast.success(`Recalculated ${res.recalculated} exercises`);
+   687→      invalidate.all();
+   688→    } catch (e) {
+   689→      toast.error(e instanceof Error ? e.message : "Recalculation failed");
+   690→    } finally {
+   691→      setRecalcing(false);
+   692→    }
+   693→  };
+   694→
+   695→  return (
+   696→    <section aria-label="Data" className="flex flex-col">
+   697→      <SectionHeader title="Data" />
+   698→
+   699→      <ActionRow
+   700→        label="Export data"
+   701→        hint="JSON backup"
+   702→        disabled={exporting || !online}
+   703→        onClick={() => void exportBackup()}
+   704→        trailing={
+   705→          exporting ? (
+   706→            <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   707→          ) : undefined
+   708→        }
+   709→      />
+   710→      <ActionRow
+   711→        label="Workouts CSV"
+   712→        disabled={csvBusy !== null || !online}
+   713→        onClick={() => void exportCsv("workouts")}
+   714→        trailing={
+   715→          csvBusy === "workouts" ? (
+   716→            <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   717→          ) : undefined
+   718→        }
+   719→      />
+   720→      <ActionRow
+   721→        label="Body CSV"
+   722→        disabled={csvBusy !== null || !online}
+   723→        onClick={() => void exportCsv("body")}
+   724→        trailing={
+   725→          csvBusy === "body" ? (
+   726→            <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   727→          ) : undefined
+   728→        }
+   729→      />
+   730→
+   731→      {/* import / restore — inline expansion */}
+   732→      <ActionRow
+   733→        label="Import backup"
+   734→        hint={importFileName ? importFileName.slice(0, 18) : "merge / replace"}
+   735→        onClick={() => setImportOpen((v) => !v)}
+   736→      />
+   737→      {importOpen ? (
+   738→        <div className="flex flex-none flex-col gap-1 border-b border-border/50 bg-muted/20 p-2" aria-label="Import backup">
+   739→          <input
+   740→            ref={fileInputRef}
+   741→            type="file"
+   742→            accept=".json,application/json"
+   743→            className="hidden"
+   744→            aria-hidden
+   745→            tabIndex={-1}
+   746→            onChange={(e) => {
+   747→              const file = e.target.files?.[0];
+   748→              if (file) void onFileChosen(file);
+   749→            }}
+   750→          />
+   751→          <ActionRow
+   752→            label={importFileName ? `File · ${importFileName}` : "Choose backup file (.json)"}
+   753→            ariaLabel="Choose backup file"
+   754→            disabled={!online}
+   755→            onClick={() => fileInputRef.current?.click()}
+   756→          />
+   757→          {pendingImport != null ? (
+   758→            <>
+   759→              <MenuRow
+   760→                label="Mode"
+   761→                value={importMode}
+   762→                options={[
+   763→                  { value: "merge", label: "Merge" },
+   764→                  { value: "replace", label: "Replace all data" },
+   765→                ]}
+   766→                onSelect={(v) => setImportMode(v)}
+   767→              />
+   768→              <ActionRow
+   769→                label={importMode === "replace" ? "Replace & import" : "Merge & import"}
+   770→                disabled={importing || !online}
+   771→                onClick={() => void confirmImport()}
+   772→                trailing={
+   773→                  importing ? (
+   774→                    <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   775→                  ) : undefined
+   776→                }
+   777→              />
+   778→              {importMode === "replace" ? (
+   779→                <p className="flex-none px-1 text-xs text-destructive" role="alert">
+   780→                  Replace deletes your current workouts, routines, body measurements and goals first.
+   781→                  No undo — export a backup first.
+   782→                </p>
+   783→              ) : null}
+   784→            </>
+   785→          ) : (
+   786→            <p className="flex-none px-1 text-xs text-muted-foreground">
+   787→              Restore data from a SetForge backup file (max 50 MB).
+   788→            </p>
+   789→          )}
+   790→        </div>
+   791→      ) : null}
+   792→
+   793→      <ActionRow
+   794→        label="Recalculate PRs"
+   795→        disabled={recalcing || !online}
+   796→        onClick={() => void recalculate()}
+   797→        trailing={
+   798→          recalcing ? (
+   799→            <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   800→          ) : undefined
+   801→        }
+   802→      />
+   803→
+   804→      {/* clear data — confirm-destructive */}
+   805→      <ActionRow label="Clear data" hint="all workouts" destructive onClick={() => setClearOpen(true)} />
+   806→      <AlertDialog open={clearOpen} onOpenChange={(o) => !clearing && setClearOpen(o)}>
+   807→        <AlertDialogContent>
+   808→          <AlertDialogHeader>
+   809→            <AlertDialogTitle>Delete all workout history?</AlertDialogTitle>
+   810→            <AlertDialogDescription>
+   811→              This permanently deletes every logged workout and recalculates your personal records.
+   812→              Routines, body measurements and your account stay. There is no undo — export a backup
+   813→              first if you might want it back.
+   814→            </AlertDialogDescription>
+   815→          </AlertDialogHeader>
+   816→          <AlertDialogFooter>
+   817→            <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+   818→            <AlertDialogAction
+   819→              className="bg-destructive text-white hover:bg-destructive/90"
+   820→              disabled={clearing}
+   821→              onClick={(e) => {
+   822→                e.preventDefault();
+   823→                void confirmClear();
+   824→              }}
+   825→            >
+   826→              {clearing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Trash2 className="h-4 w-4" aria-hidden />}
+   827→              Delete everything
+   828→            </AlertDialogAction>
+   829→          </AlertDialogFooter>
+   830→        </AlertDialogContent>
+   831→      </AlertDialog>
+   832→    </section>
+   833→  );
+   834→}
+   835→
+   836→// ── App ──────────────────────────────────────────────────────────────────────
+   837→
+   838→export function AppSection() {
+   839→  const online = useOnline();
+   840→  const { canInstall, installed, promptInstall } = useInstallPrompt();
+   841→  const [standalone] = useState(() => isStandalone());
+   842→  const [clearing, setClearing] = useState(false);
+   843→
+   844→  const clearCache = async () => {
+   845→    setClearing(true);
+   846→    try {
+   847→      const regs = await navigator.serviceWorker?.getRegistrations();
+   848→      const sw = regs?.[0]?.active;
+   849→      sw?.postMessage({ type: "CLEAR_CACHES" });
+   850→      if ("caches" in window) {
+   851→        const names = await caches.keys();
+   852→        await Promise.all(names.map((n) => caches.delete(n)));
+   853→      }
+   854→      toast.success("Offline cache cleared", {
+   855→        description: "Everything re-downloads fresh on your next visit.",
+   856→      });
+   857→    } catch {
+   858→      toast.error("Could not clear the offline cache");
+   859→    } finally {
+   860→      setClearing(false);
+   861→    }
+   862→  };
+   863→
+   864→  const isInstalled = installed || standalone;
+   865→
+   866→  return (
+   867→    <section aria-label="App" className="flex flex-col">
+   868→      <SectionHeader title="App" />
+   869→      <Row
+   870→        label="Install app"
+   871→        control={
+   872→          isInstalled ? (
+   873→            <span className="flex-none text-sm text-emerald-600 dark:text-emerald-400">Installed</span>
+   874→          ) : (
+   875→            <Button
+   876→              type="button"
+   877→              variant="outline"
+   878→              className="h-11 flex-none rounded-lg px-4"
+   879→              disabled={!canInstall}
+   880→              onClick={() => void promptInstall()}
+   881→            >
+   882→              Install
+   883→            </Button>
+   884→          )
+   885→        }
+   886→      />
+   887→      <ValueRow
+   888→        label="Connection"
+   889→        value={
+   890→          <span className={online ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+   891→            {online ? "Online" : "Offline"}
+   892→          </span>
+   893→        }
+   894→      />
+   895→      <Row
+   896→        label="Offline mode"
+   897→        control={<span className="flex-none text-sm text-primary">Always on</span>}
+   898→      />
+   899→      <ActionRow
+   900→        label="Clear offline cache"
+   901→        disabled={clearing}
+   902→        onClick={() => void clearCache()}
+   903→        trailing={
+   904→          clearing ? (
+   905→            <Loader2 className="h-4 w-4 flex-none animate-spin text-muted-foreground" aria-hidden />
+   906→          ) : undefined
+   907→        }
+   908→      />
+   909→      <ActionRow
+   910→        label="Help & shortcuts"
+   911→        hint="Feature tour · keys · offline"
+   912→        onClick={() => replaceHash("#/help?from=settings")}
+   913→      />
+   914→      <ValueRow label="About" value="SetForge · offline-first workout tracker" valueClassName="text-xs" />
+   915→      <ValueRow label="Version" value={APP_VERSION} />
+   916→    </section>
+   917→  );
+   918→}
+   919→
+   920→// ── Part 5: Programs & scheduling section ────────────────────────────────────
+   921→
+   922→const COMMON_TIMEZONES = [
+   923→  "UTC",
+   924→  "Europe/London",
+   925→  "Europe/Berlin",
+   926→  "Europe/Paris",
+   927→  "Europe/Moscow",
+   928→  "America/New_York",
+   929→  "America/Chicago",
+   930→  "America/Denver",
+   931→  "America/Los_Angeles",
+   932→  "America/Sao_Paulo",
+   933→  "Asia/Kolkata",
+   934→  "Asia/Dubai",
+   935→  "Asia/Singapore",
+   936→  "Asia/Shanghai",
+   937→  "Asia/Tokyo",
+   938→  "Australia/Sydney",
+   939→  "Pacific/Auckland",
+   940→];
+   941→
+   942→const REMINDER_TIMES = ["06:00", "07:00", "08:00", "12:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
+   943→
+   944→export function ProgramsSection() {
+   945→  const settings = useApp((s) => s.settings);
+   946→  const updateSettings = useApp((s) => s.updateSettings);
+   947→  const browserTz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+   948→
+   949→  if (!settings) return null;
+   950→
+   951→  const patch = (p: Partial<SettingsDTO>) => {
+   952→    void updateSettings(p).catch(() => undefined);
+   953→  };
+   954→
+   955→  const tzOptions = Array.from(new Set([browserTz, settings.timezone || "UTC", ...COMMON_TIMEZONES]));
+   956→  const reminderValue = settings.reminderTime ?? "off";
+   957→
+   958→  const enableReminder = async (time: string) => {
+   959→    const granted = await requestReminderPermission();
+   960→    if (!granted) {
+   961→      toast.error("Notifications blocked", {
+   962→        description: "Allow notifications for this site in your browser to get the daily reminder.",
+   963→      });
+   964→      return;
+   965→    }
+   966→    patch({ reminderTime: time });
+   967→    toast.success(`Daily reminder set for ${time}`);
+   968→  };
+   969→
+   970→  return (
+   971→    <section aria-label="Programs" className="flex flex-col">
+   972→      <SectionHeader title="Programs" />
+   973→      <MenuRow
+   974→        label="Timezone"
+   975→        hint="Day rollover"
+   976→        value={settings.timezone || "UTC"}
+   977→        options={tzOptions.map((tz) => ({ value: tz, label: tz.split("/").pop()?.replace(/_/g, " ") ?? tz }))}
+   978→        onSelect={(v) => patch({ timezone: v })}
+   979→      />
+   980→      <SwitchRow
+   981→        label="Auto-advance rest days"
+   982→        hint="After midnight"
+   983→        checked={settings.autoAdvanceRest}
+   984→        onCheckedChange={(v) => patch({ autoAdvanceRest: v })}
+   985→      />
+   986→      <SwitchRow
+   987→        label="Scheduling moves cursor"
+   988→        hint="Logging a scheduled day advances the program"
+   989→        checked={settings.scheduleMovesCursor}
+   990→        onCheckedChange={(v) => patch({ scheduleMovesCursor: v })}
+   991→      />
+   992→      <MenuRow
+   993→        label="Advance trigger"
+   994→        hint="When the program day rolls over"
+   995→        value={settings.advanceTrigger}
+   996→        options={[
+   997→          { value: "FINISH_OR_MIDNIGHT", label: "Finish or midnight" },
+   998→          { value: "FIRST_SET", label: "First set" },
+   999→        ]}
+  1000→        onSelect={(v) => patch({ advanceTrigger: v })}
+  1001→      />
+  1002→      <SwitchRow
+  1003→        label="Show projected days"
+  1004→        hint="Calendar ghosts of upcoming program days"
+  1005→        checked={settings.showProjectedDays}
+  1006→        onCheckedChange={(v) => patch({ showProjectedDays: v })}
+  1007→      />
+  1008→      <MenuRow
+  1009→        label="Daily reminder"
+  1010→        hint={reminderValue === "off" ? "Off" : `Fires at ${settings.reminderTime}`}
+  1011→        value={reminderValue}
+  1012→        options={[
+  1013→          { value: "off", label: "Off" },
+  1014→          ...REMINDER_TIMES.map((t) => ({ value: t, label: t })),
+  1015→        ]}
+  1016→        onSelect={(v) => {
+  1017→          if (v === "off") {
+  1018→            patch({ reminderTime: null });
+  1019→            toast.success("Daily reminder off");
+  1020→            return;
+  1021→          }
+  1022→          void enableReminder(String(v));
+  1023→        }}
+  1024→      />
+  1025→    </section>
+  1026→  );
+  1027→}
+  1028→
+  1029→// ─────────────────────────────────────────────────────────────────────────────
+  1030→// Part 6 — Session + Display sections (§1 settings). Defaults preserve the
+  1031→// Part 1-5 behaviour exactly.
+  1032→// ─────────────────────────────────────────────────────────────────────────────
+  1033→
+  1034→export function SessionSection() {
+  1035→  const settings = useApp((s) => s.settings);
+  1036→  const updateSettings = useApp((s) => s.updateSettings);
+  1037→  if (!settings) return null;
+  1038→  const patch = (p: Partial<SettingsDTO>) => {
+  1039→    void updateSettings(p).catch(() => undefined);
+  1040→  };
+  1041→
+  1042→  return (
+  1043→    <>
+  1044→      <SectionHeader title="Session" />
+  1045→      <SwitchRow
+  1046→        label="Guided mode"
+  1047→        hint="One highlighted set at a time · Prev / Log set / Next"
+  1048→        checked={settings.guidedMode}
+  1049→        onCheckedChange={(v) => patch({ guidedMode: v })}
+  1050→      />
+  1051→      <SwitchRow
+  1052→        label="Auto-move next set"
+  1053→        hint="Pointer advances after rest ends"
+  1054→        checked={settings.autoMoveNextSet}
+  1055→        onCheckedChange={(v) => patch({ autoMoveNextSet: v })}
+  1056→      />
+  1057→      <MenuRow
+  1058→        label="Rest display"
+  1059→        hint="Bar keeps the compact BottomBar"
+  1060→        value={settings.restDisplay}
+  1061→        options={[
+  1062→          { value: "BAR", label: "Bar (default)" },
+  1063→          { value: "RING", label: "Ring + bar" },
+  1064→        ]}
+  1065→        onSelect={(v) => patch({ restDisplay: v })}
+  1066→      />
+  1067→      <MenuRow
+  1068→        label="Finish behaviour"
+  1069→        value={settings.finishBehaviour}
+  1070→        options={[
+  1071→          { value: "ALWAYS_SAVE", label: "Always save (default)" },
+  1072→          { value: "ASK", label: "Ask: save or discard" },
+  1073→        ]}
+  1074→        onSelect={(v) => patch({ finishBehaviour: v })}
+  1075→      />
+  1076→      <SwitchRow
+  1077→        label="Sets progress bar"
+  1078→        hint="4px bar under the date strip"
+  1079→        checked={settings.showSetsProgressBar}
+  1080→        onCheckedChange={(v) => patch({ showSetsProgressBar: v })}
+  1081→      />
+  1082→      <SwitchRow
+  1083→        label="Best-weight line"
+  1084→        hint="“Best 110×5” in the card meta"
+  1085→        checked={settings.showMaxWeightBar}
+  1086→        onCheckedChange={(v) => patch({ showMaxWeightBar: v })}
+  1087→      />
+  1088→      <SwitchRow
+  1089→        label="Video panel in guided mode"
+  1090→        hint="Collapses to 0px when no video"
+  1091→        checked={settings.showVideoPanel}
+  1092→        onCheckedChange={(v) => patch({ showVideoPanel: v })}
+  1093→      />
+  1094→      <SwitchRow
+  1095→        label="Haptics"
+  1096→        hint="Vibration feedback (where supported)"
+  1097→        checked={settings.hapticsEnabled}
+  1098→        onCheckedChange={(v) => patch({ hapticsEnabled: v })}
+  1099→      />
+  1100→      <TempoPresetsRow />
+  1101→    </>
+  1102→  );
+  1103→}
+  1104→
+  1105→function TempoPresetsRow() {
+  1106→  const settings = useApp((s) => s.settings);
+  1107→  const updateSettings = useApp((s) => s.updateSettings);
+  1108→  const [open, setOpen] = useState(false);
+  1109→  const [draft, setDraft] = useState("");
+  1110→  if (!settings) return null;
+  1111→  const presets = settings.tempoPresets ?? [];
+  1112→
+  1113→  const save = (next: string[]) => {
+  1114→    void updateSettings({ tempoPresets: next }).catch(() => undefined);
+  1115→  };
+  1116→
+  1117→  return (
+  1118→    <>
+  1119→      <ActionRow label="Tempo presets" hint={`${presets.length} presets · tap to edit`} onClick={() => setOpen((v) => !v)} trailing={<span className="text-xs tabular-nums text-muted-foreground">{presets.length}</span>} />
+  1120→      {open ? (
+  1121→        <div className="flex flex-col gap-1 border-b bg-muted/20 p-2">
+  1122→          {presets.map((p, i) => (
+  1123→            <div key={p + i} className={ROW_CLS} data-row>
+  1124→              <span className="flex-1 truncate pl-2 text-sm tabular-nums">{p}</span>
+  1125→              <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-destructive" aria-label={`Remove ${p}`} onClick={() => save(presets.filter((_, j) => j !== i))}>
+  1126→                <X className="h-4 w-4" aria-hidden />
+  1127→              </Button>
+  1128→            </div>
+  1129→          ))}
+  1130→          <div className={ROW_CLS} data-row>
+  1131→            <Input
+  1132→              value={draft}
+  1133→              onChange={(e) => setDraft(e.target.value)}
+  1134→              placeholder="e.g. 3-1-1-0"
+  1135→              className="h-9 w-28 rounded-md border bg-background text-sm tabular-nums"
+  1136→              aria-label="New tempo preset"
+  1137→              onKeyDown={(e) => {
+  1138→                if (e.key === "Enter" && /^\d{1,2}-\d{1,2}-\d{1,2}(-\d{1,2})?$/.test(draft.trim())) {
+  1139→                  save([...presets, draft.trim()].slice(0, 8));
+  1140→                  setDraft("");
+  1141→                }
+  1142→              }}
+  1143→            />
+  1144→            <Button
+  1145→              variant="ghost"
+  1146→              size="sm"
+  1147→              className="h-9 px-3 text-xs"
+  1148→              disabled={!/^\d{1,2}-\d{1,2}-\d{1,2}(-\d{1,2})?$/.test(draft.trim()) || presets.length >= 8}
+  1149→              onClick={() => {
+  1150→                save([...presets, draft.trim()].slice(0, 8));
+  1151→                setDraft("");
+  1152→              }}
+  1153→            >
+  1154→              Add
+  1155→            </Button>
+  1156→          </div>
+  1157→        </div>
+  1158→      ) : null}
+  1159→    </>
+  1160→  );
+  1161→}
+  1162→
+  1163→export function DisplaySection() {
+  1164→  const settings = useApp((s) => s.settings);
+  1165→  const updateSettings = useApp((s) => s.updateSettings);
+  1166→  if (!settings) return null;
+  1167→  const patch = (p: Partial<SettingsDTO>) => {
+  1168→    void updateSettings(p).catch(() => undefined);
+  1169→  };
+  1170→
+  1171→  return (
+  1172→    <>
+  1173→      <SectionHeader title="Display" />
+  1174→      <MenuRow
+  1175→        label="Calendar style"
+  1176→        value={settings.calendarStyle}
+  1177→        options={[
+  1178→          { value: "GRID", label: "Month grid (default)" },
+  1179→          { value: "SCROLL", label: "Continuous scroll" },
+  1180→        ]}
+  1181→        onSelect={(v) => patch({ calendarStyle: v })}
+  1182→      />
+  1183→      <SwitchRow
+  1184→        label="Muscle chips"
+  1185→        hint="Dots and chips on rows/cards"
+  1186→        checked={settings.showMuscleChips}
+  1187→        onCheckedChange={(v) => patch({ showMuscleChips: v })}
+  1188→      />
+  1189→      <SwitchRow
+  1190→        label="Equipment chips"
+  1191→        checked={settings.showEquipmentChips}
+  1192→        onCheckedChange={(v) => patch({ showEquipmentChips: v })}
+  1193→      />
+  1194→      <SwitchRow
+  1195→        label="Library thumbnails"
+  1196→        hint="40px thumbnails in the exercise library"
+  1197→        checked={settings.showThumbnails}
+  1198→        onCheckedChange={(v) => patch({ showThumbnails: v })}
+  1199→      />
+  1200→      <SwitchRow
+  1201→        label="Calories card"
+  1202→        hint="Home · manual kcal logging"
+  1203→        checked={settings.showCaloriesCard}
+  1204→        onCheckedChange={(v) => patch({ showCaloriesCard: v })}
+  1205→      />
+  1206→    </>
+  1207→  );
+  1208→}
+  1209→

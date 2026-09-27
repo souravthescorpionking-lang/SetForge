@@ -19,6 +19,7 @@ import {
   isFollowable,
   isValidSession,
   localDateKey,
+  missedCutoffMs as missedCutoffMsFor,
   projectCursor,
   shouldAdvanceCursor,
   type ProgramDay,
@@ -792,6 +793,7 @@ export async function listSchedule(userId: string, input: { from?: string; to?: 
   });
 
   const entries: Array<ReturnType<typeof mapScheduleEntry>> = [];
+  const nowMs = Date.now();
   for (const e of rows) {
     let status = e.status;
     if (e.status === "PLANNED" && e.workoutId && e.workout) {
@@ -802,10 +804,12 @@ export async function listSchedule(userId: string, input: { from?: string; to?: 
         todayKey,
         linkedWorkoutHasData: hasData,
         linkedWorkoutFinished: !!e.workout.finishedAt,
+        missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+        nowMs,
       });
       if (derived !== "PLANNED") {
         status = derived;
-        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived } });
+        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived, ...(derived === "MISSED" ? { missedAt: e.missedAt ?? new Date(nowMs) } : {}) } });
       }
     } else if (e.status === "PLANNED") {
       const derived = deriveEntryStatus({
@@ -814,10 +818,12 @@ export async function listSchedule(userId: string, input: { from?: string; to?: 
         todayKey,
         linkedWorkoutHasData: false,
         linkedWorkoutFinished: false,
+        missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+        nowMs,
       });
       if (derived !== "PLANNED") {
         status = derived;
-        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived } });
+        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived, ...(derived === "MISSED" ? { missedAt: e.missedAt ?? new Date(nowMs) } : {}) } });
       }
     }
     entries.push(mapScheduleEntry({ ...e, status }));
@@ -1162,4 +1168,315 @@ export async function getDashboard(userId: string) {
 
 function addDaysUtc(d: Date, days: number): Date {
   return new Date(d.getTime() + days * 86400000);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 6 — program metadata (§4.4/§4.5), mark-off (§4.5), totals, builder (§4.7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { jsonStringArray } from "@/server/media";
+import type { ProgramMetaDTO, ProgramTotalsDTO } from "@/lib/types";
+
+type PhaseJson = { name: string; dayIds: string[] };
+
+function parsePhases(raw: unknown): PhaseJson[] | null {
+  if (raw == null) return null;
+  const arr = Array.isArray(raw) ? raw : (() => { try { return JSON.parse(String(raw)); } catch { return null; } })();
+  if (!Array.isArray(arr)) return null;
+  const out: PhaseJson[] = [];
+  for (const p of arr) {
+    if (p && typeof p === "object" && typeof (p as PhaseJson).name === "string" && Array.isArray((p as PhaseJson).dayIds)) {
+      out.push({ name: (p as PhaseJson).name, dayIds: (p as PhaseJson).dayIds.filter((d) => typeof d === "string") });
+    }
+  }
+  return out;
+}
+
+async function loadOwnedRoutine(userId: string, routineId: string) {
+  const routine = await db.routine.findFirst({
+    where: { id: routineId, userId, deletedAt: null },
+    include: { days: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!routine) throw notFound("Program not found");
+  return routine;
+}
+
+export async function getProgramMeta(userId: string, routineId: string): Promise<ProgramMetaDTO> {
+  const routine = await loadOwnedRoutine(userId, routineId);
+  return {
+    difficulty: routine.difficulty ?? null,
+    phases: parsePhases(routine.phases),
+    daysPerWeek: routine.daysPerWeek ?? null,
+    estMinutes: routine.estMinutes ?? null,
+    highlights: jsonStringArray(routine.highlights),
+    labels: jsonStringArray(routine.labels),
+    isFavorite: routine.isFavorite,
+  };
+}
+
+export interface ProgramMetaPatch {
+  difficulty?: string | null;
+  phases?: PhaseJson[] | null;
+  daysPerWeek?: number | null;
+  estMinutes?: number | null;
+  highlights?: string[] | null;
+  labels?: string[] | null;
+  isFavorite?: boolean;
+}
+
+export async function updateProgramMeta(userId: string, routineId: string, patch: ProgramMetaPatch): Promise<ProgramMetaDTO> {
+  const routine = await loadOwnedRoutine(userId, routineId);
+  if (patch.phases) {
+    const dayIds = new Set(routine.days.map((d) => d.id));
+    for (const phase of patch.phases) {
+      if (phase.dayIds.some((id) => !dayIds.has(id))) throw badRequest("Phase dayIds must belong to this program");
+    }
+  }
+  await db.routine.update({
+    where: { id: routineId },
+    data: {
+      ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {}),
+      ...(patch.phases !== undefined ? { phases: patch.phases ? JSON.stringify(patch.phases) : null } : {}),
+      ...(patch.daysPerWeek !== undefined ? { daysPerWeek: patch.daysPerWeek } : {}),
+      ...(patch.estMinutes !== undefined ? { estMinutes: patch.estMinutes } : {}),
+      ...(patch.highlights !== undefined ? { highlights: JSON.stringify(patch.highlights ?? []) } : {}),
+      ...(patch.labels !== undefined ? { labels: JSON.stringify(patch.labels ?? []) } : {}),
+      ...(patch.isFavorite !== undefined ? { isFavorite: patch.isFavorite } : {}),
+    } as Prisma.RoutineUpdateInput,
+  });
+  return getProgramMeta(userId, routineId);
+}
+
+function readCompletedDayIds(active: { completedDayIds: unknown } | null): string[] {
+  return jsonStringArray(active?.completedDayIds);
+}
+
+/**
+ * POST /api/programs/:id/days/:dayId/mark-off (§4.5 DayActionRow "Mark off"):
+ * adds a persistent completed marker (independent of the cursor), creates a DONE
+ * ScheduleEntry for today if none exists, and advances the cursor ONLY when the
+ * marked day is the cursor day (per Part 5 rules).
+ */
+export async function markDayOff(userId: string, routineId: string, dayId: string): Promise<{ completedDayIds: string[]; advanced: boolean }> {
+  const routine = await loadOwnedRoutine(userId, routineId);
+  const day = routine.days.find((d) => d.id === dayId);
+  if (!day) throw notFound("Day not found");
+
+  const active = await db.activeRoutine.findFirst({ where: { userId, routineId } });
+  const completed = readCompletedDayIds(active);
+  let advanced = false;
+  if (!completed.includes(dayId)) {
+    completed.push(dayId);
+    if (active) {
+      await db.activeRoutine.update({ where: { id: active.id }, data: { completedDayIds: JSON.stringify(completed) } });
+    }
+  }
+
+  // DONE schedule entry for today (if none for this day)
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  const existing = await db.scheduleEntry.findFirst({
+    where: { userId, deletedAt: null, date: toDayUtc(todayKey), dayId },
+  });
+  if (existing && existing.status === "PLANNED") {
+    await db.scheduleEntry.update({ where: { id: existing.id }, data: { status: "DONE" } });
+  } else if (!existing) {
+    await db.scheduleEntry.create({
+      data: {
+        id: uuid7(),
+        userId,
+        date: toDayUtc(todayKey),
+        sourceType: "ROUTINE_DAY",
+        routineId,
+        dayId,
+        status: "DONE",
+        estMinutes: day.estMinutes ?? routine.estMinutes ?? null,
+      },
+    });
+  }
+
+  // Cursor advance only when marking off the cursor day
+  if (active && routine.days[clampCursor(active.cursorDayIndex, routine.days.length)]?.id === dayId) {
+    await advanceCursorOp(userId, 1);
+    advanced = true;
+  }
+  return { completedDayIds: completed, advanced };
+}
+
+/** DELETE /api/programs/:id/days/:dayId/mark-off — un-mark (no confirm; client toasts + Undo). */
+export async function unmarkDayOff(userId: string, routineId: string, dayId: string): Promise<{ completedDayIds: string[] }> {
+  const active = await db.activeRoutine.findFirst({ where: { userId, routineId } });
+  const completed = readCompletedDayIds(active).filter((id) => id !== dayId);
+  if (active) {
+    await db.activeRoutine.update({ where: { id: active.id }, data: { completedDayIds: JSON.stringify(completed) } });
+  }
+  return { completedDayIds: completed };
+}
+
+/** POST /api/programs/:id/days/:dayId/favourite — toggle the day favourite flag. */
+export async function toggleDayFavourite(userId: string, routineId: string, dayId: string): Promise<{ isFavorite: boolean }> {
+  const routine = await loadOwnedRoutine(userId, routineId);
+  const day = routine.days.find((d) => d.id === dayId);
+  if (!day) throw notFound("Day not found");
+  const next = !day.isFavorite;
+  await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: next } });
+  return { isFavorite: next };
+}
+
+/**
+ * GET /api/programs/:id/totals (§4.5 TotalsRow). From workouts with
+ * sourceRoutineId = this program; discarded and deleted workouts excluded;
+ * warm-up sets excluded (acceptance: "totals excludes discarded/warmups").
+ */
+export async function getProgramTotals(userId: string, routineId: string): Promise<ProgramTotalsDTO> {
+  await loadOwnedRoutine(userId, routineId);
+  const workouts = await db.workout.findMany({
+    where: { userId, sourceRoutineId: routineId, deletedAt: null, discardedAt: null },
+    include: { exercises: { include: { sets: true } } },
+  });
+  let setsLogged = 0;
+  let weightLifted = 0;
+  let workoutCount = 0;
+  for (const w of workouts) {
+    let hasQualifyingSet = false;
+    for (const we of w.exercises) {
+      for (const s of we.sets) {
+        if (s.isWarmup || s.setType === "WARMUP") continue;
+        const performed = s.isComplete || s.weight != null || s.reps != null || s.distance != null || s.timeSec != null;
+        if (!performed) continue;
+        setsLogged += 1;
+        hasQualifyingSet = true;
+        if (s.weight != null && s.reps != null) weightLifted += s.weight * s.reps;
+      }
+    }
+    if (hasQualifyingSet) workoutCount += 1;
+  }
+  return { workouts: workoutCount, setsLogged, weightLifted: Math.round(weightLifted * 10) / 10 };
+}
+
+// ---------- builder (§4.7) ----------
+
+export interface BuilderSetInput { weight?: number | null; reps?: number | null; restPlannedSec?: number | null; setType?: string | null }
+export interface BuilderExerciseInput { exerciseId: string; sets?: BuilderSetInput[] }
+export interface BuilderInput {
+  name: string;
+  difficulty?: string | null;
+  daysPerWeek?: number | null;
+  estMinutes?: number | null;
+  labels?: string[];
+  phases: Array<{ name: string; weeks: number }>;
+  weekly: Array<{ weekday: number; type: string; name?: string | null }>;
+  exercises?: Record<string, BuilderExerciseInput[]>;
+}
+
+/**
+ * POST /api/programs/builder — generates a Routine from the 4-step builder:
+ * days = phases × weeks × 7 weekly-template days (REST included), phases json
+ * populated with ordered dayIds, exercises attached per named workout template.
+ */
+export async function buildProgram(userId: string, input: BuilderInput): Promise<{ id: string; dayCount: number }> {
+  const weekly = [...input.weekly].sort((a, b) => a.weekday - b.weekday);
+  if (weekly.length !== 7 || new Set(weekly.map((w) => w.weekday)).size !== 7) {
+    throw badRequest("Weekly template must cover all 7 weekdays");
+  }
+  const templateNames = new Set<string>();
+  for (const w of weekly) {
+    if (w.type === "WORKOUT" && !w.name) throw badRequest("WORKOUT weekdays need a template name");
+    if (w.type === "WORKOUT") templateNames.add(w.name as string);
+  }
+
+  const exerciseIds = new Set<string>();
+  for (const list of Object.values(input.exercises ?? {})) {
+    for (const e of list) exerciseIds.add(e.exerciseId);
+  }
+  if (exerciseIds.size > 0) {
+    const owned = await db.exercise.findMany({ where: { userId, deletedAt: null, id: { in: [...exerciseIds] } }, select: { id: true } });
+    if (owned.length !== exerciseIds.size) throw badRequest("Builder references exercises you do not own");
+  }
+
+  const routineId = uuid7();
+  const phaseDays: PhaseJson[] = [];
+  const dayRows: Array<{ id: string; name: string; dayType: string; templateName: string | null }> = [];
+  let sortOrder = 0;
+  for (const phase of input.phases) {
+    const collected: string[] = [];
+    for (let week = 1; week <= phase.weeks; week++) {
+      for (const w of weekly) {
+        const isRest = w.type === "REST";
+        const id = uuid7();
+        const name = isRest ? "Rest" : `${w.name}${input.phases.length > 1 ? ` · W${week}` : ""}`;
+        dayRows.push({ id, name, dayType: isRest ? "REST" : "WORKOUT", templateName: isRest ? null : (w.name as string) });
+        collected.push(id);
+        sortOrder += 1;
+      }
+    }
+    phaseDays.push({ name: phase.name, dayIds: collected });
+  }
+
+  const workoutCount = dayRows.filter((d) => d.dayType === "WORKOUT").length;
+  if (workoutCount === 0) throw badRequest("Builder produced no workout days");
+
+  // Single transaction: a failure mid-attach (bad exercise id, etc.) must not
+  // leave a half-built program behind (verified by the §4.7 QA).
+  await db.$transaction(async (tx) => {
+    await tx.routine.create({
+      data: {
+        id: routineId,
+        userId,
+        name: input.name,
+        kind: "ROUTINE",
+        difficulty: input.difficulty ?? null,
+        daysPerWeek: input.daysPerWeek ?? weekly.filter((w) => w.type === "WORKOUT").length,
+        estMinutes: input.estMinutes ?? null,
+        labels: JSON.stringify(input.labels ?? []),
+        phases: JSON.stringify(phaseDays),
+        days: {
+          create: dayRows.map((d) => ({ id: d.id, userId, name: d.name, dayType: d.dayType, sortOrder: dayRows.indexOf(d) })),
+        },
+      },
+    });
+
+    // Attach exercises per template name (order preserved per template)
+    for (const [templateName, list] of Object.entries(input.exercises ?? {})) {
+      if (!templateNames.has(templateName)) continue;
+      const targetDays = dayRows.filter((d) => d.templateName === templateName);
+      for (const day of targetDays) {
+        let exOrder = 0;
+        for (const e of list) {
+          const reId = uuid7();
+          await tx.routineExercise.create({
+            data: {
+              id: reId,
+              userId,
+              dayId: day.id,
+              exerciseId: e.exerciseId,
+              sortOrder: exOrder,
+              sets: {
+                // PredefinedSet.id has no DB default — every nested row needs one.
+                create: (e.sets ?? []).map((s, i) => ({
+                  id: uuid7(),
+                  weight: s.weight ?? null,
+                  reps: s.reps ?? null,
+                  restPlannedSec: s.restPlannedSec ?? null,
+                  setType: s.setType ?? null,
+                  sortOrder: i,
+                })) as Prisma.PredefinedSetUncheckedCreateWithoutRoutineExerciseInput[],
+              },
+            },
+          });
+          exOrder += 1;
+        }
+      }
+    }
+  });
+
+  return { id: routineId, dayCount: dayRows.length };
+}
+
+/** POST /api/schedule/:id/time (§4.13) — set/clear time-of-day on an entry. */
+export async function setScheduleTime(userId: string, id: string, time: string | null): Promise<ReturnType<typeof mapScheduleEntry>> {
+  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: { routine: { select: { name: true } }, day: { select: { name: true } } } });
+  if (!entry) throw notFound("Schedule entry not found");
+  const updated = await db.scheduleEntry.update({ where: { id }, data: { timeOfDay: time } });
+  return mapScheduleEntry({ ...updated, routine: { name: entry.routine.name }, day: entry.day ? { name: entry.day.name } : null });
 }

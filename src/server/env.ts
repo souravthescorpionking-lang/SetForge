@@ -38,6 +38,25 @@ const envSchema = z.object({
   // ----- rate limiting (in-memory token bucket) -----
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
+
+  // ----- Part 6: auth email confirmation -----
+  AUTH_EMAIL_CONFIRM: boolish.default(false), // true = signup requires email confirmation before login
+
+  // ----- Part 6: media adapter (none | local | s3) -----
+  MEDIA_PROVIDER: z.enum(["none", "local", "s3"]).default("none"),
+  MEDIA_LOCAL_DIR: z.string().default("./data/media"),
+  MEDIA_MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(50).default(10),
+  MEDIA_S3_ENDPOINT: z.string().optional(),
+  MEDIA_S3_BUCKET: z.string().optional(),
+  MEDIA_S3_REGION: z.string().optional(),
+  MEDIA_S3_ACCESS_KEY: z.string().optional(),
+  MEDIA_S3_SECRET_KEY: z.string().optional(),
+  MEDIA_S3_PUBLIC_BASE_URL: z.string().optional(), // set = public URLs; unset = URLs via /api/media
+
+  // ----- Part 6: exercise catalog source -----
+  CATALOG_SOURCE: z.enum(["builtin", "url"]).default("builtin"),
+  CATALOG_URL: z.string().optional(),
+  CATALOG_MEDIA_BASE_URL: z.string().optional(), // prefix for relative thumbnail/video URLs in catalog
 });
 
 export type Env = z.infer<typeof envSchema> & { AUTH_SECRET: string };

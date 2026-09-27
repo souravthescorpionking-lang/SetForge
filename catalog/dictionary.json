@@ -1,0 +1,127 @@
+[
+  {
+    "term": "Superset",
+    "definition": "Two exercises performed back-to-back with little or no rest between them — usually opposing muscles (bench press + row) or distant body parts. One full round counts as one set of the pair.",
+    "setforge": "Used in SetForge as: pair the two exercises in a day and they share a group code (A1/A2); guided mode walks you through them alternately with one rest after both."
+  },
+  {
+    "term": "Triset",
+    "definition": "Three exercises strung together in one continuous block with no rest until all three are done. A staple for arms, delts and abs where three angles can hammer the same region.",
+    "setforge": "Used in SetForge as: group three exercises in a day — they get codes A1/A2/A3 and guided mode rotates through them round-robin."
+  },
+  {
+    "term": "Giant set",
+    "definition": "Four or more exercises performed consecutively as one extended block, usually for one muscle group or as total-body conditioning. Expect a long breather after each full round.",
+    "setforge": "Used in SetForge as: group 4+ exercises in a day — codes A1…A4+ keep the circuit visible; guided mode round-robins every member."
+  },
+  {
+    "term": "Drop set",
+    "definition": "Take a set to failure, then immediately strip weight and keep repping with the lighter load — often 2–3 drops in one chain. Buys extra volume without extra rest.",
+    "setforge": "Used in SetForge as: the D set type — add one from the set row ⋯ popover; it links to the previous set and is tagged separately in the log."
+  },
+  {
+    "term": "Rest-pause",
+    "definition": "Fail a set, rest 10–20 seconds with the same weight, then squeeze out a few more reps. Repeat 2–3 times and a heavy set becomes several mini-sets at the same load.",
+    "setforge": "Used in SetForge as: log each restart as its own set row and set a short planned rest (10–20 s) so the timer stays honest."
+  },
+  {
+    "term": "Cluster set",
+    "definition": "One set broken into mini-blocks of 1–5 reps with 10–30 s between them, keeping bar speed high on heavy loads. Popular for strength and power work.",
+    "setforge": "Used in SetForge as: log each cluster as its own set row (same weight, low reps) with short planned rest between."
+  },
+  {
+    "term": "AMRAP",
+    "definition": "As Many Reps As Possible — a set with no fixed rep target where you stop only when form breaks. Used to test capacity or squeeze out a final all-out effort.",
+    "setforge": "Used in SetForge as: the A set type — the target shows as n+ and your final count is logged like any other set."
+  },
+  {
+    "term": "Warm-up set",
+    "definition": "A light preparatory set done before the working sets to prime the pattern, raise temperature and rehearse technique. Never counted toward your working numbers.",
+    "setforge": "Used in SetForge as: the W set type — excluded from PRs, e1RM and volume; seeded templates pre-fill one on main compounds."
+  },
+  {
+    "term": "Working set",
+    "definition": "The sets that actually count — performed at your target load and effort for the day, as opposed to warm-ups or back-offs. Everything you track and compare lives here.",
+    "setforge": "Used in SetForge as: the default N (normal) set type — the rows that feed PRs, e1RM, volume and every graph."
+  },
+  {
+    "term": "Back-off set",
+    "definition": "After a heaviest top set, reduce the load 10–20% and do one or more higher-rep sets to add volume while fatigue is high. Classic finisher for strength blocks.",
+    "setforge": "Used in SetForge as: log it as a normal set after your top set — copy-previous pre-fills the last load, then dial it down."
+  },
+  {
+    "term": "Tempo notation",
+    "definition": "Four numbers describing rep speed in seconds: eccentric – pause at stretch – concentric – pause at top. E.g. 3-1-1-0 = 3 s lowering, 1 s pause, 1 s up, no top pause.",
+    "setforge": "Used in SetForge as: an optional per-set tempo field (ecc-pause-con-pause) edited in the set row ⋯ popover; presets live in Settings → Session."
+  },
+  {
+    "term": "RPE",
+    "definition": "Rate of Perceived Exertion — a 6–10 effort scale where 10 means zero reps left in the tank, 9 is one rep left, 8 is two. Turns 'hard' into a number you can program.",
+    "setforge": "Used in SetForge as: an optional per-set column, 6.0–10.0 in 0.5 steps; edit it in the set row ⋯ popover."
+  },
+  {
+    "term": "RIR",
+    "definition": "Reps In Reserve — how many clean reps you could still do when the set ended. RIR 2 and RPE 8 describe the same set from opposite directions.",
+    "setforge": "Used in SetForge as: no separate field — it is the mirror of RPE (RIR = 10 − RPE), so log it via the RPE column."
+  },
+  {
+    "term": "e1RM",
+    "definition": "Estimated one-rep max — a projection of your max single from a set of multiple reps (e.g. 100 kg × 5 ≈ 112 kg). Lets you compare heavy singles and 8-rep sets on one scale.",
+    "setforge": "Used in SetForge as: computed per set (Brzycki by default; Epley and RPE methods in Settings) and shown as the e1RM graph, records feed PRs. Reps above your rep limit are ignored."
+  },
+  {
+    "term": "Progressive overload",
+    "definition": "The core driver of adaptation: keep asking slightly more of the body over time — more weight, more reps, more sets or better execution at the same load.",
+    "setforge": "Used in SetForge as: weekly volume and e1RM trends on the exercise graphs, plus goals, show whether the line is actually going up."
+  },
+  {
+    "term": "Deload",
+    "definition": "A planned lighter week (roughly half volume, reduced loads) inserted every 4–8 weeks to dissipate fatigue so fitness can show up as performance.",
+    "setforge": "Used in SetForge as: log the lighter sets as normal training and mark the skipped day off (⋯ → mark day off) — the routine cursor keeps its place."
+  },
+  {
+    "term": "Volume",
+    "definition": "Total workload, classically Σ(weight × reps) across all working sets. The main currency of muscle-building programmes, usually tracked as a weekly total per muscle.",
+    "setforge": "Used in SetForge as: warm-ups excluded; weekly volume sits on the Home stats row and per-exercise on the Volume graph."
+  },
+  {
+    "term": "Intensity",
+    "definition": "How heavy or hard the work is relative to your capacity — either as % of 1RM (load intensity) or as effort (RPE/RIR). Not how it feels in the moment, but how close to your ceiling.",
+    "setforge": "Used in SetForge as: e1RM puts every set on a %-of-max scale, while the per-set RPE column records effort — both live on the set row."
+  },
+  {
+    "term": "Density",
+    "definition": "Work per unit of time — the same volume done in 45 instead of 60 minutes is denser. Improving density is a lazy-man's progress method that needs no extra weight.",
+    "setforge": "Used in SetForge as: every workout captures its duration and volume, so total-reps and volume graphs make session-to-session density visible."
+  },
+  {
+    "term": "Straight sets",
+    "definition": "The classic default: all sets of one exercise with the same weight and reps, resting fully between each. Simple, honest and easy to progress.",
+    "setforge": "Used in SetForge as: the default layout — ungrouped exercises each get their own block (A, B, C…) and run sequentially in guided mode."
+  },
+  {
+    "term": "Pyramid",
+    "definition": "Weight climbs and reps drop across successive sets (e.g. 60×10, 70×8, 80×6), finishing at the heaviest load. Warm-up built right into the working sets.",
+    "setforge": "Used in SetForge as: log each rung as its own set row — copy-previous pre-fills the last load so editing one number is enough."
+  },
+  {
+    "term": "Reverse pyramid",
+    "definition": "The heaviest set comes first, while you are freshest, then each following set gets lighter for more reps (e.g. 80×5, 75×7, 70×9). Top-end strength without pre-fatigue.",
+    "setforge": "Used in SetForge as: put the top set first in the row order; later sets use copy-previous and step the weight down."
+  },
+  {
+    "term": "Circuit",
+    "definition": "Rotate through a list of exercises (usually whole-body) one set each, rest briefly at the end of the round, then repeat for time or rounds. Conditioning and training in one.",
+    "setforge": "Used in SetForge as: give every exercise in the day the same group code — guided mode round-robins the members automatically."
+  },
+  {
+    "term": "EMOM",
+    "definition": "Every Minute On the Minute — start a fixed block of work at the top of each minute and rest for whatever time remains. The clock is the boss.",
+    "setforge": "Used in SetForge as: set planned rest to 60 s on the set row and log one row per round; the rest timer keeps the minute rhythm."
+  },
+  {
+    "term": "Mechanical drop set",
+    "definition": "Pass failure by switching to an easier variation of the same movement — incline press to flat press, pull-up to lat pulldown — instead of dropping weight.",
+    "setforge": "Used in SetForge as: log the continuation as extra sets on the easier exercise right below it in the day, then compare both rows."
+  }
+]

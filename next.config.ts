@@ -21,6 +21,7 @@ const CSP = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  devIndicators: false, // hide the floating dev-tools badge (clean QA screenshots)
   typescript: {
     ignoreBuildErrors: true,
   },

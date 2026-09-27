@@ -541,3 +541,154 @@ export const syncApi = {
       exerciseIdsChanged: string[];
     }>(`/api/sync${qs({ since })}`),
 };
+
+// ===================== Part 6: library / profile / media / programs meta =====================
+
+import type {
+  CaloriesDTO,
+  DictionaryTermDTO,
+  HiddenWorkoutDTO,
+  LibraryEntryDTO,
+  MediaUploadResultDTO,
+  ProgramMetaDTO,
+  ProgramTotalsDTO,
+  ProgressPhotoDTO,
+  UserProfileDTO,
+  WeightTableDTO,
+} from "@/lib/types";
+
+export type BuilderSetInput = { weight?: number | null; reps?: number | null; restPlannedSec?: number | null; setType?: string | null };
+export type BuilderProgramInput = {
+  name: string;
+  difficulty?: string | null;
+  daysPerWeek?: number | null;
+  estMinutes?: number | null;
+  labels?: string[];
+  phases: Array<{ name: string; weeks: number }>;
+  weekly: Array<{ weekday: number; type: string; name?: string | null }>;
+  exercises?: Record<string, Array<{ exerciseId: string; sets?: BuilderSetInput[] }>>;
+};
+
+export const libraryApi = {
+  list: (params: { search?: string; muscle?: string[]; equipment?: string[]; fav?: boolean; mine?: boolean } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.search) sp.set("search", params.search);
+    for (const m of params.muscle ?? []) sp.append("muscle", m);
+    for (const e of params.equipment ?? []) sp.append("equipment", e);
+    if (params.fav) sp.set("fav", "1");
+    if (params.mine) sp.set("mine", "1");
+    const query = sp.toString();
+    return request<LibraryEntryDTO[]>(`/api/library${query ? `?${query}` : ""}`);
+  },
+  get: (key: string) => request<LibraryEntryDTO>(`/api/library/${encodeURIComponent(key)}`),
+  adopt: (key: string, favourite?: boolean) =>
+    request<{ exerciseId: string; created: boolean; favourite: boolean }>(
+      `/api/library/${encodeURIComponent(key)}/adopt`,
+      { method: "POST", body: body({ ...(favourite != null ? { favourite } : {}) }) },
+    ),
+  adoptMany: (keys: string[]) =>
+    request<{ adopted: number }>("/api/library/adopt-many", { method: "POST", body: body({ keys }) }),
+};
+
+export const profileApi = {
+  get: () => request<UserProfileDTO>("/api/profile"),
+  update: (patch: Partial<{ age: number | null; heightCm: number | null; weightKg: number | null; level: string | null; goal: string | null; daysPerWeekTarget: number | null }>) =>
+    request<UserProfileDTO>("/api/profile", { method: "PUT", body: body(patch) }),
+  completeOnboarding: (payload: {
+    unitSystem?: string; goal?: string | null; level?: string | null; daysPerWeekTarget?: number | null;
+    heightCm?: number | null; weightKg?: number | null; age?: number | null; skipped?: boolean;
+  }) => request<UserProfileDTO>("/api/onboarding/complete", { method: "POST", body: body(payload) }),
+};
+
+export const caloriesApi = {
+  get: (date: string) => request<CaloriesDTO>(`/api/calories?date=${date}`),
+  put: (date: string, kcal: number | null, note?: string | null) =>
+    request<CaloriesDTO>(`/api/calories?date=${date}`, { method: "PUT", body: body({ kcal, note: note ?? null }) }),
+};
+
+export const dictionaryApi = {
+  get: () => request<{ terms: DictionaryTermDTO[] }>("/api/dictionary"),
+};
+
+export const mediaApi = {
+  upload: async (file: File): Promise<MediaUploadResultDTO> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/media/upload", { method: "POST", body: form, credentials: "same-origin" });
+    const json = (await res.json().catch(() => null)) as unknown;
+    if (!res.ok) {
+      const err = json as { error?: { message?: string; code?: string } } | null;
+      throw new ApiError(res.status, err?.error?.code ?? "REQUEST_FAILED", err?.error?.message ?? "Upload failed");
+    }
+    return json as MediaUploadResultDTO;
+  },
+  /** Resolve a media key to a servable URL (auth-scoped API path or direct public URL). */
+  url: (key: string) => `/api/media/${key.split("/").map(encodeURIComponent).join("/")}`,
+};
+
+export const photosApi = {
+  list: (params: { measurementId?: string; recordId?: string } = {}) => {
+    const sp = new URLSearchParams();
+    if (params.measurementId) sp.set("measurementId", params.measurementId);
+    if (params.recordId) sp.set("recordId", params.recordId);
+    const query = sp.toString();
+    return request<{ photos: ProgressPhotoDTO[] }>(`/api/photos${query ? `?${query}` : ""}`);
+  },
+  attach: (measurementId: string, recordId: string, data: { slot: string; mediaKey: string; width: number; height: number }) =>
+    request<ProgressPhotoDTO>(`/api/measurements/${measurementId}/records/${recordId}/photos`, { method: "POST", body: body(data) }),
+  remove: (id: string) => request<{ ok: true }>(`/api/photos/${id}`, { method: "DELETE" }),
+};
+
+export const programsMetaApi = {
+  get: (routineId: string) => request<ProgramMetaDTO>(`/api/programs/${routineId}/meta`),
+  update: (routineId: string, patch: Record<string, unknown>) =>
+    request<ProgramMetaDTO>(`/api/programs/${routineId}/meta`, { method: "PUT", body: body(patch) }),
+  markOff: (routineId: string, dayId: string) =>
+    request<{ completedDayIds: string[]; advanced: boolean }>(`/api/programs/${routineId}/days/${dayId}/mark-off`, { method: "POST" }),
+  unmarkOff: (routineId: string, dayId: string) =>
+    request<{ completedDayIds: string[] }>(`/api/programs/${routineId}/days/${dayId}/mark-off`, { method: "DELETE" }),
+  favouriteDay: (routineId: string, dayId: string) =>
+    request<{ isFavorite: boolean }>(`/api/programs/${routineId}/days/${dayId}/favourite`, { method: "POST" }),
+  totals: (routineId: string) => request<ProgramTotalsDTO>(`/api/programs/${routineId}/totals`),
+  build: (input: BuilderProgramInput) =>
+    request<{ id: string; dayCount: number }>("/api/programs/builder", { method: "POST", body: body(input) }),
+};
+
+export const historyApi = {
+  search: (search: string) =>
+    request<{ workouts: WorkoutSummaryDTO[] }>(`/api/history${qs({ search })}`),
+};
+
+export const exercisesWeightTableApi = {
+  get: (exerciseId: string, opts: { limit?: number; before?: string } = {}) =>
+    request<WeightTableDTO>(`/api/exercises/${exerciseId}/weight-table${qs({ limit: opts.limit, before: opts.before })}`),
+};
+
+export const workoutLifecycleApi = {
+  discard: (id: string) => request<{ ok: true; discardedAt: string }>(`/api/workouts/${id}/discard`, { method: "POST" }),
+  restore: (id: string) => request<{ ok: true }>(`/api/workouts/${id}/restore`, { method: "POST" }),
+  hidden: () => request<{ workouts: HiddenWorkoutDTO[] }>("/api/workouts/hidden"),
+};
+
+export const scheduleTimeApi = {
+  set: (id: string, time: string | null) =>
+    request<ScheduleEntryDTO>(`/api/schedule/${id}/time`, { method: "POST", body: body({ time }) }),
+};
+
+export const authConfirmApi = {
+  confirm: (token: string) =>
+    request<{ ok: true }>("/api/auth/confirm", { method: "POST", body: body({ token }) }),
+  resend: (email: string) =>
+    request<{ ok: true; emailConfigured: boolean }>("/api/auth/resend-confirmation", { method: "POST", body: body({ email }) }),
+};
+
+export const clientErrorsApi = {
+  report: (payload: { message: string; stack?: string; route?: string; url?: string }) => {
+    void fetch("/api/client-errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload).slice(0, 2048),
+    }).catch(() => undefined);
+  },
+};

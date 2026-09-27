@@ -5,28 +5,31 @@
 //
 //   • 56px [data-row]s: name (line 1) + "3d ago" muted 12px (line 2) stacked
 //     left | 120px right column with the latest value (tabular) + Δ line.
-//   • Tapping a row expands a 96px INLINE EDITOR block below it (NOT a
-//     data-row): value input + native date input + Save/Cancel. Only one row
-//     is expanded at a time — this replaces the legacy record-form dialog.
+//   • Tapping a row expands an INLINE EDITOR block below it (NOT a
+//     data-row): value input + native date input + Save/Cancel + the Part 6
+//     §4.14 photo section (photo-slots.tsx). Only one row is expanded at a
+//     time — this replaces the legacy record-form dialog.
 //   • Data/mutation logic ported from legacy track-tab.tsx / record-form.tsx.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { measurementsApi } from "@/lib/client/api";
-import { useInvalidate } from "@/lib/client/query";
+import { qk, useInvalidate } from "@/lib/client/query";
 import { relativeFromNow, round2 } from "@/lib/client/format";
 import type { MeasurementDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { dateInputToIso, localTodayInput, useBodyAction, DeltaLine } from "./body-util";
+import { dateInputToIso, localDayKey, localTodayInput, useBodyAction, DeltaLine } from "./body-util";
+import { PhotoSlots } from "./photo-slots";
 
 type Props = {
   measurements: MeasurementDTO[];
   loading: boolean;
-  /** Which row's 96px inline editor is open (one at a time; owned by the screen so
+  /** Which row's inline editor is open (one at a time; owned by the screen so
    *  the ⋮ → "Add measurement" action can open the first row directly). */
   expandedId: string | null;
   onExpandedChange: (id: string | null) => void;
@@ -109,7 +112,7 @@ export function BodyTrackTab({ measurements, loading, expandedId, onExpandedChan
   );
 }
 
-// ── 96px inline editor (NOT a data-row) ─────────────────────────────────────
+// ── inline editor (NOT a data-row): entry fields + §4.14 photo section ──────
 
 function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO; onClose: () => void }) {
   const act = useBodyAction();
@@ -117,6 +120,19 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
   const [value, setValue] = useState<string>(m.lastValue != null ? String(m.lastValue) : "");
   const [date, setDate] = useState<string>(localTodayInput);
   const [saving, setSaving] = useState(false);
+
+  // §4.14: this metric's records — binds the editor's selected date to the
+  // MeasurementRecord that photos attach to (null = no entry on that date yet,
+  // in which case a photo tap creates one with the value above).
+  const recordsQuery = useQuery({
+    queryKey: qk.measurementRecords(m.id),
+    queryFn: () => measurementsApi.records(m.id),
+  });
+  const records = useMemo(() => recordsQuery.data?.records ?? [], [recordsQuery.data]);
+  const record = useMemo(
+    () => records.find((r) => localDayKey(r.recordedAt) === date) ?? null,
+    [records, date],
+  );
 
   const save = async () => {
     const n = Number(value);
@@ -141,8 +157,8 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
   };
 
   return (
-    <div className="flex h-24 flex-none flex-col gap-1 rounded-lg border border-primary/40 bg-card p-1.5">
-      <div className="flex min-h-0 flex-1 gap-2">
+    <div className="flex flex-none flex-col gap-1 rounded-lg border border-primary/40 bg-card p-1.5">
+      <div className="flex h-10 flex-none gap-2">
         <Input
           type="number"
           inputMode="decimal"
@@ -162,7 +178,7 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
           aria-label="Entry date"
         />
       </div>
-      <div className="flex min-h-0 flex-1 gap-2">
+      <div className="flex h-10 flex-none gap-2">
         <Button
           type="button"
           className="h-full flex-1 font-semibold"
@@ -175,6 +191,13 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
           Cancel
         </Button>
       </div>
+      <PhotoSlots
+        measurement={m}
+        record={record}
+        recordsLoading={recordsQuery.isLoading}
+        value={value}
+        date={date}
+      />
     </div>
   );
 }

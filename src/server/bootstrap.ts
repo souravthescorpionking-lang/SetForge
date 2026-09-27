@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { getEnv, normaliseDatabaseUrl } from "./env";
 import { seedSystemData } from "./seed";
 import { copyDatabase } from "./db-portability";
+import { loadSystemCatalog, backfillUserExercises } from "./catalog";
+import { backfillExistingProfiles } from "./services/profile-service";
 
 let bootPromise: Promise<BootResult> | null = null;
 
@@ -148,6 +150,16 @@ async function runBootstrap(): Promise<BootResult> {
       if (env.NODE_ENV === "production") process.exit(1);
       return { db: "fail", migrations, version, latencyMs: Date.now() - started, bootedAt: Date.now(), error: String(e) };
     }
+  }
+
+  // 3b) Part 6: exercise catalog (§3) — load SystemCatalog + one-time user backfill.
+  //     Never fatal: a missing catalog degrades Library features only.
+  try {
+    const result = await loadSystemCatalog();
+    if (result.entries > 0) await backfillUserExercises();
+    await backfillExistingProfiles();
+  } catch (e) {
+    console.warn("[bootstrap] catalog load skipped:", e instanceof Error ? e.message : String(e));
   }
 
   // 4) smoke-verify core tables

@@ -137,6 +137,13 @@ export type EntryStatusInput = {
   todayKey: string;
   linkedWorkoutHasData: boolean;
   linkedWorkoutFinished: boolean;
+  /**
+   * Part 6 (§4.13): absolute ms cutoff for time-of-day scheduling —
+   * `toDayUtc(dateKey) + timeOfDay + MISSED_GRACE_HOURS`. Null = all-day entry
+   * (midnight rule only). Callers compute this from their timezone context.
+   */
+  missedCutoffMs?: number | null;
+  nowMs?: number;
 };
 
 /**
@@ -144,6 +151,8 @@ export type EntryStatusInput = {
  *   PLANNED → DONE   when the linked workout has ≥1 logged set AND
  *                     (finishedAt set OR entry date < today)
  *   PLANNED → MISSED when date < today AND no linked workout with data
+ *                     (all-day) — or, with a time-of-day, once
+ *                     now > date + timeOfDay + 4h grace (§4.13)
  *   DONE/SKIPPED/MISSED never auto-revert. Reopen → PLANNED is user-driven and
  *   only allowed for date ≥ today.
  */
@@ -153,8 +162,21 @@ export function deriveEntryStatus(input: EntryStatusInput): string {
 
   const past = compareDateKeys(dateKey, todayKey) < 0;
   if (linkedWorkoutHasData && (linkedWorkoutFinished || past)) return "DONE";
+  if (input.missedCutoffMs != null && input.nowMs != null && input.nowMs > input.missedCutoffMs) {
+    return "MISSED";
+  }
   if (past && !linkedWorkoutHasData) return "MISSED";
   return "PLANNED";
+}
+
+/** Compute the §4.13 missed cutoff (ms) for a date + "HH:MM" time-of-day. */
+export function missedCutoffMs(dateKey: string, timeOfDay: string | null | undefined, graceHours = 4): number | null {
+  if (!timeOfDay) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(timeOfDay.trim());
+  if (!m) return null;
+  const [y, mo, d] = dateKey.split("-").map(Number);
+  const base = Date.UTC(y, mo - 1, d);
+  return base + (Number(m[1]) * 3600 + Number(m[2]) * 60) * 1000 + graceHours * 3600 * 1000;
 }
 
 // ---------- projection ----------

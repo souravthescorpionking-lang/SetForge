@@ -17,6 +17,7 @@
 import { useMemo, type ReactNode } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   ArrowDown,
   ArrowLeftRight,
@@ -35,11 +36,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rowBase } from "@/lib/ui/tokens";
+import { useApp } from "@/lib/client/store";
+import { hapticSuccess } from "@/lib/client/haptics";
 import { fieldsForType, formatRestSec, type SetField } from "@/lib/constants";
 import { SetRow } from "../set-row/set-row";
 import {
   formatDistanceM,
   trimNum,
+  type ApplyToAllFields,
   type CardAction,
   type CardExercise,
   type CardMode,
@@ -54,10 +58,14 @@ export type {
   CardSet,
   CardVisibleColumns,
   ToCardSetInput,
+  ApplyToAllFields,
 } from "./card-types";
 export { toCardSet } from "./card-types";
 
 // ---------- ⋮ menu (per-mode subsets) ----------
+
+/** Stagger between apply-to-all fan-out dispatches (§4.10d) — see dispatchAction. */
+const APPLY_FANOUT_STAGGER_MS = 300;
 
 type MenuSpec = { icon: LucideIcon; label: string; action: CardAction; destructive?: boolean };
 
@@ -161,6 +169,16 @@ export interface ExerciseCardProps {
    * e.g. the 24px drag handle on template cards in edit mode. Ignored when
    * hideHeader is set. */
   headerLeading?: ReactNode;
+  /** Part 6 (§4.10): derived group code ("A1") — 32px chip before the name. */
+  groupCode?: string;
+  /** Part 6 (§4.11): extra meta line under the summary (e.g. "Best 110×5"), 12px tabular. */
+  metaExtra?: ReactNode;
+  /** Part 6 (§4.11): flow element rendered under the header, above rows
+   * (guided-mode MediaBlock / trainer-tip row). 0-height when null. */
+  underHeader?: ReactNode;
+  /** Part 6 (§4.10e): tempo presets ("2-0-2-0"…) for the tempo editors.
+   * Omitted → falls back to settings.tempoPresets from the app store. */
+  tempoPresets?: string[];
   className?: string;
 }
 
@@ -175,8 +193,14 @@ export function ExerciseCard({
   onAction,
   hideHeader = false,
   headerLeading,
+  groupCode,
+  metaExtra,
+  underHeader,
+  tempoPresets,
   className,
 }: ExerciseCardProps) {
+  const storeTempoPresets = useApp((s) => s.settings)?.tempoPresets;
+  const effectiveTempoPresets = tempoPresets ?? storeTempoPresets;
   const cols: CardVisibleColumns =
     visibleColumns ?? { setType: true, rpe: true, tempo: true, rest: true };
   const fields = useMemo(() => fieldsForType(exercise.modality), [exercise.modality]);
@@ -194,6 +218,43 @@ export function ExerciseCard({
   const addSetRow = hasActions && (mode === "edit" || mode === "template");
   const meta = formatCardMeta(exercise, ordered, fields);
   const barColour = groupColour ?? exercise.categoryColour;
+
+  // §4.10d “Apply to all sets” is handled INSIDE the card: the row-level action
+  // fans out into one update-set per sibling set, so consumers never change.
+  // Undo restores the pre-apply snapshot captured from this render's props.
+  // The fan-out is STAGGERED (~300ms): consumers fire one PATCH per dispatch,
+  // and N simultaneous set PATCHes contend on the SQLite write lock (PR
+  // recompute runs inside each transaction) — sequential dispatches keep every
+  // request fast and green while the UI updates progressively.
+  const fanOutUpdates = (patches: Array<{ setId: string; patch: ApplyToAllFields }>): void => {
+    patches.forEach((p, i) => {
+      const dispatch = () => onAction?.({ type: "update-set", setId: p.setId, patch: { ...p.patch } });
+      if (i === 0) dispatch();
+      else window.setTimeout(dispatch, i * APPLY_FANOUT_STAGGER_MS);
+    });
+  };
+  const dispatchAction = (action: CardAction): void => {
+    if (action.type !== "apply-to-all") {
+      onAction?.(action);
+      return;
+    }
+    const keys = Object.keys(action.fields) as Array<keyof ApplyToAllFields>;
+    if (keys.length === 0 || ordered.length === 0) return;
+    const snapshot = ordered.map((s) => ({
+      id: s.id,
+      prev: Object.fromEntries(keys.map((k) => [k, s[k] ?? null])) as ApplyToAllFields,
+    }));
+    fanOutUpdates(ordered.map((s) => ({ setId: s.id, patch: action.fields })));
+    hapticSuccess();
+    toast.success(`Applied to ${ordered.length} set${ordered.length === 1 ? "" : "s"}`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          fanOutUpdates(snapshot.map((s) => ({ setId: s.id, patch: s.prev })));
+        },
+      },
+    });
+  };
 
   const headerInner = (
     <>
@@ -222,13 +283,21 @@ export function ExerciseCard({
           {groupName ?? "Group"}
         </span>
       ) : null}
+      {groupCode ? (
+        <span className="flex h-6 w-8 flex-none items-center justify-center rounded bg-muted/60 text-[10px] font-bold tabular-nums" title={`Group code ${groupCode}`}>
+          {groupCode}
+        </span>
+      ) : null}
       <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{exercise.name}</h3>
       <div
-        className="flex w-[120px] flex-none items-center justify-end gap-1 text-right text-xs tabular-nums text-muted-foreground"
+        className="flex w-[120px] flex-none flex-col items-end justify-center gap-0.5 text-right text-xs tabular-nums text-muted-foreground"
         title={groupColour ? (groupName ?? "Grouped") : undefined}
       >
-        {hasPr ? <Trophy className="h-3.5 w-3.5 flex-none text-amber-400" role="img" aria-label="New personal record" /> : null}
-        <span className="truncate">{meta}</span>
+        <span className="flex w-full items-center justify-end gap-1 leading-none">
+          {hasPr ? <Trophy className="h-3.5 w-3.5 flex-none text-amber-400" role="img" aria-label="New personal record" /> : null}
+          <span className="truncate">{meta}</span>
+        </span>
+        {metaExtra != null ? <span className="w-full truncate text-[11px] leading-none">{metaExtra}</span> : null}
       </div>
       {hasActions && menu.length > 0 ? (
         // stopPropagation keeps the summary-mode header "open" action from
@@ -298,6 +367,7 @@ export function ExerciseCard({
       <div aria-hidden className="w-1 flex-none" style={{ backgroundColor: barColour }} />
       <div className="min-w-0 flex-1">
         {hideHeader ? null : header}
+        {underHeader != null ? underHeader : null}
         {rowsVisible && (ordered.length > 0 || addSetRow) ? (
           <div className={hideHeader ? undefined : "border-t border-border"}>
             {ordered.map((s) => (
@@ -308,7 +378,8 @@ export function ExerciseCard({
                 set={s}
                 visibleColumns={cols}
                 moreTrack={mode === "read" || mode === "preview" ? hasMoreGlyph : undefined}
-                onAction={onAction}
+                onAction={onAction != null ? dispatchAction : undefined}
+                tempoPresets={effectiveTempoPresets}
               />
             ))}
             {addSetRow ? (

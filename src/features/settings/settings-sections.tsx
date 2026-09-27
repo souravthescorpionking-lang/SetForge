@@ -51,7 +51,7 @@ import { clearSwCaches, isStandalone, useInstallPrompt } from "@/components/shar
 import { armDailyReminder, requestReminderPermission } from "@/lib/client/notifications";
 import type { SettingsDTO } from "@/lib/types";
 import { toast } from "sonner";
-import { Check, ChevronRight, Loader2, LogOut, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ChevronRight, Loader2, LogOut, Trash2, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { replaceHash } from "@/features/shell/router";
 
@@ -1023,5 +1023,186 @@ export function ProgramsSection() {
         }}
       />
     </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 6 — Session + Display sections (§1 settings). Defaults preserve the
+// Part 1-5 behaviour exactly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function SessionSection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  if (!settings) return null;
+  const patch = (p: Partial<SettingsDTO>) => {
+    void updateSettings(p).catch(() => undefined);
+  };
+
+  return (
+    <>
+      <SectionHeader title="Session" />
+      <SwitchRow
+        label="Guided mode"
+        hint="One highlighted set at a time · Prev / Log set / Next"
+        checked={settings.guidedMode}
+        onCheckedChange={(v) => patch({ guidedMode: v })}
+      />
+      <SwitchRow
+        label="Auto-move next set"
+        hint="Pointer advances after rest ends"
+        checked={settings.autoMoveNextSet}
+        onCheckedChange={(v) => patch({ autoMoveNextSet: v })}
+      />
+      <MenuRow
+        label="Rest display"
+        hint="Bar keeps the compact BottomBar"
+        value={settings.restDisplay}
+        options={[
+          { value: "BAR", label: "Bar (default)" },
+          { value: "RING", label: "Ring + bar" },
+        ]}
+        onSelect={(v) => patch({ restDisplay: v })}
+      />
+      <MenuRow
+        label="Finish behaviour"
+        value={settings.finishBehaviour}
+        options={[
+          { value: "ALWAYS_SAVE", label: "Always save (default)" },
+          { value: "ASK", label: "Ask: save or discard" },
+        ]}
+        onSelect={(v) => patch({ finishBehaviour: v })}
+      />
+      <SwitchRow
+        label="Sets progress bar"
+        hint="4px bar under the date strip"
+        checked={settings.showSetsProgressBar}
+        onCheckedChange={(v) => patch({ showSetsProgressBar: v })}
+      />
+      <SwitchRow
+        label="Best-weight line"
+        hint="“Best 110×5” in the card meta"
+        checked={settings.showMaxWeightBar}
+        onCheckedChange={(v) => patch({ showMaxWeightBar: v })}
+      />
+      <SwitchRow
+        label="Video panel in guided mode"
+        hint="Collapses to 0px when no video"
+        checked={settings.showVideoPanel}
+        onCheckedChange={(v) => patch({ showVideoPanel: v })}
+      />
+      <SwitchRow
+        label="Haptics"
+        hint="Vibration feedback (where supported)"
+        checked={settings.hapticsEnabled}
+        onCheckedChange={(v) => patch({ hapticsEnabled: v })}
+      />
+      <TempoPresetsRow />
+    </>
+  );
+}
+
+function TempoPresetsRow() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  if (!settings) return null;
+  const presets = settings.tempoPresets ?? [];
+
+  const save = (next: string[]) => {
+    void updateSettings({ tempoPresets: next }).catch(() => undefined);
+  };
+
+  return (
+    <>
+      <ActionRow label="Tempo presets" hint={`${presets.length} presets · tap to edit`} onClick={() => setOpen((v) => !v)} trailing={<span className="text-xs tabular-nums text-muted-foreground">{presets.length}</span>} />
+      {open ? (
+        <div className="flex flex-col gap-1 border-b bg-muted/20 p-2">
+          {presets.map((p, i) => (
+            <div key={p + i} className={ROW_CLS} data-row>
+              <span className="flex-1 truncate pl-2 text-sm tabular-nums">{p}</span>
+              <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-destructive" aria-label={`Remove ${p}`} onClick={() => save(presets.filter((_, j) => j !== i))}>
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            </div>
+          ))}
+          <div className={ROW_CLS} data-row>
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="e.g. 3-1-1-0"
+              className="h-9 w-28 rounded-md border bg-background text-sm tabular-nums"
+              aria-label="New tempo preset"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && /^\d{1,2}-\d{1,2}-\d{1,2}(-\d{1,2})?$/.test(draft.trim())) {
+                  save([...presets, draft.trim()].slice(0, 8));
+                  setDraft("");
+                }
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 px-3 text-xs"
+              disabled={!/^\d{1,2}-\d{1,2}-\d{1,2}(-\d{1,2})?$/.test(draft.trim()) || presets.length >= 8}
+              onClick={() => {
+                save([...presets, draft.trim()].slice(0, 8));
+                setDraft("");
+              }}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export function DisplaySection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  if (!settings) return null;
+  const patch = (p: Partial<SettingsDTO>) => {
+    void updateSettings(p).catch(() => undefined);
+  };
+
+  return (
+    <>
+      <SectionHeader title="Display" />
+      <MenuRow
+        label="Calendar style"
+        value={settings.calendarStyle}
+        options={[
+          { value: "GRID", label: "Month grid (default)" },
+          { value: "SCROLL", label: "Continuous scroll" },
+        ]}
+        onSelect={(v) => patch({ calendarStyle: v })}
+      />
+      <SwitchRow
+        label="Muscle chips"
+        hint="Dots and chips on rows/cards"
+        checked={settings.showMuscleChips}
+        onCheckedChange={(v) => patch({ showMuscleChips: v })}
+      />
+      <SwitchRow
+        label="Equipment chips"
+        checked={settings.showEquipmentChips}
+        onCheckedChange={(v) => patch({ showEquipmentChips: v })}
+      />
+      <SwitchRow
+        label="Library thumbnails"
+        hint="40px thumbnails in the exercise library"
+        checked={settings.showThumbnails}
+        onCheckedChange={(v) => patch({ showThumbnails: v })}
+      />
+      <SwitchRow
+        label="Calories card"
+        hint="Home · manual kcal logging"
+        checked={settings.showCaloriesCard}
+        onCheckedChange={(v) => patch({ showCaloriesCard: v })}
+      />
+    </>
   );
 }

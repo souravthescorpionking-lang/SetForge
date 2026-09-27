@@ -209,7 +209,7 @@ export async function updateExercise(
         }
       }
       await tx.personalRecord.updateMany({
-        where: { exerciseId: id, weight: { not: null } },
+        where: { exerciseId: id },
         data: {}, // weights recomputed below via full recompute
       });
       // recompute PRs from converted sets
@@ -309,4 +309,67 @@ export async function lastSetsForExercise(userId: string, exerciseId: string, be
       workoutExerciseId: s.workoutExerciseId,
     })),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 6 — weight-history table (§4.12). Per-exercise set-index × date grid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { dayKey as weightTableDayKey } from "@/lib/dates";
+import type { WeightTableDTO } from "@/lib/types";
+
+export async function getWeightTable(
+  userId: string,
+  exerciseId: string,
+  opts: { limit: number; before?: string },
+): Promise<WeightTableDTO> {
+  const exercise = await db.exercise.findFirst({ where: { id: exerciseId, userId, deletedAt: null } });
+  if (!exercise) throw notFound("Exercise not found");
+
+  const beforeDate = opts.before ? new Date(`${opts.before}T00:00:00.000Z`) : new Date();
+  // Fetch recent workouts containing this exercise (newest first), take limit+1 to detect hasMore.
+  const workouts = await db.workout.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      discardedAt: null,
+      date: { lte: beforeDate },
+      exercises: { some: { exerciseId } },
+    },
+    orderBy: { date: "desc" },
+    take: opts.limit + 1,
+    include: { exercises: { where: { exerciseId }, include: { sets: { orderBy: { sortOrder: "asc" } } } } },
+  });
+
+  const hasMore = workouts.length > opts.limit;
+  const page = hasMore ? workouts.slice(0, opts.limit) : workouts;
+  const columns = page.map((w) => ({ date: weightTableDayKey(w.date), label: weightTableDayKey(w.date) }));
+
+  // Per-date set lists (performed, in order)
+  const perDate: Array<Array<{ weight: number | null; reps: number | null }>> = page.map((w) => {
+    const sets = w.exercises[0]?.sets ?? [];
+    return sets.map((s) => ({ weight: s.weight ?? null, reps: s.reps ?? null }));
+  });
+  const maxIndex = perDate.reduce((m, list) => Math.max(m, list.length), 0);
+
+  const rows: WeightTableDTO["rows"] = [];
+  for (let i = 0; i < maxIndex; i++) {
+    const cells = perDate.map((list, dateIdx) => {
+      const s = list[i];
+      if (!s || (s.weight == null && s.reps == null)) return null;
+      return { date: columns[dateIdx].date, weight: s.weight, reps: s.reps, isBest: false };
+    });
+    // best in row: max weight (tie → more reps)
+    let bestIdx = -1;
+    cells.forEach((c, idx) => {
+      if (!c) return;
+      if (bestIdx < 0) { bestIdx = idx; return; }
+      const best = cells[bestIdx]!;
+      if ((c.weight ?? 0) > (best.weight ?? 0) || (c.weight === best.weight && (c.reps ?? 0) > (best.reps ?? 0))) bestIdx = idx;
+    });
+    if (bestIdx >= 0 && cells[bestIdx]) cells[bestIdx]!.isBest = true;
+    rows.push({ setIndex: i + 1, cells });
+  }
+
+  return { exerciseId, columns, rows, hasMore };
 }

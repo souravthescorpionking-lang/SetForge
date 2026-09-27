@@ -1,5 +1,7 @@
 // Account: data export (JSON backup), import (restore/merge), CSV, password, delete.
 import { db } from "@/lib/db";
+import { jsonStringArray } from "@/server/media";
+import { DEFAULT_TEMPO_PRESETS } from "@/lib/constants";
 import { uuid7 } from "@/lib/uuid7";
 import { toDayUtc } from "@/lib/dates";
 import { badRequest, notFound } from "../http";
@@ -10,7 +12,7 @@ import type { BackupDTO } from "@/lib/types";
 // ---------- export ----------
 
 export async function exportBackup(userId: string): Promise<BackupDTO> {
-  const [user, settings, categories, exercises, workouts, routines, measurements, plates, goals] = await Promise.all([
+  const [user, settings, categories, exercises, workouts, routines, measurements, plates, goals, profile, calories, photos] = await Promise.all([
     db.user.findUnique({ where: { id: userId } }),
     db.userSettings.findUnique({ where: { userId } }),
     db.category.findMany({ where: { userId }, orderBy: { sortOrder: "asc" } }),
@@ -43,6 +45,14 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
     }),
     db.plate.findMany({ where: { userId }, orderBy: [{ unitSystem: "asc" }, { sortOrder: "asc" }] }),
     db.goal.findMany({ where: { userId }, include: { exercise: true } }),
+    // ---- Part 6 ----
+    db.userProfile.findUnique({ where: { userId } }),
+    db.dailyCalories.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+    db.progressPhoto.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      include: { measurementRecord: { include: { measurement: { select: { name: true } } } } },
+    }),
   ]);
   if (!user || !settings) throw notFound("User not found");
 
@@ -77,6 +87,21 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       advanceTrigger: settings.advanceTrigger,
       showProjectedDays: settings.showProjectedDays,
       reminderTime: settings.reminderTime,
+      // ---- Part 6 ----
+      guidedMode: settings.guidedMode,
+      restDisplay: settings.restDisplay,
+      autoMoveNextSet: settings.autoMoveNextSet,
+      hapticsEnabled: settings.hapticsEnabled,
+      showVideoPanel: settings.showVideoPanel,
+      showMuscleChips: settings.showMuscleChips,
+      showEquipmentChips: settings.showEquipmentChips,
+      finishBehaviour: settings.finishBehaviour,
+      showSetsProgressBar: settings.showSetsProgressBar,
+      showMaxWeightBar: settings.showMaxWeightBar,
+      calendarStyle: settings.calendarStyle,
+      tempoPresets: jsonStringArray(settings.tempoPresets).length > 0 ? jsonStringArray(settings.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
+      showCaloriesCard: settings.showCaloriesCard,
+      showThumbnails: settings.showThumbnails,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({
@@ -187,6 +212,30 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       targetDistance: g.targetDistance ?? null,
       targetTimeSec: g.targetTimeSec ?? null,
     })),
+    // ---- Part 6 ----
+    profile: profile
+      ? {
+          age: profile.age ?? null,
+          heightCm: profile.heightCm ?? null,
+          weightKg: profile.weightKg ?? null,
+          level: profile.level ?? null,
+          goal: profile.goal ?? null,
+          daysPerWeekTarget: profile.daysPerWeekTarget ?? null,
+        }
+      : null,
+    calories: calories.map((c) => ({
+      date: c.date.toISOString().slice(0, 10),
+      kcal: c.kcal,
+      note: c.note ?? null,
+    })),
+    photos: photos.map((p) => ({
+      measurementName: p.measurementRecord.measurement.name,
+      recordDate: p.measurementRecord.recordedAt.toISOString(),
+      slot: p.slot,
+      mediaKey: p.mediaKey,
+      width: p.width,
+      height: p.height,
+    })),
   };
 }
 
@@ -242,6 +291,23 @@ const backupSchema = z.object({
       }),
     )
     .optional(),
+  // ---- Part 6 (all optional: old backups import cleanly) ----
+  profile: z
+    .object({
+      age: z.number().int().nullable().optional(),
+      heightCm: z.number().nullable().optional(),
+      weightKg: z.number().nullable().optional(),
+      level: z.string().nullable().optional(),
+      goal: z.string().nullable().optional(),
+      daysPerWeekTarget: z.number().int().nullable().optional(),
+    })
+    .optional(),
+  calories: z
+    .array(z.object({ date: z.string(), kcal: z.number().int(), note: z.string().nullable().optional() }))
+    .optional(),
+  photos: z
+    .array(z.object({ measurementName: z.string(), recordDate: z.string(), slot: z.string(), mediaKey: z.string(), width: z.number().int(), height: z.number().int() }))
+    .optional(),
 });
 
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -263,6 +329,9 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
       await tx.measurementRecord.deleteMany({ where: { userId } });
       await tx.measurement.deleteMany({ where: { userId } });
       await tx.goal.deleteMany({ where: { userId } });
+      // ---- Part 6 ----
+      await tx.progressPhoto.deleteMany({ where: { userId } });
+      await tx.dailyCalories.deleteMany({ where: { userId } });
     });
   }
 
@@ -372,6 +441,41 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
   await db.$transaction(async (tx) => {
     for (const exerciseId of touchedExercises) await recomputePRs(tx, userId, exerciseId);
   });
+
+  // ---- Part 6: profile + calories (photos export as a keys list only; not re-importable) ----
+  if (backup.profile) {
+    await db.userProfile.upsert({
+      where: { userId },
+      create: {
+        id: uuid7(),
+        userId,
+        age: backup.profile.age ?? null,
+        heightCm: backup.profile.heightCm ?? null,
+        weightKg: backup.profile.weightKg ?? null,
+        level: backup.profile.level ?? null,
+        goal: backup.profile.goal ?? null,
+        daysPerWeekTarget: backup.profile.daysPerWeekTarget ?? null,
+      },
+      update: {
+        age: backup.profile.age ?? null,
+        heightCm: backup.profile.heightCm ?? null,
+        weightKg: backup.profile.weightKg ?? null,
+        level: backup.profile.level ?? null,
+        goal: backup.profile.goal ?? null,
+        daysPerWeekTarget: backup.profile.daysPerWeekTarget ?? null,
+      },
+    });
+  }
+  if (backup.calories && backup.calories.length > 0) {
+    for (const c of backup.calories.slice(0, 2000)) {
+      const date = toDayUtc(c.date);
+      await db.dailyCalories.upsert({
+        where: { userId_date: { userId, date } },
+        create: { id: uuid7(), userId, date, kcal: c.kcal, note: c.note ?? null },
+        update: mode === "replace" ? { kcal: c.kcal, note: c.note ?? null } : {},
+      });
+    }
+  }
 
   return { ok: true, importedWorkouts: createdWorkouts.length };
 }

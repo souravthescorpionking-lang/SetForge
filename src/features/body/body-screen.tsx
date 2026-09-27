@@ -37,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronDown, ChevronUp, MoreVertical, Plus, Settings2, X } from "lucide-react";
+import { Camera, ChevronDown, ChevronUp, MoreVertical, Plus, Settings2, X } from "lucide-react";
 import { measurementsApi, unitsApi } from "@/lib/client/api";
 import { qk, useInvalidate, useMeasurements } from "@/lib/client/query";
 import { replaceHash, useHashRoute } from "@/features/shell/router";
@@ -108,6 +108,9 @@ export default function BodyScreen() {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={onAddMeasurement}>
                   <Plus className="h-4 w-4" aria-hidden /> Add measurement
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => replaceHash("#/body/compare")}>
+                  <Camera className="h-4 w-4" aria-hidden /> Compare photos
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setConfigOpen((v) => !v)}>
                   <Settings2 className="h-4 w-4" aria-hidden />

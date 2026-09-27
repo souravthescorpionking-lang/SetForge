@@ -1,0 +1,825 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→     4→// ProgramBuilderScreen — #/programs/new/builder (Part 6 §4.7).
+     5→     5→//
+     6→     6→// A single-page vertical stepper — every step is an inline section with a
+     7→     7→// 32px header (NO wizard dialogs/sheets):
+     8→     8→//
+     9→     9→//   TopBar (56)  : [◀ back to programs] · "New program" · [Create h-11]
+    10→    10→//                  (disabled until a name + ≥1 named workout template exist)
+    11→    11→//   ScrollBody   : 1 Basics — name input h-12 · difficulty segmented 40px ·
+    12→    12→//                  days/week stepper 48 (auto-derives from the weekly template
+    13→    13→//                  until set manually) · est-minutes stepper 48
+    14→    14→//                  2 Phases — PhaseRow 48 ×N (name input · weeks stepper · ×)
+    15→    15→//                  + "Add phase" 40 dashed. Default: "Phase 1" × 1 week.
+    16→    16→//                  3 Weekly template — 7 DayTemplateRow 48
+    17→    17→//                  (`Mon · [template name input] · [Workout ▾ | Rest ▾]`)
+    18→    18→//                  4 Exercises (optional) — per named template: added rows 40
+    19→    19→//                  + an inline searchable picker (0fr→1fr expansion) over the
+    20→    20→//                  user's own exercises. Draft-only; nothing persists before
+    21→    21→//                  Create.
+    22→    22→//                  Labels — ChipRow 40 + "+ New label" inline input.
+    23→    23→//   Create       : programsMetaApi.build → invalidate programs → toast
+    24→    24→//                  "Program created · N days" → replaceHash #/programs/{id}.
+    25→    25→// ─────────────────────────────────────────────────────────────────────────────
+    26→    26→
+    27→    27→import { useEffect, useMemo, useRef, useState } from "react";
+    28→    28→import { Screen, TopBar, ScrollBody } from "@/components/layout";
+    29→    29→import { Button } from "@/components/ui/button";
+    30→    30→import { Input } from "@/components/ui/input";
+    31→    31→import {
+    32→    32→  DropdownMenu,
+    33→    33→  DropdownMenuContent,
+    34→    34→  DropdownMenuItem,
+    35→    35→  DropdownMenuTrigger,
+    36→    36→} from "@/components/ui/dropdown-menu";
+    37→    37→import {
+    38→    38→  ChevronDown,
+    39→    39→  ChevronLeft,
+    40→    40→  Dumbbell,
+    41→    41→  Hammer,
+    42→    42→  Minus,
+    43→    43→  Moon,
+    44→    44→  Plus,
+    45→    45→  Search,
+    46→    46→  Tags,
+    47→    47→  Trash2,
+    48→    48→  X,
+    49→    49→} from "lucide-react";
+    50→    50→import { toast } from "sonner";
+    51→    51→import { cn } from "@/lib/utils";
+    52→    52→import { useApp } from "@/lib/client/store";
+    53→    53→import { programsMetaApi, type BuilderProgramInput, type BuilderSetInput } from "@/lib/client/api";
+    54→    54→import { useExercises, useInvalidate, useOnline } from "@/lib/client/query";
+    55→    55→import { replaceHash } from "@/features/shell/router";
+    56→    56→import { hapticSuccess, hapticTap } from "@/lib/client/haptics";
+    57→    57→import { DIFFICULTIES, DIFFICULTY_LABELS, type Difficulty } from "@/lib/constants";
+    58→    58→import { CategoryDot } from "@/components/shared/category-dot";
+    59→    59→import { InlineInput, errorMessage } from "./screen-helpers";
+    60→    60→
+    61→    61→/** weekday index → label (0 = Mon … 6 = Sun — the builder's canonical order). */
+    62→    62→const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+    63→    63→
+    64→    64→/** Blank sets attached to builder-added exercises (3 per §4.7). */
+    65→    65→const BLANK_BUILDER_SETS: BuilderSetInput[] = [{}, {}, {}];
+    66→    66→
+    67→    67→type DayTemplate = { type: "WORKOUT" | "REST"; name: string };
+    68→    68→type PhaseDraft = { name: string; weeks: number };
+    69→    69→
+    70→    70→const DEFAULT_WEEKLY: DayTemplate[] = [
+    71→    71→  { type: "WORKOUT", name: "" },
+    72→    72→  { type: "WORKOUT", name: "" },
+    73→    73→  { type: "WORKOUT", name: "" },
+    74→    74→  { type: "WORKOUT", name: "" },
+    75→    75→  { type: "WORKOUT", name: "" },
+    76→    76→  { type: "REST", name: "" },
+    77→    77→  { type: "REST", name: "" },
+    78→    78→];
+    79→    79→
+    80→    80→// ---------- small building blocks ----------
+    81→    81→
+    82→    82→function SectionHeader({ step, title, hint }: { step: string; title: string; hint?: string }) {
+    83→    83→  return (
+    84→    84→    <div
+    85→    85→      data-row
+    86→    86→      role="group"
+    87→    87→      aria-label={`Step ${step}: ${title}`}
+    88→    88→      className="flex h-8 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap px-1"
+    89→    89→    >
+    90→    90→      <span className="flex h-6 w-6 flex-none items-center justify-center rounded bg-primary/10 text-[11px] font-bold tabular-nums text-primary">
+    91→    91→        {step}
+    92→    92→      </span>
+    93→    93→      <span className="min-w-0 flex-1 truncate text-xs font-bold uppercase tracking-wider text-muted-foreground">
+    94→    94→        {title}
+    95→    95→      </span>
+    96→    96→      {hint ? (
+    97→    97→        <span className="flex-none text-[11px] font-medium text-muted-foreground/70">{hint}</span>
+    98→    98→      ) : null}
+    99→    99→    </div>
+   100→   100→  );
+   101→   101→}
+   102→   102→
+   103→   103→function Stepper({
+   104→   104→  value,
+   105→   105→  min,
+   106→   106→  max,
+   107→   107→  formatValue,
+   108→   108→  ariaLabel,
+   109→   109→  onDecrement,
+   110→   110→  onIncrement,
+   111→   111→}: {
+   112→   112→  value: number | null;
+   113→   113→  min: number;
+   114→   114→  max: number;
+   115→   115→  formatValue?: (v: number | null) => string;
+   116→   116→  ariaLabel: string;
+   117→   117→  onDecrement: () => void;
+   118→   118→  onIncrement: () => void;
+   119→   119→}) {
+   120→   120→  const text = formatValue ? formatValue(value) : value == null ? "–" : String(value);
+   121→   121→  return (
+   122→   122→    <span className="flex flex-none items-center gap-1">
+   123→   123→      <Button
+   124→   124→        type="button"
+   125→   125→        variant="outline"
+   126→   126→        className="h-10 w-10 flex-none p-0"
+   127→   127→        disabled={value != null && value <= min}
+   128→   128→        aria-label={`Decrease ${ariaLabel}`}
+   129→   129→        onClick={() => {
+   130→   130→          hapticTap();
+   131→   131→          onDecrement();
+   132→   132→        }}
+   133→   133→      >
+   134→   134→        <Minus className="h-4 w-4" aria-hidden />
+   135→   135→      </Button>
+   136→   136→      <span
+   137→   137→        className="flex h-10 w-12 flex-none items-center justify-center text-sm font-bold tabular-nums leading-none"
+   138→   138→        aria-live="polite"
+   139→   139→        aria-label={`${ariaLabel}: ${text}`}
+   140→   140→      >
+   141→   141→        {text}
+   142→   142→      </span>
+   143→   143→      <Button
+   144→   144→        type="button"
+   145→   145→        variant="outline"
+   146→   146→        className="h-10 w-10 flex-none p-0"
+   147→   147→        disabled={value != null && value >= max}
+   148→   148→        aria-label={`Increase ${ariaLabel}`}
+   149→   149→        onClick={() => {
+   150→   150→          hapticTap();
+   151→   151→          onIncrement();
+   152→   152→        }}
+   153→   153→      >
+   154→   154→        <Plus className="h-4 w-4" aria-hidden />
+   155→   155→      </Button>
+   156→   156→    </span>
+   157→   157→  );
+   158→   158→}
+   159→   159→
+   160→   160→// ---------- screen ----------
+   161→   161→
+   162→   162→export default function ProgramBuilderScreen() {
+   163→   163→  const navigate = useApp((s) => s.navigate);
+   164→   164→  const online = useOnline();
+   165→   165→  const invalidate = useInvalidate();
+   166→   166→
+   167→   167→  // ---------- draft state (local only — nothing persists before Create) ----------
+   168→   168→  // #/programs/new/builder?name=… deep-links can pre-fill the name.
+   169→   169→  const [name, setName] = useState(() => {
+   170→   170→    if (typeof window === "undefined") return "";
+   171→   171→    const m = window.location.hash.match(/[?&]name=([^&]+)/);
+   172→   172→    return m ? decodeURIComponent(m[1]).slice(0, 80) : "";
+   173→   173→  });
+   174→   174→  const [difficulty, setDifficulty] = useState<Difficulty>("BEGINNER");
+   175→   175→  const [daysManual, setDaysManual] = useState<number | null>(null);
+   176→   176→  const [estMinutes, setEstMinutes] = useState<number | null>(null);
+   177→   177→  const [phases, setPhases] = useState<PhaseDraft[]>([{ name: "Phase 1", weeks: 1 }]);
+   178→   178→  const [weekly, setWeekly] = useState<DayTemplate[]>(DEFAULT_WEEKLY);
+   179→   179→  const [labels, setLabels] = useState<string[]>([]);
+   180→   180→  const [addingLabel, setAddingLabel] = useState(false);
+   181→   181→  /** exercises per unique template name (draft; 3 blank sets attach on build). */
+   182→   182→  const [exercises, setExercises] = useState<Record<string, Array<{ exerciseId: string; name: string }>>>({});
+   183→   183→  const [pickerFor, setPickerFor] = useState<string | null>(null);
+   184→   184→  const [pickerSearch, setPickerSearch] = useState("");
+   185→   185→  const [creating, setCreating] = useState(false);
+   186→   186→  const searchFocusRef = useRef<HTMLInputElement | null>(null);
+   187→   187→
+   188→   188→  // ---------- derived ----------
+   189→   189→  const workoutDayCount = weekly.filter((w) => w.type === "WORKOUT").length;
+   190→   190→  const daysPerWeek = daysManual ?? workoutDayCount;
+   191→   191→  const templateNames = useMemo(() => {
+   192→   192→    const seen: string[] = [];
+   193→   193→    for (const w of weekly) {
+   194→   194→      if (w.type !== "WORKOUT") continue;
+   195→   195→      const n = w.name.trim();
+   196→   196→      if (n && !seen.includes(n)) seen.push(n);
+   197→   197→    }
+   198→   198→    return seen;
+   199→   199→  }, [weekly]);
+   200→   200→  const unnamedWorkoutDays = weekly.some((w) => w.type === "WORKOUT" && !w.name.trim());
+   201→   201→  const totalWeeks = phases.reduce((n, p) => n + p.weeks, 0);
+   202→   202→  const totalDays = totalWeeks * 7;
+   203→   203→  const canCreate =
+   204→   204→    name.trim().length > 0 && templateNames.length > 0 && !unnamedWorkoutDays && !creating;
+   205→   205→
+   206→   206→  // debounced picker search (250ms) — feeds useExercises
+   207→   207→  const [debouncedSearch, setDebouncedSearch] = useState("");
+   208→   208→  useEffect(() => {
+   209→   209→    const t = setTimeout(() => setDebouncedSearch(pickerSearch.trim()), 250);
+   210→   210→    return () => clearTimeout(t);
+   211→   211→  }, [pickerSearch]);
+   212→   212→  const exercisesQuery = useExercises(debouncedSearch ? { search: debouncedSearch } : undefined);
+   213→   213→  const allExercises = exercisesQuery.data ?? [];
+   214→   214→
+   215→   215→  // ---------- mutations ----------
+   216→   216→  const setDayType = (index: number, type: "WORKOUT" | "REST") => {
+   217→   217→    hapticTap();
+   218→   218→    setWeekly((prev) => prev.map((w, i) => (i === index ? { ...w, type } : w)));
+   219→   219→  };
+   220→   220→
+   221→   221→  const setDayName = (index: number, dayName: string) => {
+   222→   222→    setWeekly((prev) => prev.map((w, i) => (i === index ? { ...w, name: dayName.slice(0, 40) } : w)));
+   223→   223→  };
+   224→   224→
+   225→   225→  const addPhase = () => {
+   226→   226→    hapticTap();
+   227→   227→    setPhases((prev) =>
+   228→   228→      prev.length >= 12 ? prev : [...prev, { name: `Phase ${prev.length + 1}`, weeks: 1 }],
+   229→   229→    );
+   230→   230→  };
+   231→   231→
+   232→   232→  const removePhase = (index: number) => {
+   233→   233→    setPhases((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+   234→   234→  };
+   235→   235→
+   236→   236→  const openPicker = (templateName: string) => {
+   237→   237→    hapticTap();
+   238→   238→    setPickerSearch("");
+   239→   239→    setPickerFor((prev) => (prev === templateName ? null : templateName));
+   240→   240→    if (pickerFor !== templateName) {
+   241→   241→      requestAnimationFrame(() => searchFocusRef.current?.focus());
+   242→   242→    }
+   243→   243→  };
+   244→   244→
+   245→   245→  const addExerciseTo = (templateName: string, exerciseId: string, exerciseName: string) => {
+   246→   246→    hapticTap();
+   247→   247→    setExercises((prev) => {
+   248→   248→      const list = prev[templateName] ?? [];
+   249→   249→      if (list.some((e) => e.exerciseId === exerciseId)) return prev;
+   250→   250→      return { ...prev, [templateName]: [...list, { exerciseId, name: exerciseName }] };
+   251→   251→    });
+   252→   252→  };
+   253→   253→
+   254→   254→  const removeExerciseFrom = (templateName: string, exerciseId: string) => {
+   255→   255→    setExercises((prev) => {
+   256→   256→      const list = (prev[templateName] ?? []).filter((e) => e.exerciseId !== exerciseId);
+   257→   257→      const next = { ...prev, [templateName]: list };
+   258→   258→      return next;
+   259→   259→    });
+   260→   260→  };
+   261→   261→
+   262→   262→  const addLabel = (label: string) => {
+   263→   263→    const clean = label.trim().slice(0, 30);
+   264→   264→    if (!clean) return;
+   265→   265→    if (labels.includes(clean)) {
+   266→   266→      toast.info("That label already exists");
+   267→   267→      return;
+   268→   268→    }
+   269→   269→    if (labels.length >= 20) {
+   270→   270→      toast.info("Labels are limited to 20");
+   271→   271→      return;
+   272→   272→    }
+   273→   273→    setLabels((prev) => [...prev, clean]);
+   274→   274→  };
+   275→   275→
+   276→   276→  const create = async () => {
+   277→   277→    if (!canCreate) return;
+   278→   278→    if (!online) {
+   279→   279→      toast.info("Creating a program needs a connection");
+   280→   280→      return;
+   281→   281→    }
+   282→   282→    setCreating(true);
+   283→   283→    try {
+   284→   284→      const exercisesPayload: BuilderProgramInput["exercises"] = {};
+   285→   285→      for (const templateName of templateNames) {
+   286→   286→        const list = exercises[templateName] ?? [];
+   287→   287→        if (list.length === 0) continue;
+   288→   288→        exercisesPayload[templateName] = list.map((e) => ({
+   289→   289→          exerciseId: e.exerciseId,
+   290→   290→          sets: BLANK_BUILDER_SETS,
+   291→   291→        }));
+   292→   292→      }
+   293→   293→      const input: BuilderProgramInput = {
+   294→   294→        name: name.trim(),
+   295→   295→        difficulty,
+   296→   296→        ...(daysManual != null || workoutDayCount > 0 ? { daysPerWeek: Math.max(1, Math.min(7, daysPerWeek)) } : {}),
+   297→   297→        ...(estMinutes != null ? { estMinutes } : {}),
+   298→   298→        ...(labels.length > 0 ? { labels } : {}),
+   299→   299→        phases: phases.map((p, i) => ({ name: p.name.trim() || `Phase ${i + 1}`, weeks: p.weeks })),
+   300→   300→        weekly: weekly.map((w, i) => ({
+   301→   301→          weekday: i,
+   302→   302→          type: w.type,
+   303→   303→          ...(w.type === "WORKOUT" ? { name: w.name.trim() } : { name: null }),
+   304→   304→        })),
+   305→   305→        ...(exercisesPayload && Object.keys(exercisesPayload).length > 0 ? { exercises: exercisesPayload } : {}),
+   306→   306→      };
+   307→   307→      const res = await programsMetaApi.build(input);
+   308→   308→      invalidate.programs();
+   309→   309→      invalidate.routines();
+   310→   310→      hapticSuccess();
+   311→   311→      toast.success(`Program created · ${res.dayCount} days`);
+   312→   312→      replaceHash(`#/programs/${res.id}`);
+   313→   313→    } catch (e) {
+   314→   314→      toast.error(errorMessage(e));
+   315→   315→    } finally {
+   316→   316→      setCreating(false);
+   317→   317→    }
+   318→   318→  };
+   319→   319→
+   320→   320→  // ---------- render helpers ----------
+   321→   321→  const renderWeeklyRow = (index: number) => {
+   322→   322→    const day = weekly[index];
+   323→   323→    return (
+   324→   324→      <div
+   325→   325→        key={WEEKDAYS[index]}
+   326→   326→        data-row
+   327→   327→        className="flex h-12 w-full items-center gap-1 overflow-hidden whitespace-nowrap"
+   328→   328→      >
+   329→   329→        <span className="w-10 flex-none text-xs font-bold uppercase tracking-wide text-muted-foreground">
+   330→   330→          {WEEKDAYS[index]}
+   331→   331→        </span>
+   332→   332→        {day.type === "WORKOUT" ? (
+   333→   333→          <Input
+   334→   334→            value={day.name}
+   335→   335→            placeholder="Push, Pull…"
+   336→   336→            aria-label={`${WEEKDAYS[index]} workout template name`}
+   337→   337→            onChange={(e) => setDayName(index, e.target.value)}
+   338→   338→            className="h-10 min-w-0 flex-1 rounded-md"
+   339→   339→          />
+   340→   340→        ) : (
+   341→   341→          <span className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-dashed border-border px-3 text-sm text-muted-foreground">
+   342→   342→            <Moon className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
+   343→   343→            Rest day
+   344→   344→          </span>
+   345→   345→        )}
+   346→   346→        <DropdownMenu>
+   347→   347→          <DropdownMenuTrigger asChild>
+   348→   348→            <Button
+   349→   349→              type="button"
+   350→   350→              variant="outline"
+   351→   351→              className="h-10 w-24 flex-none justify-between gap-1 px-2 text-xs font-bold"
+   352→   352→              aria-label={`${WEEKDAYS[index]} day type: ${day.type === "WORKOUT" ? "workout" : "rest"}`}
+   353→   353→            >
+   354→   354→              {day.type === "WORKOUT" ? (
+   355→   355→                <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
+   356→   356→              ) : (
+   357→   357→                <Moon className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+   358→   358→              )}
+   359→   359→              <span className="min-w-0 flex-1 truncate">
+   360→   360→                {day.type === "WORKOUT" ? "Workout" : "Rest"}
+   361→   361→              </span>
+   362→   362→              <ChevronDown className="h-3.5 w-3.5 flex-none text-muted-foreground" aria-hidden />
+   363→   363→            </Button>
+   364→   364→          </DropdownMenuTrigger>
+   365→   365→          <DropdownMenuContent align="end" className="w-36">
+   366→   366→            <DropdownMenuItem onClick={() => setDayType(index, "WORKOUT")}>
+   367→   367→              <Dumbbell className="h-4 w-4" aria-hidden /> Workout
+   368→   368→            </DropdownMenuItem>
+   369→   369→            <DropdownMenuItem onClick={() => setDayType(index, "REST")}>
+   370→   370→              <Moon className="h-4 w-4" aria-hidden /> Rest
+   371→   371→            </DropdownMenuItem>
+   372→   372→          </DropdownMenuContent>
+   373→   373→        </DropdownMenu>
+   374→   374→      </div>
+   375→   375→    );
+   376→   376→  };
+   377→   377→
+   378→   378→  const renderTemplateSection = (templateName: string) => {
+   379→   379→    const list = exercises[templateName] ?? [];
+   380→   380→    const addedIds = new Set(list.map((e) => e.exerciseId));
+   381→   381→    const pickerOpen = pickerFor === templateName;
+   382→   382→    const candidates = allExercises
+   383→   383→      .filter((ex) => !addedIds.has(ex.id))
+   384→   384→      .slice(0, 30);
+   385→   385→    return (
+   386→   386→      <div key={templateName} className="flex flex-none flex-col overflow-hidden rounded-lg border bg-card">
+   387→   387→        {/* template header 40px */}
+   388→   388→        <div
+   389→   389→          data-row
+   390→   390→          className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border px-3"
+   391→   391→        >
+   392→   392→          <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
+   393→   393→          <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none" title={templateName}>
+   394→   394→            {templateName}
+   395→   395→          </span>
+   396→   396→          <span className="flex-none text-[11px] font-semibold tabular-nums text-muted-foreground">
+   397→   397→            {list.length} exercise{list.length === 1 ? "" : "s"}
+   398→   398→          </span>
+   399→   399→        </div>
+   400→   400→        {/* added exercises — 40px rows with × remove */}
+   401→   401→        {list.map((e) => (
+   402→   402→          <div
+   403→   403→            key={e.exerciseId}
+   404→   404→            data-row
+   405→   405→            className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/60 pl-4 pr-1"
+   406→   406→          >
+   407→   407→            <span className="min-w-0 flex-1 truncate text-sm leading-none" title={e.name}>
+   408→   408→              {e.name}
+   409→   409→            </span>
+   410→   410→            <Button
+   411→   411→              type="button"
+   412→   412→              variant="ghost"
+   413→   413→              className="h-10 w-10 flex-none p-0 text-muted-foreground"
+   414→   414→              aria-label={`Remove ${e.name} from ${templateName}`}
+   415→   415→              onClick={() => removeExerciseFrom(templateName, e.exerciseId)}
+   416→   416→            >
+   417→   417→              <X className="h-4 w-4" aria-hidden />
+   418→   418→            </Button>
+   419→   419→          </div>
+   420→   420→        ))}
+   421→   421→        {/* + Add exercise → inline searchable picker (0fr→1fr expansion) */}
+   422→   422→        <button
+   423→   423→          type="button"
+   424→   424→          data-row
+   425→   425→          aria-expanded={pickerOpen}
+   426→   426→          aria-label={`Add exercise to ${templateName}`}
+   427→   427→          className={cn(
+   428→   428→            "flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap px-3 text-left text-sm font-medium transition-colors",
+   429→   429→            pickerOpen
+   430→   430→              ? "bg-primary/5 text-primary"
+   431→   431→              : "text-muted-foreground hover:bg-accent/40",
+   432→   432→          )}
+   433→   433→          onClick={() => openPicker(templateName)}
+   434→   434→        >
+   435→   435→          {pickerOpen ? (
+   436→   436→            <ChevronDown className="h-4 w-4 flex-none rotate-180" aria-hidden />
+   437→   437→          ) : (
+   438→   438→            <Plus className="h-4 w-4 flex-none" aria-hidden />
+   439→   439→          )}
+   440→   440→          <span className="min-w-0 flex-1 truncate">
+   441→   441→            {pickerOpen ? "Close picker" : "Add exercise"}
+   442→   442→          </span>
+   443→   443→        </button>
+   444→   444→        <div
+   445→   445→          className="grid transition-[grid-template-rows] duration-200 ease-out"
+   446→   446→          style={{ gridTemplateRows: pickerOpen ? "1fr" : "0fr" }}
+   447→   447→        >
+   448→   448→          <div className="min-h-0 overflow-hidden">
+   449→   449→            {pickerOpen ? (
+   450→   450→              <div className="flex flex-col gap-2 border-t border-border p-2">
+   451→   451→                <div className="relative flex-none">
+   452→   452→                  <Search
+   453→   453→                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+   454→   454→                    aria-hidden
+   455→   455→                  />
+   456→   456→                  <Input
+   457→   457→                    ref={searchFocusRef}
+   458→   458→                    value={pickerSearch}
+   459→   459→                    placeholder="Search your exercises…"
+   460→   460→                    aria-label={`Search exercises for ${templateName}`}
+   461→   461→                    onChange={(e) => setPickerSearch(e.target.value)}
+   462→   462→                    className="h-10 rounded-md pl-9"
+   463→   463→                  />
+   464→   464→                </div>
+   465→   465→                <div
+   466→   466→                  className="scroll-slim flex max-h-96 flex-none flex-col overflow-y-auto"
+   467→   467→                  aria-label="Exercise results"
+   468→   468→                >
+   469→   469→                  {exercisesQuery.isLoading ? (
+   470→   470→                    <p className="px-1 py-2 text-xs text-muted-foreground" aria-busy="true">
+   471→   471→                      Loading exercises…
+   472→   472→                    </p>
+   473→   473→                  ) : candidates.length === 0 ? (
+   474→   474→                    <p className="px-1 py-2 text-xs text-muted-foreground">
+   475→   475→                      {debouncedSearch ? "No exercises match that search." : "No exercises yet — create some first."}
+   476→   476→                    </p>
+   477→   477→                  ) : (
+   478→   478→                    candidates.map((ex) => (
+   479→   479→                      <button
+   480→   480→                        key={ex.id}
+   481→   481→                        type="button"
+   482→   482→                        data-row
+   483→   483→                        aria-label={`Add ${ex.name} to ${templateName}`}
+   484→   484→                        onClick={() => addExerciseTo(templateName, ex.id, ex.name)}
+   485→   485→                        className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-md px-2 text-left transition-colors hover:bg-accent/50"
+   486→   486→                      >
+   487→   487→                        <CategoryDot colour={ex.category?.colour ?? null} />
+   488→   488→                        <span className="min-w-0 flex-1 truncate text-sm leading-none">{ex.name}</span>
+   489→   489→                        <span className="flex-none text-[11px] text-muted-foreground">
+   490→   490→                          {ex.category?.name ?? "Exercise"}
+   491→   491→                        </span>
+   492→   492→                        <Plus className="h-3.5 w-3.5 flex-none text-primary" aria-hidden />
+   493→   493→                      </button>
+   494→   494→                    ))
+   495→   495→                  )}
+   496→   496→                </div>
+   497→   497→              </div>
+   498→   498→            ) : null}
+   499→   499→          </div>
+   500→   500→        </div>
+   501→   501→      </div>
+   502→   502→    );
+   503→   503→  };
+   504→   504→
+   505→   505→  // ---------- render ----------
+   506→   506→  return (
+   507→   507→    <Screen
+   508→   508→      topBar={
+   509→   509→        <TopBar
+   510→   510→          leading={
+   511→   511→            <Button
+   512→   512→              type="button"
+   513→   513→              variant="ghost"
+   514→   514→              size="icon"
+   515→   515→              className="h-11 w-11 flex-none"
+   516→   516→              onClick={() => navigate("/programs")}
+   517→   517→              aria-label="Back to programs"
+   518→   518→            >
+   519→   519→              <ChevronLeft className="h-5 w-5" aria-hidden />
+   520→   520→            </Button>
+   521→   521→          }
+   522→   522→          title={
+   523→   523→            <span className="flex min-w-0 items-center gap-1.5">
+   524→   524→              <Hammer className="h-4 w-4 flex-none text-primary" aria-hidden />
+   525→   525→              <span className="min-w-0 truncate">New program</span>
+   526→   526→            </span>
+   527→   527→          }
+   528→   528→          actions={
+   529→   529→            <Button
+   530→   530→              type="button"
+   531→   531→              className="h-11 flex-none px-4 text-sm font-bold"
+   532→   532→              disabled={!canCreate}
+   533→   533→              aria-label="Create the program"
+   534→   534→              onClick={() => void create()}
+   535→   535→            >
+   536→   536→              {creating ? "Creating…" : "Create"}
+   537→   537→            </Button>
+   538→   538→          }
+   539→   539→        />
+   540→   540→      }
+   541→   541→    >
+   542→   542→      <ScrollBody>
+   543→   543→        {/* ── Step 1 · Basics ─────────────────────────────────────────── */}
+   544→   544→        <SectionHeader step="1" title="Basics" />
+   545→   545→        <div className="flex flex-none flex-col gap-2 rounded-lg border bg-card p-3">
+   546→   546→          <Input
+   547→   547→            value={name}
+   548→   548→            placeholder="Program name (e.g. Winter Strength Block)"
+   549→   549→            aria-label="Program name"
+   550→   550→            maxLength={80}
+   551→   551→            onChange={(e) => setName(e.target.value)}
+   552→   552→            className="h-12 rounded-md text-base font-semibold"
+   553→   553→          />
+   554→   554→          <div
+   555→   555→            role="radiogroup"
+   556→   556→            aria-label="Difficulty"
+   557→   557→            className="flex h-10 w-full flex-none items-center gap-0.5 rounded-lg border bg-background p-0.5"
+   558→   558→          >
+   559→   559→            {DIFFICULTIES.map((d) => {
+   560→   560→              const selected = difficulty === d;
+   561→   561→              return (
+   562→   562→                <button
+   563→   563→                  key={d}
+   564→   564→                  type="button"
+   565→   565→                  role="radio"
+   566→   566→                  aria-checked={selected}
+   567→   567→                  aria-label={DIFFICULTY_LABELS[d]}
+   568→   568→                  onClick={() => {
+   569→   569→                    hapticTap();
+   570→   570→                    setDifficulty(d);
+   571→   571→                  }}
+   572→   572→                  className={cn(
+   573→   573→                    "h-9 min-w-0 flex-1 rounded-md text-xs font-bold leading-none transition-colors",
+   574→   574→                    selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent",
+   575→   575→                  )}
+   576→   576→                >
+   577→   577→                  {DIFFICULTY_LABELS[d]}
+   578→   578→                </button>
+   579→   579→              );
+   580→   580→            })}
+   581→   581→          </div>
+   582→   582→          <div data-row className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap">
+   583→   583→            <span className="min-w-0 flex-1 truncate text-sm font-medium">Days / week</span>
+   584→   584→            {daysManual == null ? (
+   585→   585→              <button
+   586→   586→                type="button"
+   587→   587→                className="flex h-8 flex-none items-center rounded-full border border-primary/40 bg-primary/5 px-3 text-[11px] font-bold text-primary"
+   588→   588→                aria-label="Days per week is derived from the weekly template"
+   589→   589→                title="Derived from the weekly template"
+   590→   590→              >
+   591→   591→                auto
+   592→   592→              </button>
+   593→   593→            ) : (
+   594→   594→              <button
+   595→   595→                type="button"
+   596→   596→                className="flex h-8 flex-none items-center rounded-full border border-border px-3 text-[11px] font-bold text-muted-foreground transition-colors hover:bg-accent"
+   597→   597→                aria-label="Reset days per week to automatic"
+   598→   598→                onClick={() => {
+   599→   599→                  hapticTap();
+   600→   600→                  setDaysManual(null);
+   601→   601→                }}
+   602→   602→              >
+   603→   603→                manual · reset
+   604→   604→              </button>
+   605→   605→            )}
+   606→   606→            <Stepper
+   607→   607→              value={daysPerWeek}
+   608→   608→              min={1}
+   609→   609→              max={7}
+   610→   610→              ariaLabel="days per week"
+   611→   611→              onDecrement={() => setDaysManual(Math.max(1, daysPerWeek - 1))}
+   612→   612→              onIncrement={() => setDaysManual(Math.min(7, daysPerWeek + 1))}
+   613→   613→            />
+   614→   614→          </div>
+   615→   615→          <div data-row className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap">
+   616→   616→            <span className="min-w-0 flex-1 truncate text-sm font-medium">Est. minutes</span>
+   617→   617→            <Stepper
+   618→   618→              value={estMinutes}
+   619→   619→              min={5}
+   620→   620→              max={300}
+   621→   621→              ariaLabel="estimated minutes"
+   622→   622→              formatValue={(v) => (v == null ? "–" : `${v}`)}
+   623→   623→              onDecrement={() => setEstMinutes(Math.max(5, (estMinutes ?? 60) - 5))}
+   624→   624→              onIncrement={() => setEstMinutes(Math.min(300, (estMinutes ?? 55) + 5))}
+   625→   625→            />
+   626→   626→          </div>
+   627→   627→        </div>
+   628→   628→
+   629→   629→        {/* ── Step 2 · Phases ─────────────────────────────────────────── */}
+   630→   630→        <SectionHeader step="2" title="Phases" hint={`${totalWeeks} week${totalWeeks === 1 ? "" : "s"}`} />
+   631→   631→        <div className="flex flex-none flex-col gap-2">
+   632→   632→          {phases.map((phase, index) => (
+   633→   633→            <div
+   634→   634→              key={index}
+   635→   635→              data-row
+   636→   636→              className="flex h-12 w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-2"
+   637→   637→            >
+   638→   638→              <Input
+   639→   639→                value={phase.name}
+   640→   640→                placeholder={`Phase ${index + 1}`}
+   641→   641→                aria-label={`Phase ${index + 1} name`}
+   642→   642→                maxLength={40}
+   643→   643→                onChange={(e) =>
+   644→   644→                  setPhases((prev) =>
+   645→   645→                    prev.map((p, i) => (i === index ? { ...p, name: e.target.value } : p)),
+   646→   646→                  )
+   647→   647→                }
+   648→   648→                className="h-10 min-w-0 flex-1 rounded-md"
+   649→   649→              />
+   650→   650→              <span className="flex flex-none items-center gap-0.5">
+   651→   651→                <Button
+   652→   652→                  type="button"
+   653→   653→                  variant="outline"
+   654→   654→                  className="h-10 w-9 flex-none p-0"
+   655→   655→                  disabled={phase.weeks <= 1}
+   656→   656→                  aria-label={`Decrease ${phase.name || `Phase ${index + 1}`} weeks`}
+   657→   657→                  onClick={() => {
+   658→   658→                    hapticTap();
+   659→   659→                    setPhases((prev) =>
+   660→   660→                      prev.map((p, i) => (i === index ? { ...p, weeks: Math.max(1, p.weeks - 1) } : p)),
+   661→   661→                    );
+   662→   662→                  }}
+   663→   663→                >
+   664→   664→                  <Minus className="h-4 w-4" aria-hidden />
+   665→   665→                </Button>
+   666→   666→                <span
+   667→   667→                  className="flex h-10 w-10 flex-none items-center justify-center text-sm font-bold tabular-nums leading-none"
+   668→   668→                  aria-live="polite"
+   669→   669→                >
+   670→   670→                  {phase.weeks}
+   671→   671→                  <span className="sr-only"> weeks</span>
+   672→   672→                </span>
+   673→   673→                <Button
+   674→   674→                  type="button"
+   675→   675→                  variant="outline"
+   676→   676→                  className="h-10 w-9 flex-none p-0"
+   677→   677→                  disabled={phase.weeks >= 12}
+   678→   678→                  aria-label={`Increase ${phase.name || `Phase ${index + 1}`} weeks`}
+   679→   679→                  onClick={() => {
+   680→   680→                    hapticTap();
+   681→   681→                    setPhases((prev) =>
+   682→   682→                      prev.map((p, i) => (i === index ? { ...p, weeks: Math.min(12, p.weeks + 1) } : p)),
+   683→   683→                    );
+   684→   684→                  }}
+   685→   685→                >
+   686→   686→                  <Plus className="h-4 w-4" aria-hidden />
+   687→   687→                </Button>
+   688→   688→                <span className="flex-none pl-1 pr-0.5 text-[11px] font-semibold uppercase text-muted-foreground">
+   689→   689→                  wk
+   690→   690→                </span>
+   691→   691→              </span>
+   692→   692→              <Button
+   693→   693→                type="button"
+   694→   694→                variant="ghost"
+   695→   695→                className="h-11 w-11 flex-none p-0 text-muted-foreground hover:text-destructive"
+   696→   696→                disabled={phases.length <= 1}
+   697→   697→                aria-label={`Remove ${phase.name || `Phase ${index + 1}`}`}
+   698→   698→                onClick={() => removePhase(index)}
+   699→   699→              >
+   700→   700→                <Trash2 className="h-4 w-4" aria-hidden />
+   701→   701→              </Button>
+   702→   702→            </div>
+   703→   703→          ))}
+   704→   704→          <button
+   705→   705→            type="button"
+   706→   706→            data-row
+   707→   707→            disabled={phases.length >= 12}
+   708→   708→            aria-label="Add phase"
+   709→   709→            className="flex h-10 w-full items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+   710→   710→            onClick={addPhase}
+   711→   711→          >
+   712→   712→            <Plus className="h-4 w-4 flex-none" aria-hidden />
+   713→   713→            Add phase
+   714→   714→          </button>
+   715→   715→        </div>
+   716→   716→
+   717→   717→        {/* ── Step 3 · Weekly template ────────────────────────────────── */}
+   718→   718→        <SectionHeader
+   719→   719→          step="3"
+   720→   720→          title="Weekly template"
+   721→   721→          hint={`${workoutDayCount} workout${workoutDayCount === 1 ? "" : "s"}/wk`}
+   722→   722→        />
+   723→   723→        <div className="flex flex-none flex-col gap-1 rounded-lg border bg-card p-2">
+   724→   724→          {weekly.map((_, index) => renderWeeklyRow(index))}
+   725→   725→          {unnamedWorkoutDays ? (
+   726→   726→            <p className="flex-none px-1 pt-1 text-xs text-amber-600 dark:text-amber-400">
+   727→   727→              Give every workout day a template name (days sharing a name share exercises).
+   728→   728→            </p>
+   729→   729→          ) : null}
+   730→   730→        </div>
+   731→   731→
+   732→   732→        {/* ── Step 4 · Exercises (optional) ────────────────────────────── */}
+   733→   733→        <SectionHeader step="4" title="Exercises" hint="optional" />
+   734→   734→        {templateNames.length === 0 ? (
+   735→   735→          <p className="flex-none rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+   736→   736→            Name a workout day in step 3 first — each named template gets its own exercise list.
+   737→   737→          </p>
+   738→   738→        ) : (
+   739→   739→          <div className="flex flex-col gap-2">
+   740→   740→            {templateNames.map(renderTemplateSection)}
+   741→   741→            <p className="flex-none px-1 text-xs text-muted-foreground">
+   742→   742→              Every day generated from a template carries its exercises with 3 blank sets each.
+   743→   743→            </p>
+   744→   744→          </div>
+   745→   745→        )}
+   746→   746→
+   747→   747→        {/* ── Labels ──────────────────────────────────────────────────── */}
+   748→   748→        <SectionHeader step="5" title="Labels" />
+   749→   749→        <div className="flex flex-none flex-col gap-2 rounded-lg border bg-card p-2">
+   750→   750→          <div
+   751→   751→            data-row
+   752→   752→            data-chip-scroller
+   753→   753→            className="no-scrollbar flex h-10 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+   754→   754→          >
+   755→   755→            {labels.length === 0 ? (
+   756→   756→              <span className="flex-none text-xs text-muted-foreground">No labels yet — add one below.</span>
+   757→   757→            ) : (
+   758→   758→              labels.map((l) => (
+   759→   759→                <span
+   760→   760→                  key={l}
+   761→   761→                  className="flex h-8 flex-none items-center gap-1 rounded-full border px-3 text-xs font-semibold"
+   762→   762→                >
+   763→   763→                  {l}
+   764→   764→                  <button
+   765→   765→                    type="button"
+   766→   766→                    aria-label={`Remove label ${l}`}
+   767→   767→                    className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   768→   768→                    onClick={() => setLabels((prev) => prev.filter((x) => x !== l))}
+   769→   769→                  >
+   770→   770→                    <X className="h-3.5 w-3.5" aria-hidden />
+   771→   771→                  </button>
+   772→   772→                </span>
+   773→   773→              ))
+   774→   774→            )}
+   775→   775→          </div>
+   776→   776→          {addingLabel ? (
+   777→   777→            <div
+   778→   778→              data-row
+   779→   779→              className="flex h-12 items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-primary/40 bg-primary/5 pl-2 pr-1"
+   780→   780→            >
+   781→   781→              <Tags className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
+   782→   782→              <InlineInput
+   783→   783→                value=""
+   784→   784→                placeholder="New label…"
+   785→   785→                ariaLabel="New label"
+   786→   786→                onCommit={(next) => {
+   787→   787→                  setAddingLabel(false);
+   788→   788→                  addLabel(next);
+   789→   789→                }}
+   790→   790→                onCancel={() => setAddingLabel(false)}
+   791→   791→                className="h-11 min-w-0 flex-1"
+   792→   792→              />
+   793→   793→            </div>
+   794→   794→          ) : (
+   795→   795→            <button
+   796→   796→              type="button"
+   797→   797→              data-row
+   798→   798→              className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+   799→   799→              onClick={() => setAddingLabel(true)}
+   800→   800→            >
+   801→   801→              <Plus className="h-4 w-4 flex-none" aria-hidden />
+   802→   802→              New label
+   803→   803→            </button>
+   804→   804→          )}
+   805→   805→        </div>
+   806→   806→
+   807→   807→        {/* ── preview line ────────────────────────────────────────────── */}
+   808→   808→        <p className="flex-none rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+   809→   809→          Create generates{" "}
+   810→   810→          <span className="font-bold text-foreground">
+   811→   811→            {totalDays} day{totalDays === 1 ? "" : "s"}
+   812→   812→          </span>{" "}
+   813→   813→          ({phases.length} phase{phases.length === 1 ? "" : "s"} × {totalWeeks} week
+   814→   814→          {totalWeeks === 1 ? "" : "s"} × 7) · {DIFFICULTY_LABELS[difficulty].toLowerCase()} ·{" "}
+   815→   815→          {daysPerWeek} day{daysPerWeek === 1 ? "" : "s"}/week
+   816→   816→          {estMinutes != null ? ` · ~${estMinutes} min` : ""}
+   817→   817→          {labels.length > 0 ? ` · ${labels.length} label${labels.length === 1 ? "" : "s"}` : ""}.
+   818→   818→        </p>
+   819→   819→
+   820→   820→        <div className="h-2 flex-none" aria-hidden />
+   821→   821→      </ScrollBody>
+   822→   822→    </Screen>
+   823→   823→  );
+   824→   824→}
+   825→   825→

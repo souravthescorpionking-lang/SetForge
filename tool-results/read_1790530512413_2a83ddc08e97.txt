@@ -1,0 +1,1161 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// SetRow — THE single source of truth set row (Part 3 §SET ROW).
+     5→//
+     6→// One 40px CSS-grid row for every mode (edit / read / preview / template).
+     7→// The grid template is COMPUTED, never styled ad hoc:
+     8→//   • spec track widths:  #24 · type32 · f1:72 · f2:56 · rpe:52 · tempo:64 ·
+     9→//                          rest:56 · done:40 · more:32
+    10→//   • missing modality fields or settings-hidden columns REMOVE tracks from
+    11→//     the template (they are never "hidden" cells).
+    12→//   • <468px viewport: rpe + tempo tracks are REMOVED — their values/editors
+    13→//     move into the `more` ⋯ popover. (PLATFORM ADAPTATION: the spec's bottom
+    14→//     sheet is forbidden here; an anchored popover — shadcn Popover on
+    15→//     Floating UI with collision flip — is the allowed replacement.)
+    16→//   • <360px viewport: f1/f2 drop their floors to spec−16 (minmax) so the row
+    17→//     still fits a 320px screen. All small tracks stay exact px.
+    18→//   • f1/f2 carry `minmax(spec, 1fr)` so value columns fill leftover card width
+    19→//     at every viewport — the row can never overflow its card and never leaves
+    20→//     a dead right margin.
+    21→//
+    22→// Grid math (weight+reps modality, all columns on):
+    23→//   wide fixed tracks 24+32+72+56+52+64+56+40+32 = 428px
+    24→//   mobile (<468, rpe+tempo dropped)             = 312px ≤ 328px (360−32 law)
+    25→//   320px viewport floors 24+32+56+40+56+40+32   = 280px ≤ 282px available
+    26→//   (The spec contract names 460 as the wide threshold; the corrected value is
+    27→//   468 — 428px of tracks + 32px page gutters + 6px card chrome (border×2 +
+    28→//   4px colour bar) need ≥466px, so the wide layout only engages at 468.)
+    29→// ─────────────────────────────────────────────────────────────────────────────
+    30→
+    31→import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+    32→import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+    33→import { Button } from "@/components/ui/button";
+    34→import { Checkbox } from "@/components/ui/checkbox";
+    35→import { Check, ChevronDown, Copy, Minus, MoreHorizontal, Plus, RotateCcw, StickyNote, Timer, Trash2, Trophy } from "lucide-react";
+    36→import { cn } from "@/lib/utils";
+    37→import { rowGrid } from "@/lib/ui/tokens";
+    38→import { hapticTap } from "@/lib/client/haptics";
+    39→import {
+    40→  fieldsForType,
+    41→  formatRestSec,
+    42→  normaliseTempo,
+    43→  SET_TYPES,
+    44→  SET_TYPE_META,
+    45→  type SetField,
+    46→  type SetType,
+    47→} from "@/lib/constants";
+    48→import { useViewportWidth } from "./viewport";
+    49→import {
+    50→  FIELD_LABEL,
+    51→  FIELD_TO_KEY,
+    52→  formatFieldValue,
+    53→  formatRpe,
+    54→  parseDurationInput,
+    55→  parseFieldValue,
+    56→  stepForField,
+    57→  trimNum,
+    58→  type ApplyToAllFields,
+    59→  type CardAction,
+    60→  type CardExercise,
+    61→  type CardMode,
+    62→  type CardSet,
+    63→  type CardVisibleColumns,
+    64→} from "../exercise-card/card-types";
+    65→
+    66→// ---------- grid engine ----------
+    67→
+    68→/** Spec track widths in px — the single source of truth for the row grid. */
+    69→const TRACK = { index: 24, setType: 32, f1: 72, f2: 56, rpe: 52, tempo: 64, rest: 56, done: 40, more: 32 } as const;
+    70→
+    71→/** Viewport at which rpe/tempo tracks return to the grid (see file header). */
+    72→const WIDE_VIEWPORT = 468;
+    73→
+    74→/** Tap→cycle order for the set-type chip. */
+    75→const TYPE_CYCLE: SetType[] = ["NORMAL", "WARMUP", "DROP", "FAILURE", "AMRAP"];
+    76→
+    77→/** Rest presets (sec) — spec list. */
+    78→const REST_PRESETS = [30, 60, 90, 120, 150, 180];
+    79→
+    80→/** RPE chip scale: 1–10 in half steps (spec). */
+    81→const RPE_CHIPS: number[] = [];
+    82→for (let v = 1; v <= 10; v += 0.5) RPE_CHIPS.push(v);
+    83→
+    84→type TrackKey = "index" | "setType" | "f1" | "f2" | "rpe" | "tempo" | "rest" | "done" | "more";
+    85→
+    86→type GridSpec = { keys: TrackKey[]; template: string };
+    87→
+    88→function buildGrid(
+    89→  fields: SetField[],
+    90→  visible: CardVisibleColumns,
+    91→  mode: CardMode,
+    92→  vw: number,
+    93→  moreTrack: boolean,
+    94→): GridSpec {
+    95→  const keys: TrackKey[] = [];
+    96→  const parts: string[] = [];
+    97→  const push = (key: TrackKey, css: string) => {
+    98→    keys.push(key);
+    99→    parts.push(css);
+   100→  };
+   101→
+   102→  push("index", `${TRACK.index}px`);
+   103→  if (visible.setType) push("setType", `${TRACK.setType}px`);
+   104→
+   105→  // Value tracks: spec floor (−16 below 360px — documented adaptation so the
+   106→  // fixed small tracks still fit a 320px screen) + 1fr growth to fill the card.
+   107→  const narrow = vw < 360;
+   108→  if (fields[0]) push("f1", `minmax(${TRACK.f1 - (narrow ? 16 : 0)}px, 1fr)`);
+   109→  if (fields[1]) push("f2", `minmax(${TRACK.f2 - (narrow ? 16 : 0)}px, 1fr)`);
+   110→
+   111→  if (visible.rpe && vw >= WIDE_VIEWPORT) push("rpe", `${TRACK.rpe}px`);
+   112→  if (visible.tempo && vw >= WIDE_VIEWPORT) push("tempo", `${TRACK.tempo}px`);
+   113→  if (visible.rest) push("rest", `${TRACK.rest}px`);
+   114→
+   115→  // `done` never applies to routine templates → track removed.
+   116→  if (mode !== "template") push("done", `${TRACK.done}px`);
+   117→  if (mode === "edit" || mode === "template") push("more", `${TRACK.more}px`);
+   118→  else if (moreTrack) push("more", `${TRACK.more}px`);
+   119→
+   120→  return { keys, template: parts.join(" ") };
+   121→}
+   122→
+   123→/** Row state tint — background/border only, never size. Precedence documented. */
+   124→function rowTint(set: CardSet): string {
+   125→  if (set.selected) return "bg-primary/10";
+   126→  if (set.setType === "FAILURE") return "bg-red-500/10 ring-1 ring-inset ring-red-500/25";
+   127→  if (set.setType === "DROP") return "bg-violet-500/10";
+   128→  if (set.done) return "bg-emerald-500/10";
+   129→  return "";
+   130→}
+   131→
+   132→/** Shared cell shell: a grid item that can shrink (min-w-0) and never wraps. */
+   133→const CELL = "flex h-full min-w-0 items-center overflow-hidden";
+   134→
+   135→const cellButtonBase =
+   136→  "flex h-8 w-full items-center justify-center rounded-md px-1 text-xs font-semibold tabular-nums transition-colors hover:bg-accent";
+   137→
+   138→// ---------- popover editors (shared by grid cells + the more ⋯ popover) ----------
+   139→
+   140→function RpeEditor({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+   141→  return (
+   142→    <div>
+   143→      <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+   144→        RPE <span className="font-medium normal-case">(1 = easy · 10 = max)</span>
+   145→      </p>
+   146→      <div className="grid grid-cols-4 gap-1">
+   147→        {RPE_CHIPS.map((r) => (
+   148→          <Button
+   149→            key={r}
+   150→            type="button"
+   151→            variant={value === r ? "default" : "outline"}
+   152→            size="sm"
+   153→            className="h-8 rounded-lg px-0 text-xs font-bold tabular-nums"
+   154→            onClick={() => onChange(value === r ? null : r)}
+   155→          >
+   156→            {formatRpe(r)}
+   157→          </Button>
+   158→        ))}
+   159→      </div>
+   160→      {value != null ? (
+   161→        <Button
+   162→          type="button"
+   163→          variant="ghost"
+   164→          size="sm"
+   165→          className="mt-2 w-full text-xs text-muted-foreground"
+   166→          onClick={() => onChange(null)}
+   167→        >
+   168→          Clear RPE
+   169→        </Button>
+   170→      ) : null}
+   171→    </div>
+   172→  );
+   173→}
+   174→
+   175→function TempoEditor({
+   176→  value,
+   177→  onChange,
+   178→  presets,
+   179→}: {
+   180→  value: string | null;
+   181→  onChange: (v: string | null) => void;
+   182→  /** §4.10e tempo presets from settings ("2-0-2-0"…) — optional chip row above the segments. */
+   183→  presets?: string[];
+   184→}) {
+   185→  const initial = (value ?? "").split("-");
+   186→  const [parts, setParts] = useState<[string, string, string, string]>([
+   187→    initial[0] ?? "",
+   188→    initial[1] ?? "",
+   189→    initial[2] ?? "",
+   190→    initial[3] ?? "",
+   191→  ]);
+   192→  const labels = ["Ecc", "Pause", "Con", "Pause"];
+   193→  const fillPreset = (preset: string) => {
+   194→    hapticTap();
+   195→    const seg = preset.split("-");
+   196→    setParts([seg[0] ?? "", seg[1] ?? "", seg[2] ?? "", seg[3] ?? ""]);
+   197→  };
+   198→  return (
+   199→    <div>
+   200→      <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+   201→        Tempo <span className="font-medium normal-case">(sec: ecc-pause-con-pause)</span>
+   202→      </p>
+   203→      {presets && presets.length > 0 ? (
+   204→        <div
+   205→          data-chip-scroller
+   206→          role="group"
+   207→          aria-label="Tempo presets"
+   208→          className="no-scrollbar mb-2 flex h-10 items-center gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+   209→        >
+   210→          {presets.map((p) => (
+   211→            <button
+   212→              key={p}
+   213→              type="button"
+   214→              aria-label={`Use tempo preset ${p}`}
+   215→              className={cn(
+   216→                "flex h-8 flex-none items-center rounded-full border px-3 text-xs font-bold tabular-nums transition-colors",
+   217→                p === value
+   218→                  ? "border-primary/60 bg-primary/10 text-primary"
+   219→                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   220→              )}
+   221→              onClick={() => fillPreset(p)}
+   222→            >
+   223→              {p}
+   224→            </button>
+   225→          ))}
+   226→        </div>
+   227→      ) : null}
+   228→      <div className="flex items-end gap-1">
+   229→        {parts.map((p, i) => (
+   230→          <div key={i} className="min-w-0 flex-1">
+   231→            <span className="mb-1 block text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+   232→              {labels[i]}
+   233→            </span>
+   234→            <input
+   235→              aria-label={`Tempo ${labels[i]} seconds`}
+   236→              inputMode="numeric"
+   237→              value={p}
+   238→              onChange={(e) => {
+   239→                const next = [...parts] as [string, string, string, string];
+   240→                next[i] = e.target.value.replace(/[^0-9]/g, "").slice(0, 2);
+   241→                setParts(next);
+   242→              }}
+   243→              placeholder="0"
+   244→              className="h-9 w-full rounded-md border border-input bg-background text-center text-sm font-semibold tabular-nums outline-none focus:ring-2 focus:ring-ring/40"
+   245→            />
+   246→          </div>
+   247→        ))}
+   248→      </div>
+   249→      <div className="mt-2 flex gap-2">
+   250→        <Button
+   251→          type="button"
+   252→          size="sm"
+   253→          className="h-8 flex-1 rounded-lg text-xs font-bold"
+   254→          onClick={() => {
+   255→            const joined = parts.map((p) => p || "0").join("-");
+   256→            const norm = normaliseTempo(joined);
+   257→            if (norm) onChange(norm);
+   258→          }}
+   259→        >
+   260→          Save
+   261→        </Button>
+   262→        {value ? (
+   263→          <Button
+   264→            type="button"
+   265→            variant="ghost"
+   266→            size="sm"
+   267→            className="h-8 rounded-lg text-xs text-muted-foreground"
+   268→            onClick={() => onChange(null)}
+   269→          >
+   270→            Clear
+   271→          </Button>
+   272→        ) : null}
+   273→      </div>
+   274→    </div>
+   275→  );
+   276→}
+   277→
+   278→function RestEditor({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) {
+   279→  const [custom, setCustom] = useState("");
+   280→  const applyCustom = () => {
+   281→    const sec = parseDurationInput(custom);
+   282→    if (sec != null && sec > 0) onChange(sec);
+   283→  };
+   284→  return (
+   285→    <div>
+   286→      <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rest</p>
+   287→      <div className="grid grid-cols-3 gap-1">
+   288→        {REST_PRESETS.map((sec) => (
+   289→          <Button
+   290→            key={sec}
+   291→            type="button"
+   292→            variant={value === sec ? "default" : "outline"}
+   293→            size="sm"
+   294→            className="h-8 rounded-lg px-0 text-xs font-bold tabular-nums"
+   295→            onClick={() => onChange(sec)}
+   296→          >
+   297→            {formatRestSec(sec)}
+   298→          </Button>
+   299→        ))}
+   300→      </div>
+   301→      <div className="mt-2 flex gap-1">
+   302→        <input
+   303→          aria-label="Custom rest duration"
+   304→          value={custom}
+   305→          onChange={(e) => setCustom(e.target.value)}
+   306→          onKeyDown={(e) => {
+   307→            if (e.key === "Enter") applyCustom();
+   308→          }}
+   309→          placeholder="m:ss"
+   310→          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring/40"
+   311→        />
+   312→        <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg text-xs font-bold" onClick={applyCustom}>
+   313→          Set
+   314→        </Button>
+   315→      </div>
+   316→      {value != null ? (
+   317→        <Button
+   318→          type="button"
+   319→          variant="ghost"
+   320→          size="sm"
+   321→          className="mt-2 w-full text-xs text-muted-foreground"
+   322→          onClick={() => onChange(null)}
+   323→        >
+   324→          Clear rest
+   325→        </Button>
+   326→      ) : null}
+   327→    </div>
+   328→  );
+   329→}
+   330→
+   331→// ---------- cells ----------
+   332→
+   333→function IndexCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAction?: (a: CardAction) => void }) {
+   334→  if (mode === "preview" && onAction) {
+   335→    return (
+   336→      <Checkbox
+   337→        checked={!!set.selected}
+   338→        onCheckedChange={() => onAction({ type: "toggle-select", setId: set.id })}
+   339→        className="h-4 w-4"
+   340→        aria-label={`Select set ${set.index}`}
+   341→      />
+   342→    );
+   343→  }
+   344→  return (
+   345→    <span className="w-full truncate text-center text-xs tabular-nums text-muted-foreground" title={`Set ${set.index}`}>
+   346→      {set.index}
+   347→    </span>
+   348→  );
+   349→}
+   350→
+   351→function TypeCell({
+   352→  set,
+   353→  mode,
+   354→  editable,
+   355→  onAction,
+   356→}: {
+   357→  set: CardSet;
+   358→  mode: CardMode;
+   359→  editable: boolean;
+   360→  onAction?: (a: CardAction) => void;
+   361→}) {
+   362→  const [open, setOpen] = useState(false);
+   363→  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   364→  const startRef = useRef<{ x: number; y: number } | null>(null);
+   365→  const longPressed = useRef(false);
+   366→
+   367→  const endHold = () => {
+   368→    if (holdRef.current) clearTimeout(holdRef.current);
+   369→    holdRef.current = null;
+   370→    startRef.current = null;
+   371→  };
+   372→
+   373→  useEffect(() => () => endHold(), []);
+   374→
+   375→  const value = set.setType ?? null;
+   376→  const meta = value ? SET_TYPE_META[value as SetType] : null;
+   377→  const templateBlank = mode === "template" && value == null;
+   378→
+   379→  // read / preview / read-only fallback → static glyph
+   380→  if (!editable || !onAction) {
+   381→    if (meta) {
+   382→      return (
+   383→        <span
+   384→          className={cn("flex h-6 w-6 items-center justify-center rounded-md text-[11px] font-bold", meta.className)}
+   385→          title={`${meta.label} — ${meta.description}`}
+   386→        >
+   387→          {meta.letter}
+   388→        </span>
+   389→      );
+   390→    }
+   391→    return (
+   392→      <span className="text-xs text-muted-foreground/40" title="Set type not set">
+   393→        –
+   394→      </span>
+   395→    );
+   396→  }
+   397→
+   398→  const cycle = () => {
+   399→    const current = (value ?? "NORMAL") as SetType;
+   400→    const next = TYPE_CYCLE[(TYPE_CYCLE.indexOf(current) + 1) % TYPE_CYCLE.length];
+   401→    onAction({ type: "update-set", setId: set.id, patch: { setType: next } });
+   402→  };
+   403→
+   404→  return (
+   405→    <Popover open={open} onOpenChange={setOpen}>
+   406→      <PopoverTrigger asChild>
+   407→        <button
+   408→          type="button"
+   409→          aria-label={
+   410→            meta
+   411→              ? `Set type ${meta.label}. Tap to cycle, hold for picker`
+   412→              : "Set type not set. Tap to choose"
+   413→          }
+   414→          title={meta ? `${meta.label} — ${meta.description}` : "Choose set type"}
+   415→          onClick={(e) => {
+   416→            // Fully controlled popover: preventDefault suppresses Radix's own
+   417→            // click-toggle (composeEventHandlers skips when defaultPrevented),
+   418→            // so tap = cycle · hold / right-click / Enter = picker.
+   419→            e.preventDefault();
+   420→            if (longPressed.current) {
+   421→              longPressed.current = false;
+   422→              return;
+   423→            }
+   424→            if (templateBlank) {
+   425→              setOpen(true);
+   426→              return;
+   427→            }
+   428→            cycle();
+   429→          }}
+   430→          onPointerDown={(e) => {
+   431→            startRef.current = { x: e.clientX, y: e.clientY };
+   432→            longPressed.current = false;
+   433→            holdRef.current = setTimeout(() => {
+   434→              longPressed.current = true;
+   435→              setOpen(true);
+   436→            }, 420);
+   437→          }}
+   438→          onPointerMove={(e) => {
+   439→            const s = startRef.current;
+   440→            if (s && (Math.abs(e.clientX - s.x) > 8 || Math.abs(e.clientY - s.y) > 8)) endHold();
+   441→          }}
+   442→          onPointerUp={endHold}
+   443→          onPointerCancel={endHold}
+   444→          onPointerLeave={endHold}
+   445→          onContextMenu={(e) => {
+   446→            e.preventDefault();
+   447→            endHold();
+   448→            setOpen(true);
+   449→          }}
+   450→          className={cn(
+   451→            "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold transition-transform active:scale-95",
+   452→            templateBlank ? "border border-dashed border-border text-muted-foreground" : meta?.className,
+   453→          )}
+   454→        >
+   455→          {templateBlank ? "–" : (meta?.letter ?? "–")}
+   456→        </button>
+   457→      </PopoverTrigger>
+   458→      <PopoverContent align="center" className="w-56 p-2">
+   459→        <p className="px-1 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Set type</p>
+   460→        <div className="flex flex-col gap-1">
+   461→          {SET_TYPES.map((t) => (
+   462→            <button
+   463→              key={t}
+   464→              type="button"
+   465→              onClick={() => {
+   466→                onAction({ type: "update-set", setId: set.id, patch: { setType: t } });
+   467→                setOpen(false);
+   468→              }}
+   469→              className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-accent"
+   470→            >
+   471→              <span
+   472→                className={cn(
+   473→                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold",
+   474→                  SET_TYPE_META[t].className,
+   475→                )}
+   476→              >
+   477→                {SET_TYPE_META[t].letter}
+   478→              </span>
+   479→              <span className="min-w-0 flex-1">
+   480→                <span className="block text-sm font-semibold leading-tight">{SET_TYPE_META[t].label}</span>
+   481→                <span className="block text-[11px] leading-tight text-muted-foreground">
+   482→                  {SET_TYPE_META[t].description}
+   483→                </span>
+   484→              </span>
+   485→            </button>
+   486→          ))}
+   487→        </div>
+   488→      </PopoverContent>
+   489→    </Popover>
+   490→  );
+   491→}
+   492→
+   493→function ValueCell({
+   494→  field,
+   495→  set,
+   496→  exercise,
+   497→  mode,
+   498→  editable,
+   499→  onAction,
+   500→}: {
+   501→  field: SetField;
+   502→  set: CardSet;
+   503→  exercise: CardExercise;
+   504→  mode: CardMode;
+   505→  editable: boolean;
+   506→  onAction?: (a: CardAction) => void;
+   507→}) {
+   508→  const key = FIELD_TO_KEY[field];
+   509→  const value = (set[key] as number | null | undefined) ?? null;
+   510→  const [draft, setDraft] = useState<string | null>(null);
+   511→  const [focused, setFocused] = useState(false);
+   512→  const step = stepForField(field, exercise);
+   513→  const templateBlank = mode === "template" && value == null;
+   514→  const label = FIELD_LABEL[field];
+   515→
+   516→  if (!editable || !onAction) {
+   517→    return (
+   518→      <span
+   519→        className="w-full truncate px-1 text-right text-sm tabular-nums text-foreground"
+   520→        title={formatFieldValue(field, value, exercise.unit)}
+   521→      >
+   522→        {formatFieldValue(field, value, exercise.unit)}
+   523→      </span>
+   524→    );
+   525→  }
+   526→
+   527→  const display = draft ?? (value == null ? "" : trimNum(value));
+   528→
+   529→  const commit = () => {
+   530→    if (draft != null) {
+   531→      const parsed = parseFieldValue(field, draft);
+   532→      if (parsed !== undefined && parsed !== value) {
+   533→        onAction({ type: "update-set", setId: set.id, patch: { [key]: parsed } as Partial<CardSet> });
+   534→      }
+   535→    }
+   536→    setDraft(null);
+   537→  };
+   538→
+   539→  const stepBy = (dir: 1 | -1) => {
+   540→    const parsedDraft = draft != null ? parseFieldValue(field, draft) : undefined;
+   541→    const base = (parsedDraft != null ? parsedDraft : value) ?? 0;
+   542→    const next = Math.max(0, Math.round((base + dir * step) * 100) / 100);
+   543→    onAction({ type: "update-set", setId: set.id, patch: { [key]: next } as Partial<CardSet> });
+   544→    setDraft(null);
+   545→  };
+   546→
+   547→  const stepperButton = (dir: 1 | -1) => (
+   548→    <button
+   549→      type="button"
+   550→      aria-label={dir < 0 ? `Decrease ${label}` : `Increase ${label}`}
+   551→      // Keep focus on the input so the steppers don't unmount before click.
+   552→      onMouseDown={(e) => e.preventDefault()}
+   553→      onClick={() => stepBy(dir)}
+   554→      className="flex h-8 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   555→    >
+   556→      {dir < 0 ? <Minus className="h-3 w-3" aria-hidden /> : <Plus className="h-3 w-3" aria-hidden />}
+   557→    </button>
+   558→  );
+   559→
+   560→  // Grid keyboard navigation (audit D6/M2): Enter/↓ → same column one row down
+   561→  // (Enter on the last row adds a set); ↑ → one row up.
+   562→  const moveFocus = (dir: 1 | -1, input: HTMLInputElement): boolean => {
+   563→    const cell = input.parentElement?.parentElement;
+   564→    const row = cell?.parentElement;
+   565→    if (!cell || !row || !row.parentElement) return false;
+   566→    const colIndex = Array.prototype.indexOf.call(row.children, cell);
+   567→    const rows = Array.from(row.parentElement.querySelectorAll<HTMLElement>("[data-row]"));
+   568→    const rowIndex = rows.indexOf(row);
+   569→    const target = rows[rowIndex + dir];
+   570→    if (!target) return false;
+   571→    const targetCell = target.children[colIndex] as HTMLElement | undefined;
+   572→    const focusable = targetCell?.querySelector<HTMLElement>("input, button");
+   573→    if (focusable) {
+   574→      focusable.focus();
+   575→      return true;
+   576→    }
+   577→    return false;
+   578→  };
+   579→
+   580→  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+   581→    if (e.key === "ArrowUp") {
+   582→      e.preventDefault();
+   583→      commit();
+   584→      moveFocus(-1, e.currentTarget);
+   585→    } else if (e.key === "ArrowDown" || e.key === "Enter") {
+   586→      e.preventDefault();
+   587→      commit();
+   588→      const input = e.currentTarget;
+   589→      if (!moveFocus(1, input)) {
+   590→        // Last row: Enter adds a new set (prefilled by the card) and focuses it.
+   591→        onAction({ type: "add-set" });
+   592→        requestAnimationFrame(() => {
+   593→          const row = input.parentElement?.parentElement?.parentElement;
+   594→          const rows = row?.parentElement
+   595→            ? Array.from(row.parentElement.querySelectorAll<HTMLElement>("[data-row]"))
+   596→            : [];
+   597→          const cell = input.parentElement?.parentElement;
+   598→          const colIndex = cell && row ? Array.prototype.indexOf.call(row.children, cell) : -1;
+   599→          const last = rows[rows.length - 1];
+   600→          const focusable =
+   601→            colIndex >= 0 ? (last?.children[colIndex] as HTMLElement | undefined)?.querySelector<HTMLElement>("input") : null;
+   602→          focusable?.focus();
+   603→        });
+   604→      }
+   605→    }
+   606→  };
+   607→
+   608→  return (
+   609→    <div className="flex h-full min-w-0 items-center">
+   610→      {/* template blank: ↺ = copy-last (typed value replaces it) */}
+   611→      {templateBlank && !focused ? (
+   612→        <button
+   613→          type="button"
+   614→          aria-label={`Copy previous set ${label.toLowerCase()}`}
+   615→          title="Copy previous set"
+   616→          onClick={() => onAction({ type: "copy-last", setId: set.id })}
+   617→          className="flex h-8 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   618→        >
+   619→          <RotateCcw className="h-3 w-3" aria-hidden />
+   620→        </button>
+   621→      ) : null}
+   622→      {/* focused: inline steppers inside the cell ([− 20px | input | + 20px]) */}
+   623→      {focused ? stepperButton(-1) : null}
+   624→      <input
+   625→        aria-label={label}
+   626→        inputMode={field === "reps" ? "numeric" : "decimal"}
+   627→        value={display}
+   628→        onFocus={() => setFocused(true)}
+   629→        onBlur={() => {
+   630→          commit();
+   631→          setFocused(false);
+   632→        }}
+   633→        onKeyDown={onInputKeyDown}
+   634→        onChange={(e) => setDraft(e.target.value)}
+   635→        className="h-full min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent px-1 text-right text-sm tabular-nums text-foreground outline-none focus:bg-muted/40"
+   636→      />
+   637→      {focused ? stepperButton(1) : null}
+   638→    </div>
+   639→  );
+   640→}
+   641→
+   642→function RpeCell({ set, editable, onAction }: { set: CardSet; editable: boolean; onAction?: (a: CardAction) => void }) {
+   643→  const [open, setOpen] = useState(false);
+   644→  const value = set.rpe ?? null;
+   645→  if (!editable || !onAction) {
+   646→    return (
+   647→      <span
+   648→        className={cn(
+   649→          "w-full truncate text-center text-xs font-semibold tabular-nums",
+   650→          value != null ? "text-foreground" : "text-muted-foreground/50",
+   651→        )}
+   652→        title={value != null ? `RPE ${formatRpe(value)}` : "RPE not set"}
+   653→      >
+   654→        {value != null ? formatRpe(value) : "–"}
+   655→      </span>
+   656→    );
+   657→  }
+   658→  return (
+   659→    <Popover open={open} onOpenChange={setOpen}>
+   660→      <PopoverTrigger asChild>
+   661→        <button
+   662→          type="button"
+   663→          aria-label={value != null ? `RPE ${formatRpe(value)}, tap to change` : "RPE not set, tap to choose"}
+   664→          className={cellButtonBase}
+   665→        >
+   666→          {value != null ? formatRpe(value) : <span className="text-muted-foreground/50">–</span>}
+   667→        </button>
+   668→      </PopoverTrigger>
+   669→      <PopoverContent align="center" className="w-56 p-3">
+   670→        <RpeEditor
+   671→          value={value}
+   672→          onChange={(v) => {
+   673→            onAction({ type: "update-set", setId: set.id, patch: { rpe: v } });
+   674→            setOpen(false);
+   675→          }}
+   676→        />
+   677→      </PopoverContent>
+   678→    </Popover>
+   679→  );
+   680→}
+   681→
+   682→function TempoCell({
+   683→  set,
+   684→  editable,
+   685→  onAction,
+   686→  tempoPresets,
+   687→}: {
+   688→  set: CardSet;
+   689→  editable: boolean;
+   690→  onAction?: (a: CardAction) => void;
+   691→  tempoPresets?: string[];
+   692→}) {
+   693→  const [open, setOpen] = useState(false);
+   694→  const value = set.tempo ?? null;
+   695→  if (!editable || !onAction) {
+   696→    return (
+   697→      <span
+   698→        className={cn(
+   699→          "w-full truncate text-center text-xs font-semibold tabular-nums",
+   700→          value ? "text-foreground" : "text-muted-foreground/50",
+   701→        )}
+   702→        title={value ? `Tempo ${value}` : "Tempo not set"}
+   703→      >
+   704→        {value ?? "–"}
+   705→      </span>
+   706→    );
+   707→  }
+   708→  return (
+   709→    <Popover open={open} onOpenChange={setOpen}>
+   710→      <PopoverTrigger asChild>
+   711→        <button
+   712→          type="button"
+   713→          aria-label={value ? `Tempo ${value}, tap to change` : "Tempo not set, tap to edit"}
+   714→          className={cellButtonBase}
+   715→        >
+   716→          {value ?? <span className="text-muted-foreground/50">–</span>}
+   717→        </button>
+   718→      </PopoverTrigger>
+   719→      <PopoverContent align="center" className="w-56 p-3">
+   720→        <TempoEditor
+   721→          value={value}
+   722→          presets={tempoPresets}
+   723→          onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })}
+   724→        />
+   725→      </PopoverContent>
+   726→    </Popover>
+   727→  );
+   728→}
+   729→
+   730→function RestCell({ set, editable, onAction }: { set: CardSet; editable: boolean; onAction?: (a: CardAction) => void }) {
+   731→  const [open, setOpen] = useState(false);
+   732→  const planned = set.restPlannedSec ?? null;
+   733→  const actual = set.restActualSec ?? null;
+   734→  const text =
+   735→    planned != null && planned > 0
+   736→      ? actual != null
+   737→        ? `${formatRestSec(planned)} → ${actual}s`
+   738→        : formatRestSec(planned)
+   739→      : "–";
+   740→  if (!editable || !onAction) {
+   741→    return (
+   742→      <span
+   743→        className={cn(
+   744→          "w-full truncate text-center text-xs font-semibold tabular-nums",
+   745→          planned ? "text-foreground" : "text-muted-foreground/50",
+   746→        )}
+   747→        title={text}
+   748→      >
+   749→        {text}
+   750→      </span>
+   751→    );
+   752→  }
+   753→  return (
+   754→    <Popover open={open} onOpenChange={setOpen}>
+   755→      <PopoverTrigger asChild>
+   756→        <button
+   757→          type="button"
+   758→          aria-label={planned ? `Planned rest ${formatRestSec(planned)}, tap to change` : "Rest not set, tap to edit"}
+   759→          className={cellButtonBase}
+   760→        >
+   761→          {planned ? text : <span className="text-muted-foreground/50">–</span>}
+   762→        </button>
+   763→      </PopoverTrigger>
+   764→      <PopoverContent align="center" className="w-52 p-3">
+   765→        <RestEditor
+   766→          value={planned}
+   767→          onChange={(v) => {
+   768→            onAction({ type: "update-set", setId: set.id, patch: { restPlannedSec: v } });
+   769→            setOpen(false);
+   770→          }}
+   771→        />
+   772→      </PopoverContent>
+   773→    </Popover>
+   774→  );
+   775→}
+   776→
+   777→function DoneCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAction?: (a: CardAction) => void }) {
+   778→  if ((mode === "edit" || mode === "preview") && onAction) {
+   779→    return (
+   780→      <Checkbox
+   781→        checked={!!set.done}
+   782→        onCheckedChange={() => onAction({ type: "toggle-done", setId: set.id })}
+   783→        className="h-5 w-5"
+   784→        aria-label={`Mark set ${set.index} ${set.done ? "not done" : "done"}`}
+   785→      />
+   786→    );
+   787→  }
+   788→  return set.done ? (
+   789→    <Check className="h-4 w-4 text-emerald-500" role="img" aria-label="Completed" />
+   790→  ) : (
+   791→    <Check className="h-4 w-4 text-muted-foreground/30" aria-hidden />
+   792→  );
+   793→}
+   794→
+   795→// ---------- apply-to-all field chips (§4.10d) ----------
+   796→
+   797→/** One selectable field in the ⋯ popover's "Apply to all sets" expander. */
+   798→type ApplyField = { key: keyof ApplyToAllFields; label: string; enabled: boolean };
+   799→
+   800→function applyFieldsFor(exercise: CardExercise, set: CardSet): ApplyField[] {
+   801→  const fields = fieldsForType(exercise.modality);
+   802→  const out: ApplyField[] = fields.map((f) => ({
+   803→    key: FIELD_TO_KEY[f] as keyof ApplyToAllFields,
+   804→    label: FIELD_LABEL[f],
+   805→    enabled: (set[FIELD_TO_KEY[f]] as number | null | undefined) != null,
+   806→  }));
+   807→  out.push({ key: "restPlannedSec", label: "Rest", enabled: set.restPlannedSec != null });
+   808→  out.push({ key: "tempo", label: "Tempo", enabled: !!set.tempo });
+   809→  out.push({ key: "rpe", label: "RPE", enabled: set.rpe != null });
+   810→  return out;
+   811→}
+   812→
+   813→function ApplyToAllSection({
+   814→  exercise,
+   815→  set,
+   816→  onAction,
+   817→}: {
+   818→  exercise: CardExercise;
+   819→  set: CardSet;
+   820→  onAction: (a: CardAction) => void;
+   821→}) {
+   822→  const [open, setOpen] = useState(false);
+   823→  const [selected, setSelected] = useState<Set<string>>(new Set());
+   824→  const fields = applyFieldsFor(exercise, set);
+   825→  const anyEnabled = fields.some((f) => f.enabled);
+   826→
+   827→  const toggle = (key: string) => {
+   828→    hapticTap();
+   829→    setSelected((prev) => {
+   830→      const next = new Set(prev);
+   831→      if (next.has(key)) next.delete(key);
+   832→      else next.add(key);
+   833→      return next;
+   834→    });
+   835→  };
+   836→
+   837→  const apply = () => {
+   838→    // keys are constrained to keyof ApplyToAllFields by applyFieldsFor, so the
+   839→    // record-then-cast keeps each property's value type sound.
+   840→    const out: Record<string, unknown> = {};
+   841→    for (const f of fields) {
+   842→      if (!selected.has(f.key) || !f.enabled) continue;
+   843→      // copy the value straight off the source row (undefined → null = clear)
+   844→      out[f.key] = set[f.key] ?? null;
+   845→    }
+   846→    onAction({ type: "apply-to-all", fields: out as ApplyToAllFields });
+   847→  };
+   848→
+   849→  if (!anyEnabled) {
+   850→    return (
+   851→      <p className="text-[11px] leading-snug text-muted-foreground/70">
+   852→        Fill weight, reps, rest, tempo or RPE on this set to copy it to every set.
+   853→      </p>
+   854→    );
+   855→  }
+   856→
+   857→  return (
+   858→    <div>
+   859→      <button
+   860→        type="button"
+   861→        aria-expanded={open}
+   862→        aria-label="Apply to all sets"
+   863→        onClick={() => {
+   864→          hapticTap();
+   865→          setOpen((o) => !o);
+   866→        }}
+   867→        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   868→      >
+   869→        <Copy className="h-3.5 w-3.5 flex-none" aria-hidden />
+   870→        <span className="min-w-0 flex-1">Apply to all sets</span>
+   871→        <ChevronDown
+   872→          className={cn("h-3.5 w-3.5 flex-none transition-transform", open && "rotate-180")}
+   873→          aria-hidden
+   874→        />
+   875→      </button>
+   876→      {open ? (
+   877→        <div className="pt-2">
+   878→          <div className="flex flex-wrap gap-1" role="group" aria-label="Fields to apply">
+   879→            {fields.map((f) => {
+   880→              const on = selected.has(f.key);
+   881→              return (
+   882→                <button
+   883→                  key={f.key}
+   884→                  type="button"
+   885→                  disabled={!f.enabled}
+   886→                  aria-pressed={on}
+   887→                  aria-disabled={!f.enabled}
+   888→                  aria-label={`Apply ${f.label}${f.enabled ? "" : " — no value on this set"}`}
+   889→                  className={cn(
+   890→                    "flex h-8 items-center rounded-full border px-3 text-xs font-bold transition-colors",
+   891→                    on
+   892→                      ? "border-primary/60 bg-primary/10 text-primary"
+   893→                      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   894→                    !f.enabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-muted-foreground",
+   895→                  )}
+   896→                  onClick={() => toggle(f.key)}
+   897→                >
+   898→                  {f.label}
+   899→                  {on ? <Check className="ml-1 h-3 w-3" aria-hidden /> : null}
+   900→                </button>
+   901→              );
+   902→            })}
+   903→          </div>
+   904→          <Button
+   905→            type="button"
+   906→            size="sm"
+   907→            className="mt-2 h-8 w-full rounded-lg text-xs font-bold"
+   908→            disabled={selected.size === 0}
+   909→            onClick={apply}
+   910→          >
+   911→            Apply to all sets
+   912→          </Button>
+   913→        </div>
+   914→      ) : null}
+   915→    </div>
+   916→  );
+   917→}
+   918→
+   919→function MoreCell({
+   920→  set,
+   921→  exercise,
+   922→  editable,
+   923→  showRpeEditor,
+   924→  showTempoEditor,
+   925→  allowRemoveSet,
+   926→  tempoPresets,
+   927→  onAction,
+   928→}: {
+   929→  set: CardSet;
+   930→  exercise: CardExercise;
+   931→  editable: boolean;
+   932→  showRpeEditor: boolean;
+   933→  showTempoEditor: boolean;
+   934→  /** template mode: predefined sets can be deleted from the row ⋯ popover. */
+   935→  allowRemoveSet?: boolean;
+   936→  tempoPresets?: string[];
+   937→  onAction?: (a: CardAction) => void;
+   938→}) {
+   939→  const [open, setOpen] = useState(false);
+   940→  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+   941→
+   942→  // read / preview: PR/note glyph (inline — the preferred PR badge spot)
+   943→  if (!editable || !onAction) {
+   944→    if (set.isNewPr) return <Trophy className="h-3.5 w-3.5 text-amber-400" role="img" aria-label="New personal record" />;
+   945→    if (set.note) return <StickyNote className="h-3.5 w-3.5 text-muted-foreground" role="img" aria-label="Has note" />;
+   946→    return null;
+   947→  }
+   948→
+   949→  const commitNote = () => {
+   950→    if (noteDraft != null && noteDraft !== (set.note ?? "")) {
+   951→      onAction({ type: "update-set", setId: set.id, patch: { note: noteDraft } });
+   952→    }
+   953→  };
+   954→
+   955→  const handleOpenChange = (next: boolean) => {
+   956→    if (!next) commitNote();
+   957→    setOpen(next);
+   958→    if (next) setNoteDraft(null);
+   959→  };
+   960→
+   961→  const dropped = showRpeEditor || showTempoEditor;
+   962→
+   963→  return (
+   964→    <Popover open={open} onOpenChange={handleOpenChange}>
+   965→      <PopoverTrigger asChild>
+   966→        <button
+   967→          type="button"
+   968→          aria-label={`More options for set ${set.index}`}
+   969→          className="flex h-10 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   970→        >
+   971→          <MoreHorizontal className="h-4 w-4" aria-hidden />
+   972→        </button>
+   973→      </PopoverTrigger>
+   974→      <PopoverContent align="end" className="w-64 p-3">
+   975→        {dropped ? (
+   976→          <div className="flex flex-col gap-3">
+   977→            {showRpeEditor ? (
+   978→              <RpeEditor
+   979→                value={set.rpe ?? null}
+   980→                onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { rpe: v } })}
+   981→              />
+   982→            ) : null}
+   983→            {showTempoEditor ? (
+   984→              <div className="border-t border-border pt-3">
+   985→                <TempoEditor
+   986→                  value={set.tempo ?? null}
+   987→                  presets={tempoPresets}
+   988→                  onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })}
+   989→                />
+   990→              </div>
+   991→            ) : null}
+   992→          </div>
+   993→        ) : null}
+   994→        <div className={cn(dropped && "border-t border-border pt-3")}>
+   995→          <p className="pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Note</p>
+   996→          <textarea
+   997→            aria-label="Set note"
+   998→            rows={2}
+   999→            value={noteDraft ?? set.note ?? ""}
+  1000→            onChange={(e) => setNoteDraft(e.target.value)}
+  1001→            onBlur={commitNote}
+  1002→            placeholder="Set note…"
+  1003→            className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-ring/40"
+  1004→          />
+  1005→          <div className="mt-2 flex gap-1">
+  1006→            <Button
+  1007→              type="button"
+  1008→              variant="outline"
+  1009→              size="sm"
+  1010→              className="h-8 flex-1 rounded-lg text-xs"
+  1011→              onClick={() => onAction({ type: "copy-last", setId: set.id })}
+  1012→            >
+  1013→              <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Copy last
+  1014→            </Button>
+  1015→            <Button
+  1016→              type="button"
+  1017→              variant="outline"
+  1018→              size="sm"
+  1019→              className="h-8 flex-1 rounded-lg text-xs"
+  1020→              onClick={() => {
+  1021→                onAction({ type: "rest-timer", setId: set.id });
+  1022→                handleOpenChange(false);
+  1023→              }}
+  1024→            >
+  1025→              <Timer className="h-3.5 w-3.5" aria-hidden /> Rest
+  1026→            </Button>
+  1027→          </div>
+  1028→          <div className="mt-2 border-t border-border pt-2">
+  1029→            <ApplyToAllSection exercise={exercise} set={set} onAction={onAction} />
+  1030→          </div>
+  1031→          {allowRemoveSet ? (
+  1032→            <Button
+  1033→              type="button"
+  1034→              variant="ghost"
+  1035→              size="sm"
+  1036→              className="mt-2 h-8 w-full rounded-lg text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+  1037→              onClick={() => {
+  1038→                onAction({ type: "remove-set", setId: set.id });
+  1039→                handleOpenChange(false);
+  1040→              }}
+  1041→            >
+  1042→              <Trash2 className="h-3.5 w-3.5" aria-hidden /> Remove set
+  1043→            </Button>
+  1044→          ) : null}
+  1045→        </div>
+  1046→      </PopoverContent>
+  1047→    </Popover>
+  1048→  );
+  1049→}
+  1050→
+  1051→// ---------- SetRow ----------
+  1052→
+  1053→export interface SetRowProps {
+  1054→  /** Render mode — see CardMode. */
+  1055→  mode: CardMode;
+  1056→  exercise: CardExercise;
+  1057→  set: CardSet;
+  1058→  visibleColumns: CardVisibleColumns;
+  1059→  /**
+  1060→   * read/preview: whether the card shows the more track (ExerciseCard computes
+  1061→   * "any set has a PR/note"). Standalone default: this set has a PR/note.
+  1062→   */
+  1063→  moreTrack?: boolean;
+  1064→  /** Omit → the row renders fully read-only (no inputs/menus, even in edit mode). */
+  1065→  onAction?: (action: CardAction) => void;
+  1066→  /** §4.10e tempo presets ("2-0-2-0"…) shown as chips in the tempo editors. */
+  1067→  tempoPresets?: string[];
+  1068→  className?: string;
+  1069→}
+  1070→
+  1071→export function SetRow({
+  1072→  mode,
+  1073→  exercise,
+  1074→  set,
+  1075→  visibleColumns,
+  1076→  moreTrack,
+  1077→  onAction,
+  1078→  tempoPresets,
+  1079→  className,
+  1080→}: SetRowProps) {
+  1081→  const vw = useViewportWidth();
+  1082→  const fields = useMemo(() => fieldsForType(exercise.modality), [exercise.modality]);
+  1083→  const editable = onAction != null && (mode === "edit" || mode === "template" || mode === "preview");
+  1084→  const effectiveMoreTrack =
+  1085→    moreTrack ?? (mode === "read" || mode === "preview" ? !!(set.isNewPr || set.note) : true);
+  1086→  const grid = useMemo(
+  1087→    () => buildGrid(fields, visibleColumns, mode, vw, effectiveMoreTrack),
+  1088→    [fields, visibleColumns, mode, vw, effectiveMoreTrack],
+  1089→  );
+  1090→
+  1091→  // rpe/tempo editors move into the more ⋯ popover below the wide threshold
+  1092→  const rpeDropped = visibleColumns.rpe && vw < WIDE_VIEWPORT;
+  1093→  const tempoDropped = visibleColumns.tempo && vw < WIDE_VIEWPORT;
+  1094→  const typeEditable = editable && (mode === "edit" || mode === "template");
+  1095→  const moreEditable = editable && (mode === "edit" || mode === "template");
+  1096→
+  1097→  const cells: Record<TrackKey, ReactNode> = {
+  1098→    index: <IndexCell set={set} mode={mode} onAction={editable ? onAction : undefined} />,
+  1099→    setType: <TypeCell set={set} mode={mode} editable={typeEditable} onAction={typeEditable ? onAction : undefined} />,
+  1100→    f1: fields[0] ? (
+  1101→      <ValueCell
+  1102→        field={fields[0]}
+  1103→        set={set}
+  1104→        exercise={exercise}
+  1105→        mode={mode}
+  1106→        editable={editable}
+  1107→        onAction={editable ? onAction : undefined}
+  1108→      />
+  1109→    ) : null,
+  1110→    f2: fields[1] ? (
+  1111→      <ValueCell
+  1112→        field={fields[1]}
+  1113→        set={set}
+  1114→        exercise={exercise}
+  1115→        mode={mode}
+  1116→        editable={editable}
+  1117→        onAction={editable ? onAction : undefined}
+  1118→      />
+  1119→    ) : null,
+  1120→    rpe: <RpeCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
+  1121→    tempo: (
+  1122→      <TempoCell
+  1123→        set={set}
+  1124→        editable={editable}
+  1125→        onAction={editable ? onAction : undefined}
+  1126→        tempoPresets={tempoPresets}
+  1127→      />
+  1128→    ),
+  1129→    rest: <RestCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
+  1130→    done: <DoneCell set={set} mode={mode} onAction={onAction} />,
+  1131→    more: (
+  1132→      <MoreCell
+  1133→        set={set}
+  1134→        exercise={exercise}
+  1135→        editable={moreEditable}
+  1136→        showRpeEditor={rpeDropped}
+  1137→        showTempoEditor={tempoDropped}
+  1138→        allowRemoveSet={mode === "template"}
+  1139→        tempoPresets={tempoPresets}
+  1140→        onAction={moreEditable ? onAction : undefined}
+  1141→      />
+  1142→    ),
+  1143→  };
+  1144→
+  1145→  return (
+  1146→    <div
+  1147→      data-row
+  1148→      role="group"
+  1149→      aria-label={`Set ${set.index}`}
+  1150→      className={cn(rowGrid, rowTint(set), className)}
+  1151→      style={{ gridTemplateColumns: grid.template }}
+  1152→    >
+  1153→      {grid.keys.map((key) => (
+  1154→        <div key={key} className={cn(CELL, key !== "f1" && key !== "f2" && "justify-center")}>
+  1155→          {cells[key]}
+  1156→        </div>
+  1157→      ))}
+  1158→    </div>
+  1159→  );
+  1160→}
+  1161→

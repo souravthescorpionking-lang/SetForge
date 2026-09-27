@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { mapWorkout, mapScheduleEntry } from "@/server/mappers";
 import { workoutInclude } from "@/server/services/workout-service";
 import { applyProgramRules } from "@/server/services/program-service";
+import { jsonStringArray } from "@/server/media";
 
 export const GET = handler(async (req: NextRequest) => {
   const user = await requireUser();
@@ -16,9 +17,9 @@ export const GET = handler(async (req: NextRequest) => {
   // converge the program cursor before pulling (REST catch-up, midnight rules)
   await applyProgramRules(user.id);
 
-  const [workouts, measurementRecords, exercises, scheduleEntries, activeRoutine] = await Promise.all([
+  const [workouts, measurementRecords, exercises, scheduleEntries, activeRoutine, userProfile, dailyCalories] = await Promise.all([
     db.workout.findMany({
-      where: { userId: user.id, updatedAt: { gt: since } },
+      where: { userId: user.id, updatedAt: { gt: since }, deletedAt: null },
       include: workoutInclude,
       orderBy: { updatedAt: "asc" },
     }),
@@ -36,6 +37,11 @@ export const GET = handler(async (req: NextRequest) => {
       orderBy: { updatedAt: "asc" },
     }),
     db.activeRoutine.findUnique({ where: { userId: user.id }, include: { routine: true } }),
+    db.userProfile.findUnique({ where: { userId: user.id } }),
+    db.dailyCalories.findMany({
+      where: { userId: user.id, updatedAt: { gt: since } },
+      orderBy: { updatedAt: "asc" },
+    }),
   ]);
 
   return {
@@ -58,7 +64,25 @@ export const GET = handler(async (req: NextRequest) => {
           startedAt: activeRoutine.startedAt.toISOString(),
           lastAdvancedAt: activeRoutine.lastAdvancedAt?.toISOString() ?? null,
           lastAdvancedForDate: activeRoutine.lastAdvancedForDate,
+          completedDayIds: jsonStringArray(activeRoutine.completedDayIds), // Part 6
         }
       : null,
+    // ---- Part 6 ----
+    userProfile: userProfile
+      ? {
+          age: userProfile.age ?? null,
+          heightCm: userProfile.heightCm ?? null,
+          weightKg: userProfile.weightKg ?? null,
+          level: userProfile.level ?? null,
+          goal: userProfile.goal ?? null,
+          daysPerWeekTarget: userProfile.daysPerWeekTarget ?? null,
+          onboardingCompletedAt: userProfile.onboardingCompletedAt?.toISOString() ?? null,
+        }
+      : null,
+    dailyCalories: dailyCalories.map((c) => ({
+      date: c.date.toISOString().slice(0, 10),
+      kcal: c.kcal,
+      note: c.note ?? null,
+    })),
   };
 });

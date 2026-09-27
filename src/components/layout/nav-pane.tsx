@@ -22,6 +22,8 @@ import {
   Settings,
   CircleHelp,
   ChevronRight,
+  BookOpen,
+  UserRound,
 } from "lucide-react";
 import type { SessionDTO } from "@/lib/types";
 import { useHashSegment } from "./use-hash-segment";
@@ -42,6 +44,8 @@ const DESTINATIONS: readonly PaneDestination[] = [
   { key: "insights", label: "Insights", hash: "#/insights", icon: BarChart3 },
   { key: "history", label: "History", hash: "#/history", icon: History },
   { key: "exercises", label: "Exercises", hash: "#/exercises", icon: Dumbbell },
+  { key: "library", label: "Library", hash: "#/library", icon: BookOpen },
+  { key: "profile", label: "Profile", hash: "#/profile", icon: UserRound },
   { key: "tools", label: "Tools", hash: "#/tools", icon: Calculator },
   { key: "settings", label: "Settings", hash: "#/settings", icon: Settings },
   { key: "help", label: "Help", hash: "#/help", icon: CircleHelp },

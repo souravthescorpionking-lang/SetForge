@@ -142,3 +142,80 @@ export function formatRestSec(sec: number | null | undefined): string {
   }
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+// ---------- Part 6: muscles / equipment / program metadata ----------
+
+export const MUSCLES = [
+  "CHEST", "BACK", "LATS", "TRAPS", "SHOULDERS", "BICEPS", "TRICEPS", "FOREARMS",
+  "ABS", "OBLIQUES", "LOWER_BACK", "GLUTES", "QUADS", "HAMSTRINGS", "CALVES",
+  "ADDUCTORS", "ABDUCTORS", "NECK", "FULL_BODY", "CARDIO",
+] as const;
+export type Muscle = (typeof MUSCLES)[number];
+
+export const MUSCLE_LABELS: Record<Muscle, string> = {
+  CHEST: "Chest", BACK: "Back", LATS: "Lats", TRAPS: "Traps", SHOULDERS: "Shoulders",
+  BICEPS: "Biceps", TRICEPS: "Triceps", FOREARMS: "Forearms", ABS: "Abs", OBLIQUES: "Obliques",
+  LOWER_BACK: "Lower back", GLUTES: "Glutes", QUADS: "Quads", HAMSTRINGS: "Hamstrings",
+  CALVES: "Calves", ADDUCTORS: "Adductors", ABDUCTORS: "Abductors", NECK: "Neck",
+  FULL_BODY: "Full body", CARDIO: "Cardio",
+};
+
+export const EQUIPMENT = [
+  "BARBELL", "DUMBBELL", "KETTLEBELL", "CABLE", "MACHINE", "SMITH", "BODYWEIGHT", "BAND",
+  "EZ_BAR", "TRAP_BAR", "BENCH", "PULLUP_BAR", "DIP_BAR", "PLATE", "MEDICINE_BALL",
+  "BOX", "SLED", "ROWER", "BIKE", "TREADMILL", "OTHER",
+] as const;
+export type Equipment = (typeof EQUIPMENT)[number];
+
+export const EQUIPMENT_LABELS: Record<Equipment, string> = {
+  BARBELL: "Barbell", DUMBBELL: "Dumbbell", KETTLEBELL: "Kettlebell", CABLE: "Cable",
+  MACHINE: "Machine", SMITH: "Smith", BODYWEIGHT: "Bodyweight", BAND: "Band",
+  EZ_BAR: "EZ bar", TRAP_BAR: "Trap bar", BENCH: "Bench", PULLUP_BAR: "Pull-up bar",
+  DIP_BAR: "Dip bar", PLATE: "Plate", MEDICINE_BALL: "Medicine ball", BOX: "Box",
+  SLED: "Sled", ROWER: "Rower", BIKE: "Bike", TREADMILL: "Treadmill", OTHER: "Other",
+};
+
+/**
+ * Muscle dot colours — one accent-derived palette of 8 hues, mapped
+ * deterministically by enum index (index % 8). Dots/chips only, never full-bleed.
+ */
+export const MUSCLE_COLOUR_PALETTE = [
+  "#f97316", "#10b981", "#a855f7", "#14b8a6", "#ec4899", "#f59e0b", "#84cc16", "#ef4444",
+] as const;
+
+export function muscleColour(muscle: string): string {
+  const idx = MUSCLES.indexOf(muscle as Muscle);
+  return MUSCLE_COLOUR_PALETTE[(idx < 0 ? 0 : idx) % MUSCLE_COLOUR_PALETTE.length];
+}
+
+export const DIFFICULTIES = ["BEGINNER", "INTERMEDIATE", "ADVANCED"] as const;
+export type Difficulty = (typeof DIFFICULTIES)[number];
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  BEGINNER: "Beginner", INTERMEDIATE: "Intermediate", ADVANCED: "Advanced",
+};
+
+export const PROFILE_LEVELS = ["BEGINNER", "INTERMEDIATE", "ADVANCED"] as const;
+export const PROFILE_GOALS = ["STRENGTH", "MUSCLE", "FAT_LOSS", "GENERAL"] as const;
+export const PROFILE_GOAL_LABELS: Record<(typeof PROFILE_GOALS)[number], string> = {
+  STRENGTH: "Strength", MUSCLE: "Muscle", FAT_LOSS: "Fat loss", GENERAL: "General",
+};
+
+export const PHOTO_SLOTS = ["FRONT", "BACK", "LEFT", "RIGHT"] as const;
+export type PhotoSlot = (typeof PHOTO_SLOTS)[number];
+export const PHOTO_SLOT_LABELS: Record<PhotoSlot, string> = {
+  FRONT: "Front", BACK: "Back", LEFT: "Left", RIGHT: "Right",
+};
+
+export const REST_DISPLAYS = ["BAR", "RING"] as const;
+export const FINISH_BEHAVIOURS = ["ALWAYS_SAVE", "ASK"] as const;
+export const CALENDAR_STYLES = ["GRID", "SCROLL"] as const;
+
+export const DEFAULT_TEMPO_PRESETS = ["2-0-2-0", "3-1-1-0", "4-0-1-0", "1-0-1-0"] as const;
+
+/** Set-level time constants for the duration estimate formula (§1 RoutineDay.estMinutes). */
+export const EST_MINUTES_PER_SET_SEC = 30; // avg set duration
+export const EST_MINUTES_DEFAULT_REST_SEC = 90; // fallback rest when unset
+export const DAY_MINUTES_CAP = 90; // DurationRing fraction cap (fraction = est / cap)
+
+/** Missed-derivation grace (§4.13): PLANNED → MISSED when now > date + timeOfDay + 4h. */
+export const MISSED_GRACE_HOURS = 4;

@@ -57,7 +57,7 @@ export async function createTimerPreset(userId: string, input: PresetInput) {
   return mapPreset(created);
 }
 
-export async function updateTimerPreset(userId: string, id: string, patch: PresetInput) {
+export async function updateTimerPreset(userId: string, id: string, patch: Partial<PresetInput>) {
   const preset = await db.timerPreset.findFirst({ where: { id, userId } });
   if (!preset) throw notFound("Preset not found");
   if (patch.name && patch.name.trim() !== preset.name) {

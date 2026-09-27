@@ -3,12 +3,17 @@ import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
 import { mapPlate } from "../mappers";
 import { notFound } from "../http";
+import { DEFAULT_TEMPO_PRESETS } from "@/lib/constants";
+import { jsonStringArray } from "@/server/media";
 
 export async function getSettings(userId: string) {
   const s = await db.userSettings.findUnique({ where: { userId } });
   if (!s) throw notFound("Settings not found");
   const { id: _id, userId: _userId, createdAt: _c, updatedAt: _u, ...rest } = s;
-  return rest;
+  return {
+    ...rest,
+    tempoPresets: jsonStringArray(s.tempoPresets).length > 0 ? jsonStringArray(s.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
+  };
 }
 
 export async function updateSettings(
@@ -34,13 +39,34 @@ export async function updateSettings(
     autoRestFromRow: boolean;
     restEndBehaviour: string;
     e1rmMethod: string;
+    // ---- Part 6: feature expansion ----
+    guidedMode: boolean;
+    restDisplay: string;
+    autoMoveNextSet: boolean;
+    hapticsEnabled: boolean;
+    showVideoPanel: boolean;
+    showMuscleChips: boolean;
+    showEquipmentChips: boolean;
+    finishBehaviour: string;
+    showSetsProgressBar: boolean;
+    showMaxWeightBar: boolean;
+    calendarStyle: string;
+    tempoPresets: string[];
+    showCaloriesCard: boolean;
+    showThumbnails: boolean;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });
   if (!existing) throw notFound("Settings not found");
-  const updated = await db.userSettings.update({ where: { userId }, data: patch });
+  // Json columns arrive/leave as string[] — normalise null to the documented default.
+  const data: Record<string, unknown> = { ...patch };
+  if (patch.tempoPresets !== undefined) data.tempoPresets = patch.tempoPresets ?? [...DEFAULT_TEMPO_PRESETS];
+  const updated = await db.userSettings.update({ where: { userId }, data });
   const { id: _id, userId: _uid, createdAt: _c, updatedAt: _u, ...rest } = updated;
-  return rest;
+  return {
+    ...rest,
+    tempoPresets: jsonStringArray(updated.tempoPresets).length > 0 ? jsonStringArray(updated.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
+  };
 }
 
 // ---------- plates ----------

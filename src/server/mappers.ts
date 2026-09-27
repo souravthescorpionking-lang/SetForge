@@ -1,4 +1,5 @@
 // DB row → DTO mappers (ISO strings over the wire).
+import { jsonStringArray } from "@/server/media";
 import type {
   CategoryDTO,
   ExerciseDTO,
@@ -67,6 +68,16 @@ export function mapExercise(
     defaultSetType: e.defaultSetType ?? null,
     defaultRpeTarget: e.defaultRpeTarget ?? null,
     defaultTempo: e.defaultTempo ?? null,
+    // ---- Part 6: catalog metadata ----
+    primaryMuscles: jsonStringArray(e.primaryMuscles),
+    secondaryMuscles: jsonStringArray(e.secondaryMuscles),
+    equipment: jsonStringArray(e.equipment),
+    thumbnailUrl: e.thumbnailUrl ?? null,
+    videoUrl: e.videoUrl ?? null,
+    trainerTip: e.trainerTip ?? null,
+    setupNotes: e.setupNotes ?? null,
+    targetNotes: e.targetNotes ?? null,
+    catalogKey: e.catalogKey ?? null,
     ...extras,
   };
 }
@@ -105,6 +116,9 @@ export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { e
     sourceDayId: w.sourceDayId ?? null,
     scheduledStart: w.scheduledStart ?? false,
     finishedAt: w.finishedAt?.toISOString() ?? null,
+    // ---- Part 6: lifecycle ----
+    discardedAt: w.discardedAt?.toISOString() ?? null,
+    deletedAt: w.deletedAt?.toISOString() ?? null,
     groups: w.groups.map(mapGroup),
     exercises: w.exercises
       .slice()
@@ -202,7 +216,27 @@ export function mapRoutineDay(d: RoutineDay & { exercises: Array<RoutineExercise
     dayType: d.dayType ?? "WORKOUT",
     sortOrder: d.sortOrder,
     exercises: d.exercises.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapRoutineExercise),
+    // ---- Part 6 ----
+    primaryMuscles: jsonStringArray(d.primaryMuscles),
+    estMinutes: d.estMinutes ?? null,
+    isFavorite: d.isFavorite ?? false,
   };
+}
+
+function parseRoutinePhases(raw: unknown): Array<{ name: string; dayIds: string[] }> | null {
+  if (raw == null) return null;
+  const arr = Array.isArray(raw) ? raw : (() => { try { return JSON.parse(String(raw)); } catch { return null; } })();
+  if (!Array.isArray(arr)) return null;
+  const out: Array<{ name: string; dayIds: string[] }> = [];
+  for (const p of arr) {
+    if (p && typeof p === "object" && typeof (p as { name?: unknown }).name === "string" && Array.isArray((p as { dayIds?: unknown }).dayIds)) {
+      out.push({
+        name: (p as { name: string }).name,
+        dayIds: (p as { dayIds: unknown[] }).dayIds.filter((d): d is string => typeof d === "string"),
+      });
+    }
+  }
+  return out;
 }
 
 export function mapRoutine(r: Routine & { days: Array<RoutineDay & { exercises: Array<RoutineExercise & { exercise: ExerciseWithCategory; sets: PredefinedSet[] }> }> }): RoutineDTO {
@@ -213,6 +247,14 @@ export function mapRoutine(r: Routine & { days: Array<RoutineDay & { exercises: 
     kind: r.kind ?? "ROUTINE",
     sortOrder: r.sortOrder,
     days: r.days.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapRoutineDay),
+    // ---- Part 6 ----
+    difficulty: r.difficulty ?? null,
+    phases: parseRoutinePhases(r.phases),
+    daysPerWeek: r.daysPerWeek ?? null,
+    estMinutes: r.estMinutes ?? null,
+    highlights: jsonStringArray(r.highlights),
+    isFavorite: r.isFavorite ?? false,
+    labels: jsonStringArray(r.labels),
   };
 }
 
@@ -345,5 +387,9 @@ export function mapScheduleEntry(
     status: e.status,
     workoutId: e.workoutId ?? null,
     note: e.note ?? null,
+    // ---- Part 6 ----
+    timeOfDay: e.timeOfDay ?? null,
+    estMinutes: e.estMinutes ?? null,
+    missedAt: e.missedAt?.toISOString() ?? null,
   };
 }

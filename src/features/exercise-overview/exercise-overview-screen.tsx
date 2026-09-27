@@ -7,9 +7,17 @@
 //   TopBar (56)  : back (→ browser history when the SPA navigated here, else
 //                  #/exercises) · exercise name + category dot (ellipsis) · ⋮
 //                  (Favourite toggle · Training history → #/today/{id}?tab=history)
-//   SubBar (48)  : Records | Goals | History — 3 equal tabs, active tab
-//                  deep-linkable via ?tab= (replaceHash, no history pollution)
-//   ScrollBody   : RECORDS — 40px data-rows: lift (ellipsis) | value 72px right
+//   SubBar (48)  : About | Records | Goals | History — 4 equal tabs, active
+//                  tab deep-linkable via ?tab= (replaceHash, no history
+//                  pollution). About (Part 6 §4.2b) is the default tab.
+//   ScrollBody   : ABOUT   — ExerciseDetailBody (MediaBlock 180/240 · Setup /
+//                            Target tiles with inline expansion · muscle and
+//                            equipment chip rows · trainer tip row), sourced
+//                            from the owned exercise's optional catalog
+//                            metadata; every section collapses to 0px when
+//                            absent. No ActionRow — the exercise is already
+//                            owned (TopBar ⋮ keeps the favourite toggle).
+//                  RECORDS — 40px data-rows: lift (ellipsis) | value 72px right
 //                            tabular | date 88px. Sections: Bests (best weight,
 //                            best volume set, estimated 1RM, best distance/
 //                            time for cardio), Rep records (per-reps actual PRs
@@ -78,11 +86,12 @@ import {
 import { useOfflineRun } from "@/features/exercises/offline-run";
 import { useToggleFavourite } from "@/features/exercises/use-favourite";
 import { ExerciseNotesPopover } from "@/features/today/card-popovers";
+import { ExerciseDetailBody } from "@/features/library/exercise-detail-body";
 import type { ExerciseDTO, GoalDTO, RecordsDTO, SetDTO } from "@/lib/types";
 
-const TABS = ["records", "goals", "history"] as const;
+const TABS = ["about", "records", "goals", "history"] as const;
 type TabKey = (typeof TABS)[number];
-const TAB_LABELS: Record<TabKey, string> = { records: "Records", goals: "Goals", history: "History" };
+const TAB_LABELS: Record<TabKey, string> = { about: "About", records: "Records", goals: "Goals", history: "History" };
 
 // Any in-app navigation (navigate() pushes a history entry) fires hashchange.
 // Until one fires, this screen was reached by a deep link / fresh load → the
@@ -116,7 +125,7 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
 
   // ---------- ?tab= deep link ----------
   const tabParam = route.name === "exercise-overview" ? route.query.get("tab") : null;
-  const tab: TabKey = tabParam === "goals" || tabParam === "history" ? tabParam : "records";
+  const tab: TabKey = (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabKey) : "about";
   const switchTab = (t: TabKey) => {
     if (t === tab) return;
     replaceHash(`#/exercise-overview/${exerciseId}?tab=${t}`);
@@ -195,7 +204,7 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
         />
       }
       subBar={
-        <div className="grid h-12 w-full grid-cols-3" role="tablist" aria-label="Exercise overview tabs">
+        <div className="grid h-12 w-full grid-cols-4" role="tablist" aria-label="Exercise overview tabs">
           {TABS.map((t) => (
             <button
               key={t}
@@ -240,6 +249,8 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
               <ChevronLeft className="h-4 w-4" aria-hidden /> Back to exercises
             </Button>
           </div>
+        ) : tab === "about" ? (
+          <AboutTab key={`about-${exercise.id}`} exercise={exercise} />
         ) : tab === "records" ? (
           <RecordsTab key={`rec-${exercise.id}`} exercise={exercise} />
         ) : tab === "goals" ? (
@@ -254,6 +265,15 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
       </ScrollBody>
     </Screen>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ABOUT (Part 6 §4.2b) — the ExerciseDetailBody shared with #/library/{key},
+// sourced from the owned exercise's optional catalog metadata. No ActionRow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AboutTab({ exercise }: { exercise: ExerciseDTO }) {
+  return <ExerciseDetailBody data={exercise} />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
