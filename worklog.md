@@ -813,3 +813,18 @@ Stage Summary:
 - Screenshots: download/qa-p5-{home-stateC,home-stateA,home-ppl-day1,home-ppl-day2,home-rest-stateB,programs-sessions,program-detail,calendar-scheduled,calendar-ghosts,calendar-320,settings-programs,home-desktop,programs-desktop,calendar-desktop}.png
 - Demo accounts: demo@setforge.app / password123 (legacy data, unfollowed); p5test@setforge.app / testpass123 (fresh signup: follows PPL, today workout finished-then-undone, scheduled Upper/Lower on Sep 28, saved session).
 - KNOWN GAPS / next-phase candidates: offline outbox covers new endpoints only partially (schedule mutations queue via generic queueMutation where wired); no Storybook baselines in this environment; server-side streak capped at 180-day lookback; upcoming strip shows projections even when a past date has DONE entries (only non-DONE surface); test files intentionally not added per sandbox policy (E2E via agent-browser instead).
+
+---
+Task ID: 6-a
+Agent: main (Z.ai Code)
+Task: Copy COMPARISON_REPORT.md (APP-A vs APP-B audit) into the application repo
+
+Work Log:
+- Located the completed audit deliverable from the read-only comparative audit session: /home/z/scratch/audit/COMPARISON_REPORT.md (613 lines) + annexes app-a-inventory.md (504 lines) / app-b-inventory.md (523 lines) + screenshots/app-a-live-auth.png.
+- User instruction "Copy comparission file into the application repo" supersedes the original audit rule that the report never be written into either repo; APP-A = /home/z/my-project is the application repo.
+- Copied /home/z/scratch/audit/COMPARISON_REPORT.md -> /home/z/my-project/COMPARISON_REPORT.md; verified byte-identical via md5sum (8aaa02d65fb9218b7d53e4179919b79b both sides) and wc -l (613/613).
+- Verified dev server unaffected (root-level .md, outside src/; no build impact). Annex inventories intentionally left in scratch (referenced by the report at their scratch paths); say the word if you want them copied in too.
+
+Stage Summary:
+- COMPARISON_REPORT.md now lives at the repo root of SetForge: §A/§B per-app inventories, §C screen register (A 21 screens / B 40 routes), §D interaction patterns, §E feature lists (A-001..157 / B-001..117+B-048a), §F 118-row comparison matrix (YES 20 / PARTIAL 40 / DIFFERENT 11 / NO 47), §G UI/UX diff, §H 98-gap deliverable list + 28 REVERSE gaps, §I unknowns, 7 self-check answers.
+- The gap list (GAP-001..098, sizes S57/M31/L10) is the prioritized backlog for any future feature-parity work on SetForge (nutrition domain and media/video catalog are the largest L-sized clusters).

@@ -1,0 +1,254 @@
+   361→ APP-A #/home                        APP-B Workout home
+   362→┌──────────────────────┐ 56   ┌──────────────────────┐
+   363→│ TopBar: Home      ⋮  │      │ ◯ Workout  Sep 27 📅 │ ~60
+   364→├──────────────────────┤      ├──────────────────────┤
+   365→│ TodayCard 168px      │      │ 🏅 Badge Unlocked!   │
+   366→│  [bar] Push Day 2    │      │ ┌────────────────────┐│
+   367→│  6 ex · 12 sets      │      │ │ hero image +55%    ││
+   368→│  [Start ▸]           │      │ │ ◔ 32-tick ring     ││
+   369→├──────────────────────┤      │ │ LEGACY BULK        ││
+   370→│ Upcoming ◦◦◦◦◦◦◦ 7   │      │ │ pills: P1 P2 P3    ││
+   371→├──────────────────────┤      │ │ [Start Day 4] blue ││
+   372→│ Quick sessions ≤3    │      │ └────────────────────┘│
+   373→├──────────────────────┤      │ Training Tools 2×2    │
+   374→│ Stats 24·5,400kg·3🔥 │      │ [On Demand][Builder] │
+   375→├──────────────────────┤      │ [Logs][Library]      │
+   376→│ Today's workout list │      │ (scroll)             │
+   377→│ (max-h-96 scroll)    │      ├──────────────────────┤
+   378→├──────────────────────┤ 64   │ 💪  🍴  📊  👥 tabs  │ 84 web
+   379→│ 🏠 📅 📚 🫀 ⋯ NavBar │      └──────────────────────┘
+   380→└──────────────────────┘
+   381→
+   382→ APP-A #/today (logging)            APP-B workout-session
+   383→┌──────────────────────┐ 56   ┌──────────────────────┐
+   384→│ Today         ⋮      │      │ 12:34  [End Workout] │
+   385→├──────────────────────┤ 48   ├──────────────────────┤
+   386→│ ◀ Thu 26 Sep ▶ •Today│      │ 18/35 Sets ▓▓▓░░ 3px │
+   387→├──────────────────────┤      ├──────────────────────┤
+   388→│ ExerciseCard 72px    │      │ [Overview|Video] ⚙   │
+   389→│  SetRow 40px grid    │      │ ┌ # Type Reps Wt ⬤ ┐ │
+   390→│  # Wt Reps ✓ RPE T R │      │ │ 1  8    60  ⬤✓  │ │
+   391→│  [− 60.0 +][− 8 +]✓  │      │ │ 2  8    60  ⬤   │ │
+   392→│  (kbd: Enter/↓/↑)    │      │ └──────────────────┘ │
+   393→│ ExerciseCard 72px …  │      │ Rest 0:45 [ring] ▶15 │
+   394→├──────────────────────┤ 56   │ (video carousel mode)│
+   395→│ [Add ex] [Finish] or │      ├──────────────────────┤
+   396→│ RestBar 1:30 −15 +15 │      │ ◀ prev  ⏯  next ▶   │
+   397→├──────────────────────┤ 64   └──────────────────────┘
+   398→│ NavBar               │
+   399→└──────────────────────┘
+   400→```
+   401→
+   402→## G2 — Measured token diff
+   403→| Token | APP-A | APP-B |
+   404→|---|---|---|
+   405→| Primary/accent | orange `oklch(0.646 0.214 39.6)` (#f97316 family) | iOS blue `#007AFF` (original #006CFA) |
+   406→| Background | #fafaf9 / #141210 (dual theme) | #000000 (dark-only) |
+   407→| Card | white / oklch(0.198…) | #1A1A1A |
+   408→| Border/secondary | stone scale | #2C2C2C |
+   409→| Muted fg | stone-500 | #8E8E93 |
+   410→| Success/Destructive | emerald / red (OKLCH) | #3AD77C / #ef4444 |
+   411→| Radius | 8 | 12 |
+   412→| Base row heights | 40/48/56/72 | n/a (flex); cards 12px pad |
+   413→| Nav | bottom 64px 5 tabs / NavPane 360px 11 items | 4 tabs; web bar 84px; Liquid-Glass native |
+   414→| Type | Geist Sans/Mono, text-sm, tabular-nums | Inter 400–700 (+800 ceremony) |
+   415→| Charts palette | orange/emerald/purple/red/amber | n/a (no charts) |
+   416→
+   417→## G3 — Navigation model
+   418→A: hash-router SPA in one web page; 5 mobile tabs + desktop side pane (11 destinations); deep-linkable query state everywhere; auth gate. B: native stack + 4 tabs; imperative auth+onboarding gates; screen-per-route; kebab menus + bottom sheets as secondary nav.
+   419→
+   420→## G4 — Interaction patterns
+   421→A: desktop-first data density (keyboard grid nav, steppers, popovers, 40px rows, undo toasts, offline queue). B: mobile-native media-first (guided set pointer, video carousel, haptics, sheets, full-screen rest ring, ceremonies). Shared: superset colour groups, confirm dialogs, favourites, rest skip/+15, per-exercise history.
+   422→
+   423→## G5 — Density at 360×780
+   424→A: 6 fixed bars (56+48+56+64=224px chrome worst-case) + 40px SetRows → ~12 set rows/viewport; content col 720px. B: header ~60 + tab 84 (web) + scroll cards (12px pad, radius 12) → ~5–6 medium cards/viewport; hero card ~180–220px. A shows more data per screen; B shows more media per screen.
+   425→
+   426→## G6 — State quality
+   427→| Aspect | A | B |
+   428→|---|---|---|
+   429→| Loading | skeletons, busy spinners | spinner #3B82F6, Async caches |
+   430→| Empty | 200px empty-day, trophy-less "Choose program", "Nothing logged yet" | trophy outline card, "No custom workouts yet." |
+   431→| Error | Zod errors inline, toast errors, offline 503 JSON | ErrorBoundary full-screen + reload, Alert retries |
+   432→| Offline | full outbox + SW + shell | read caches only, mutations online-only |
+   433→
+   434→## G7 — Polish/micro-interactions
+   435→A: sonner Undos, optimistic flips, 0fr→1fr accordions, reduced-motion, wake locks. B: 6-event haptics, marquee ceremony, Liquid-Glass, SuccessToast slide, coach-mark tip. A gaps: no haptics layer, no ErrorBoundary, no celebration moments. B gaps (self-documented): no Reanimated springs, no undo, no optimistic mutations.
+   436→
+   437→## G8 — Accessibility
+   438→A: semantic main/header/nav, aria-live rest timer, sr-only labels, full keyboard nav, focus rings, `?` help, prefers-reduced-motion clamp. B: RN accessibilityProps usage NOT inventoried (§I); web build a11y unaudited; no reduced-motion handling found.
+   439→
+   440→## G9 — Copy & tone
+   441→A: quiet, functional, tool-like ("Forge every set. Track every rep.", "Day N up next", "Saved offline — will sync when back online"). B: motivational, branded, celebratory ("Choose your path. Build your discipline.", "CONGRATULATIONS! … YOU EARNED 1 BADGE", "What's your win today?", "your data won't be saved… You cannot resume"), CBUM/name references throughout.
+   442→
+   443→---
+   444→
+   445→# §H — GAP LIST (the deliverable)
+   446→
+   447→**Legend**: Size S <1d · M 1–5d · L >5d (planning estimates only). Every non-YES §F row maps 1:1 to a GAP below (98 gaps).
+   448→
+   449→| GAP | B-# | Domain | B has | A has | User value | Sz | Depends on | Evidence B / A |
+   450→|---|---|---|---|---|---|---|---|---|
+   451→| 001 | B-002 | Auth | sign-up email-confirmation path | auto-sign-in only | email verification UX | S | SMTP exists in A already | AuthContext.tsx:90-111 / auth-screen.tsx:71-76 |
+   452→| 002 | B-007 | Onboarding | onboarding gate after auth | auth gate only | first-run guidance | M | GAP-003 | app/_layout.tsx:88-108 / app-shell.tsx:60-66 |
+   453→| 003 | B-011 | Onboarding | 8-step questionnaire (name…training style) | none | profile personalization + data for macro/goal engines | M | profile fields | onboarding/index.tsx:19-33 / — |
+   454→| 004 | B-012 | Onboarding | unit toggle w/ live height/weight conversion | units setting (static) | frictionless unit onboarding | S | GAP-003 | onboarding/index.tsx:63-72 / settings-sections.tsx:258-267 |
+   455→| 005 | B-013 | Onboarding | segmented progress bar + Finish→profile | none | progress feedback | S | GAP-003 | onboarding/index.tsx:176-206 / — |
+   456→| 006 | B-014 | Home | avatar+date+calendar home header | title-only TopBar | identity + quick calendar access | S | — | (tabs)/index.tsx:202-217 / top-bar.tsx |
+   457→| 007 | B-015 | Gamification | badge-unlocked banner on home | none | reward visibility | S | GAP-063..065 | (tabs)/index.tsx:220-234 / — |
+   458→| 008 | B-016 | Home | hero card: image, 32-tick progress ring, phase pills | 3-state text TodayCard | aspirational program presence | M | GAP-088 (covers), program phases GAP-052 | (tabs)/index.tsx:31-57,263-353 / home/today-card.tsx:160-338 |
+   459→| 009 | B-017 | Programs | persistent "Day N Completed" chip, tap to un-mark | Finished ✓ + 120s Undo only | correct mistakes beyond undo window | S | — | (tabs)/index.tsx:160-172,315-327 / today-screen.tsx:347-394 |
+   460→| 010 | B-019 | Home | Training Tools 2×2 grid on home | #/more hub + #/tools | feature discoverability | S | — | (tabs)/index.tsx:85-114 / more-screen.tsx |
+   461→| 011 | B-021 | Programs | difficulty/phase grouping + tagline browse | flat tabs list | choosing by level/phase | M | program difficulty model GAP-052 | programs/index.tsx:29-60 / routines-screen.tsx:356-555 |
+   462→| 012 | B-022 | Programs | multi-select delete per difficulty/phase | single delete | bulk management | S | GAP-052 | programs/index.tsx:95-150 / routines-screen.tsx:483-508 |
+   463→| 013 | B-023 | Programs | 12 preset programs (difficulty variants) | 3 routines + 6 sessions seeded | content breadth | M | content authoring | presetPrograms.ts:63-76 / server/seed.ts:191-260 |
+   464→| 014 | B-024 | Programs | detail hero + ring + phase chips + tabs | accordion + cursor strip | visual program identity | M | GAP-052, GAP-088 | user-detail.tsx:206-262 / routine-detail-screen.tsx:785-1233 |
+   465→| 015 | B-025 | Programs | Program Highlights (days/wk, minutes, difficulty) | none | at-a-glance commitment | S | GAP-052 | user-detail.tsx / — |
+   466→| 016 | B-026 | Programs | equipment carousel w/ real photos | none | know equipment needs | M | GAP-091 media | user-detail.tsx:250-259, lib/equipment.ts / — |
+   467→| 017 | B-027 | Programs | preview rows w/ scheduled badges | accordion (badges elsewhere) | plan vs schedule view | S | — | user-detail.tsx:155-170 / routine-detail-screen.tsx |
+   468→| 018 | B-028 | Day detail | hero, duration ring, muscle chips | series colours only | day identity + muscle targeting | M | exercise metadata | day-detail.tsx / card-popovers.tsx:89-217 |
+   469→| 019 | B-029 | Day detail | Favorite/Schedule/History/Mark Off action row | Schedule + log-day | quick day actions incl. favourite days | M | favourites model | day-detail.tsx:337-340 / schedule-shared.tsx |
+   470→| 020 | B-031 | Programs | Program Progress totals (sets logged, total weight) | per-workout/weekly stats only | long-horizon progress | S | — | program-progress.tsx:41-57 / insights/stats-tab.tsx |
+   471→| 021 | B-033 | Programs | legacy static detail route kept | hash rewrite instead | (compat shim; no user value) | S | — | programs/[id].tsx / router.ts:108-119 |
+   472→| 022 | B-034 | Session | N/total sets counter + progress bar | summary row after the fact | in-session progress feel | S | — | workout-session.tsx:564-593 / today/summary-row.tsx |
+   473→| 023 | B-035 | Session | Overview ↔ Video carousel toggle | inline cards only | guided media-first session | L | GAP-089..091 video | workout-session.tsx:1422-1495 / today-screen.tsx |
+   474→| 024 | B-037 | Session | full-screen RestRing (60 ticks) | RestBar in BottomBar | immersive rest | S | — | workout-session.tsx:77-143 / today/rest-bar.tsx |
+   475→| 025 | B-038 | Session | auto-move set pointer after rest | focus-next input setting | hands-free flow | S | guided pointer GAP-026 | workout-session.tsx:628-645 / settings A-106 |
+   476→| 026 | B-043 | Session | round-robin superset pointer w/ ⏮/⏭ | free-form grid | guided superset execution | M | session guidance model | workout-session.tsx:900-928 / — |
+   477→| 027 | B-040 | Session | end dialog discard-vs-save checkbox | always-save + undo | intentional discard | S | — | workout-session.tsx:930-950 / today-screen.tsx:347-394 |
+   478→| 028 | B-044 | Session | max-logged-weight info bar in session | last-time card in focus screen | live PR awareness | S | — | workout-session.tsx:570 / training-screen.tsx:205-211 |
+   479→| 029 | B-046 | Session | completion trophy screen w/ stats | toast + morph | celebration moment | S | — | workout-session.tsx:186-248 / today-screen.tsx:367-373 |
+   480→| 030 | B-047 | Session | one-time quick-tip coach toast | none | onboarding into session UX | S | — | workout-session.tsx:1626-1649 / — |
+   481→| 031 | B-048 | Session | trainer tips modal | library notes popover | per-exercise coaching | M | content authoring | active-workout.tsx:145-165 / card-popovers.tsx:51-85 |
+   482→| 032 | B-048a | Session | standalone player (SetDots, tips) | single #/today surface | (parity shim) | S | — | active-workout.tsx / today-screen.tsx |
+   483→| 033 | B-049 | On Demand | catalog: 32 static + user sessions + favourited days | none | off-program guided workouts | L | content + sessions model | on-demand/index.tsx / — |
+   484→| 034 | B-050 | On Demand | 45 fully RE'd sessions seeded | none | content depth | L | GAP-033 | scripts/stndrd-seed/sessions.json / — |
+   485→| 035 | B-051 | On Demand | search + category chips + FiltersSheet | none | discovery | M | GAP-033 | on-demand/index.tsx:35-60 / — |
+   486→| 036 | B-052 | On Demand | session detail title block + banner | none | session identity | M | GAP-033 | on-demand/[id].tsx / — |
+   487→| 037 | B-053 | On Demand | favourite hearts on sessions | exercise favourites only | save preferred sessions | S | GAP-033 | on-demand/[id].tsx:238-251 / use-favourite.ts |
+   488→| 038 | B-054 | On Demand | Favorite/Schedule/History/Mark Off row | none | session lifecycle actions | M | GAP-033 | on-demand/[id].tsx:419-432 / — |
+   489→| 039 | B-055 | On Demand | training-methods Dictionary (11 entries, 4 tabs) | none | education | S | content | on-demand/dictionary.tsx:27-124 / — |
+   490→| 040 | B-056 | Builder | hub search + sort | tabs only | find saved workouts | S | — | workout-builder/index.tsx:309-390 / routines-screen.tsx |
+   491→| 041 | B-057 | Builder | difficulty/duration/hero-image fields | name only | workout identity | S | GAP-088 covers | workout-builder/build.tsx / routines-screen.tsx:419-444 |
+   492→| 042 | B-058 | Builder | multi-select add w/ auto superset/triset/giant codes | manual group popover | fast structured building | M | series codes model | add-exercise.tsx:184, WorkoutContext.tsx:408-476 / picker-screen.tsx:255-292 |
+   493→| 043 | B-059 | Builder | "For all sets" propagation | per-set editing | bulk editing | S | — | WorkoutContext.tsx:488-524 / — |
+   494→| 044 | B-060 | Builder | tempo preset chips | custom 4-segment only | faster tempo entry | S | — | build.tsx:161-238 / set-row.tsx:173-236 |
+   495→| 045 | B-061 | Builder | trainer tip per exercise | library notes | coaching | S | content | WorkoutContext.tsx:532-536 / card-popovers.tsx:51-85 |
+   496→| 046 | B-062 | Builder | group-level rearrange screen | exercise up/down | reorder structure not just items | S | — | rearrange-series.tsx / today-screen.tsx:316-334 |
+   497→| 047 | B-063 | Builder | unsaved-changes leave guard | immediate persist | accidental-loss safety (A's model mostly obviates) | S | — | docs parity-master:198 / routine-detail edit mode |
+   498→| 048 | B-064 | Builder | program builder: difficulty × phase × weekly template | linear day editor | author full programs | L | program schema (phases/difficulty) | program-builder.tsx (1033 lines) / routine-detail-screen.tsx |
+   499→| 049 | B-065 | Builder | custom labels synced to DB | none | personal taxonomy | S | labels model | LabelPickerSheet.tsx / — |
+   500→| 050 | B-066 | Logs | text search across logs + per-workout trash | filters + export only | find/delete workouts | S | — | workout-logs/index.tsx:179-236 / history-screen.tsx:79-153 |
+   501→| 051 | B-067 | Logs | 6-month thumbnail calendar of logs | month grid + list | visual log density | M | thumbnails GAP-088 | workout-logs/index.tsx:66-140 / calendar/month-view.tsx |
+   502→| 052 | B-024/21 | Programs | difficulty + phase data model | kind=ROUTINE/SESSION only | level/periodization structure | M | schema + seeds | presetPrograms.ts / prisma Routine |
+   503→| 053 | B-069 | Logs | per-exercise weight-history table (date tabs, max badge, PATCH) | expandable read rows + focus-screen edit | audit/correct history per exercise | M | — | workout-logs/[id].tsx:69-192 / workout-block.tsx |
+   504→| 054 | B-070 | Calendar | continuously scrolling months, colored tiles, count badges | fixed 6×7 grid + dots | calendar feel + density | M | — | workout-calendar.tsx:10-88 / calendar/month-view.tsx:63-198 |
+   505→| 055 | B-073 | Schedule | time-of-day scheduling (hour/min/AM-PM, 3 modes incl. reschedule prefill) | date-only entries | plan the day's timing | M | ScheduleEntry.time + UI | ScheduleSheet.tsx:8-66 / schedule-shared.tsx:56-96 |
+   506→| 056 | B-074 | Schedule | time-based Missed derivation + extras metadata (duration/program linkage) | date-based MISSED | accurate no-show tracking | M | GAP-055 | scheduledExtras.ts:41-58 / program-rules.ts |
+   507→| 057 | B-075 | Nutrition | nutrition tab: WeekStrip, MacroSummary, hourly timeline | none | calorie/macro tracking | L | food domain | (tabs)/nutrition.tsx:120-182 / — |
+   508→| 058 | B-076 | Nutrition | macro summary bar w/ toggle | none | daily targets at a glance | M | GAP-057 | MacroSummary.tsx:21-25 / — |
+   509→| 059 | B-077 | Nutrition | food search sheet + multi-add cart + Recent History | none | fast logging | L | GAP-057 + food API | FoodSearchSheet.tsx:181-240 / — |
+   510→| 060 | B-078 | Nutrition | seeded catalog + OpenFoodFacts augment | none | huge food coverage | L | GAP-057 + external API | seedFoods.ts, food-api.ts:142-170 / — |
+   511→| 061 | B-079 | Nutrition | barcode lookup → log (typed; camera stubbed even in B) | none | scan-to-log | M | GAP-057 (+camera) | ScanSheet.tsx:47-79 / — |
+   512→| 062 | B-080 | Nutrition | create custom food | none | custom foods/recipes | M | GAP-057 | CreateFoodSheet.tsx / — |
+   513→| 063 | B-081 | Nutrition | food favourites | none | quick re-log | S | GAP-057 | food-api.ts:121-124 / — |
+   514→| 064 | B-082 | Nutrition | food detail sheet w/ servings stepper | none | portion accuracy | S | GAP-057 | FoodDetailSheet.tsx / — |
+   515→| 065 | B-083 | Nutrition | Mifflin-St-Jeor presets (−300/maint/+400) | none | auto macro targets | M | GAP-057 + profile GAP-002 | nutritionGoals.ts:19-113 / — |
+   516→| 066 | B-084 | Nutrition | custom macro goal store | none | personal targets | S | GAP-065 | customGoals.ts / — |
+   517→| 067 | B-085 | Nutrition | dual-thumb hour-range timeline slider + hide-empty | none | custom day structure | M | GAP-057 | MacroSettingsSheet.tsx:250-297 / — |
+   518→| 068 | B-086 | Nutrition | nutrition calendar sheet w/ logged markers | none | navigation by day | S | GAP-057 | CalendarSheet.tsx / — |
+   519→| 069 | B-087 | Nutrition | per-day/per-hour entry CRUD | none | when-you-ate records | M | GAP-057 | routes/foods.ts:108-255 / — |
+   520→| 070 | B-088 | Progress | weigh-in history w/ month chips + trend circles | weight as generic body metric | focused weight journey | S | — | progress.tsx:13-18 / body-screen.tsx |
+   521→| 071 | B-089 | Progress | 4 progress-photo slots (Front/Back/Side/Side) | none | visual body evidence | M | image upload | LogWeightSheet.tsx / — |
+   522→| 072 | B-090 | Home | dashboard Weight card w/ timestamp + trend | stats row (sets/vol/streak) | primary body metric visibility | S | — | dashboardtab.tsx:413-432 / home/stats-row.tsx |
+   523→| 073 | B-091 | Home | dashboard Calories card | none | nutrition on dashboard | M | GAP-057 | dashboardtab.tsx:434-450 / — |
+   524→| 074 | B-092 | Gamification | XP + 6 milestone badges | none | motivation loop | M | gamification model | WorkoutContext.tsx:731-758 / — |
+   525→| 075 | B-093 | Gamification | badge ceremony (marquee, medal, XP) | none | celebration | S | GAP-074 | badge-ceremony.tsx:10-108 / — |
+   526→| 076 | B-094 | Gamification | banner + claim + auto-redirect | none | reward surfacing | S | GAP-074 | (tabs)/index.tsx:220-234 / — |
+   527→| 077 | B-095 | Profile | grouped profile cards + support/social/legal rows | settings + more hub | account hub parity | S | — | profile/index.tsx:83-153 / more-screen.tsx |
+   528→| 078 | B-096 | Profile | profile fields (age/height/weight/level) + accordion autosave | email/name only | richer profile (feeds macros GAP-065) | M | profile schema | profile/edit.tsx:25-120 / settings-sections.tsx:424-434 |
+   529→| 079 | B-097 | Profile | 3 notification switches | reminderTime setting | notification preferences | S | — | profile/notifications.tsx:16-33 / settings-sections.tsx:1008-1024 |
+   530→| 080 | B-098 | Profile | greeting text + avatar initials header | initials chip (desktop only) | warmth | S | — | dashboardtab.tsx:57-71 / nav-pane.tsx |
+   531→| 081 | B-100 | Library | 526-exercise media catalog (R2/CDN) | ~112 local seeds + user customs | breadth + media | L | media hosting | exerciseCatalog.ts:16-60 / server/seed.ts |
+   532→| 082 | B-101 | Library | equipment filter chips + thumbnails | category chips only | filtering by equipment | S | equipment metadata | exercise-library.tsx:299-324 / picker-screen.tsx:594-695 |
+   533→| 083 | B-102 | Library | video detail w/ Setup/Target tiles + speed + instructions | notes popover | form education | L | GAP-081 media | exercise-library.tsx:63-126 / card-popovers.tsx:51-85 |
+   534→| 084 | B-103 | Library | R2 asset URL builders | none | (infra for GAP-081/083) | S | GAP-081 | firebase-storage.ts:4-61 / — |
+   535→| 085 | B-104 | Library | catalog rebuild scheduler + admin endpoint | DB rows (no rebuild) | (infra parity) | S | — | catalogScheduler.ts / — |
+   536→| 086 | B-105 | Community | mock feed (posts, likes, tags) | none | social motivation (mock in B!) | M | backend feed | community.tsx:40-87 / — |
+   537→| 087 | B-106 | Community | mock leaderboard | none | competition (mock in B!) | M | backend | community.tsx:89-101 / — |
+   538→| 088 | B-112/113/114 | Media | workout covers: library, picker sheet, hardened upload | none | visual identity of workouts/programs | M | image storage + upload API | CoverPickerSheet.tsx, routes/workoutCovers.ts / — |
+   539→| 089 | B-041 | Media | per-exercise demo video streaming | none | form guidance | L | GAP-081 | workout-session.tsx:649-663 / — |
+   540→| 090 | B-042 | Media | video speed badge cycling | none | technique review | S | GAP-089 | workout-session.tsx:1494-1495 / — |
+   541→| 091 | B-026 | Media | real equipment photos | none | equipment familiarity | M | GAP-081 | lib/equipment.ts:32-71 / — |
+   542→| 092 | B-107 | Polish | 6-event haptics layer | vibrate on rest/interval only | tactile feedback | S | — | lib/haptics.ts:21-34 / rest-state.tsx |
+   543→| 093 | B-110 | Polish | ErrorBoundary + reload fallback | none (grep: 0) | crash recovery | S | — | ErrorBoundary.tsx:16-30 / — |
+   544→| 094 | B-111 | Programs | WeekStepper day-status mapping on hero | upcoming strip (no status dots) | week-at-a-glance status | S | — | WeekStepper.tsx:16-29 / home/upcoming-strip.tsx |
+   545→| 095 | B-115 | Polish | Liquid-Glass native tab bar | web NavBar | (platform parity; N/A on web) | S | — | (tabs)/_layout.tsx:121-126 / nav-bar.tsx |
+   546→| 096 | B-116 | Polish | dark-only + Inter identity | dual theme + Geist | brand look (A's dual theme is a superset) | S | — | _layout.tsx:44-75 / globals.css |
+   547→| 097 | B-117 | Home | dashboard counting semantics incl. On Demand | uniform counts | (parity rule; no value until GAP-033) | S | GAP-033 | dashboardtab.tsx:152-175 / home/use-dashboard.ts |
+   548→| 098 | B-039 | Session | per-session settings sheet (4 toggles) | global settings only | per-session prefs | S | — | workout-session.tsx:196-260 / settings-sections.tsx |
+   549→
+   550→**GAP totals: 98** (NO-status 47 · PARTIAL-status 40 · DIFFERENT-status 11). Sizes: L ×10 (GAP-023, 033, 034, 048, 057, 059, 060, 074→M, 081, 083, 089 — count L: 023,033,034,048,057,059,060,081,083,089 = 10), M ×31, S ×57.
+   551→
+   552→## Reverse gaps — A-only capabilities APP-B lacks (REVERSE-001…028)
+   553→
+   554→| REV | A capability (evidence) | B status |
+   555→|---|---|---|
+   556→| R-001 | 10 exercise modalities incl. distance/time cardio logging (constants.ts:20-35) | B is weights/reps only |
+   557→| R-002 | Set types N/W/D/F/A w/ tap-cycle + 420ms hold picker (set-row.tsx:310-449) | B set "Type" column semantics unknown/limited |
+   558→| R-003 | Warm-up sets excluded from PRs/e1RM/volume (constants.ts:102) | no PR engine at all |
+   559→| R-004 | RPE 1-10 half-steps per set (set-row.tsx:138-170) | none |
+   560→| R-005 | Per-set comments + workout note (TrainingSet.comment; meta-row.tsx) | none |
+   561→| R-006 | Keyboard grid nav + steppers + mobile Save-set bar (set-row.tsx:519-565) | n/a native |
+   562→| R-007 | Copy-last/copy-previous glyph + guarded copy (set-row.tsx:569-580) | none |
+   563→| R-008 | Rest engine: 880Hz beep, vibrate, OS notification hidden, wake lock, remembered duration, ±15/skip (rest-state.tsx) | B has ring + sounds toggle, no OS notif/wake lock |
+   564→| R-009 | Undo (finish 10s/120s; schedule) | none |
+   565→| R-010 | Replace exercise preserving logged sets (picker-screen.tsx:258-283) | replace exists in builder pending-actions; not mid-workout with carried logs |
+   566→| R-011 | PR engine: per-(exercise,reps) records, e1RM ×3 methods, superseded dimming, leaderboard, recalc (records API, insights) | none |
+   567→| R-012 | Per-exercise goals (6 types, progress) (exercise-overview-screen.tsx:463-782) | none |
+   568→| R-013 | Custom exercise creation + per-exercise defaults (unit/increment/rest/graph) (picker-screen.tsx:703-828) | fixed 526 catalog, no custom exercises (routes/exercises.ts has only catalog+rebuild) |
+   569→| R-014 | Exercise favourites + last-time card (use-favourite.ts; training-screen.tsx:205-211) | no exercise favourites |
+   570→| R-015 | Charts: metric select, 3M/6M/All, trend line, y-from-zero (training/body graphs) | B has NO charts anywhere |
+   571→| R-016 | Insights stats: period selector, streaks, weekly rhythm, wk-vs-wk deltas, volume-by-exercise (stats-tab.tsx) | none |
+   572→| R-017 | Configurable multi-metric body tracking w/ goals + Δ tones (body-screen) | weigh-ins only |
+   573→| R-018 | Tools: 1RM/plate/set calculators + interval timer | none |
+   574→| R-019 | 42-setting customization incl. timezone/program rules/column toggles | 3 switches + few |
+   575→| R-020 | Calendar filters (category/exercise/thresholds, any/all) + list view + projected ghosts | none |
+   576→| R-021 | Data portability: JSON backup export/import (Merge/Replace) + CSVs + recalc + clear | none |
+   577→| R-022 | PWA: install, SW per-session cache, offline outbox, delta sync | none (web app, no offline) |
+   578→| R-023 | Local daily-reminder notifications (Trigger API) | settings-UI only in B |
+   579→| R-024 | Help screen + global keyboard shortcuts | none |
+   580→| R-025 | Light/Dark/System theming | dark-only |
+   581→| R-026 | Schedule 409 → Replace dialog → Undo; reopen DONE/MISSED; 4 status dots | B has reschedule + missed, no conflict/undo/reopen |
+   582→| R-027 | Log-day preview w/ per-set checkboxes + drafts | none |
+   583→| R-028 | Save-as-session promotion from finished workout | user-created sessions exist in builder (DIFFERENT path) |
+   584→
+   585→---
+   586→
+   587→# §I — Unknowns
+   588→
+   589→1. **APP-B runtime behavior** — not run (reason in header); all B claims are static-code + in-repo-doc + screenshot based. No live verification of any B flow.
+   590→2. **B set-table "Type" column semantics** — docs §6.11 describe the column; the value set (warm-up? drop?) was not located in code (grep inconclusive).
+   591→3. **B accessibility** (RN accessibilityProps / web a11y) — not inventoried in either inventory; UNKNOWN.
+   592→4. **B original-app features never RE'd by B's own docs** — original's auth/onboarding/community UI, XP formula, subscription paywall (docs/build-plan phases C–E) — the gap list inherits these blind spots.
+   593→5. **B's R2 catalog / CDN / OpenFoodFacts endpoints liveness** — no network calls made (read-only audit); UNKNOWN whether media URLs still resolve.
+   594→6. **A rendered-pixel verification beyond the auth screen** — live screenshot captured only for `#/auth`; other screens measured from code tokens (90+ pre-existing QA screenshots in APP-A's `download/` corroborate but were not re-captured).
+   595→7. **B community/leaderboard fidelity vs original** — B itself marks them mock/out-of-scope; true original behavior UNKNOWN.
+   596→8. **A `db/custom.db` + `download/*.png` dirty state** — pre-existing runtime/QA artifacts (present before this audit began; this audit wrote nothing; see git status proof).
+   597→
+   598→---
+   599→
+   600→# Self-check (7 mandated questions)
+   601→
+   602→1. **Route-file counts**: APP-A = 73 API route files (104 endpoint methods) + 1 page route (`/`) = 74; APP-B = 49 mobile route `.tsx` files (40 screens incl. `+not-found` + 9 `_layout.tsx`) + 8 API route modules (26 endpoint methods).
+   603→2. **§C screen counts**: APP-A 21 (20 authed + auth); APP-B 40 (39 user-facing + not-found).
+   604→3. **E1 ↔ §F cross-reference**: 118 B-### features (B-001…B-117 + B-048a) ↔ 118 §F rows, 1:1, none omitted.
+   605→4. **Non-YES ↔ GAP count match**: §F non-YES = 98 (NO 47 + PARTIAL 40 + DIFFERENT 11) ↔ GAP-001…GAP-098 = 98, 1:1 (column "B-#" in §H states the mapped row). YES = 20. 20+98 = 118 ✔.
+   606→5. **Measured (not described) tokens**: §G2 + A5 + B5 give literal hex/oklch/px values read from `globals.css`/`tokens.ts` and `constants/colors.ts`/`_layout.tsx`.
+   607→6. **User-facing strings**: tone/copy samples recorded in §G9 and both annex inventories (A9/B9); a complete literal string dump of both apps was not reproduced inside this report — coverage is by domain + representative strings (annex files carry per-feature string evidence).
+   608→7. **Zero files modified**:
+   609→   - APP-A `git -C /home/z/my-project status --short | head`: ` M db/custom.db`, ` M download/qa-p5-*.png` (4 pngs) — all pre-existing runtime/QA artifacts present before the audit; this audit performed zero writes inside the repo (worklog intentionally NOT updated to preserve the read-only proof).
+   610→   - APP-B `git -C /home/z/scratch/Fitness-Tracker-2 status --short`: **empty (clean)**.
+   611→   - All audit writes went to `/home/z/scratch/audit/` (outside both repos): 2 annex inventories + this report + 1 screenshot.
+   612→
+   613→*End of report. Facts and gaps only — no conclusions or recommendations, per mandate.*
+   614→
