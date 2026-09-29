@@ -1,0 +1,4298 @@
+{
+  "version": "22656e98",
+  "screens": {
+    "auth": {
+      "title": "Sign in",
+      "purpose": "Sign in to your SetForge account or create a new one.",
+      "steps": [],
+      "version": "7198021a"
+    },
+    "body": {
+      "title": "Body",
+      "purpose": "Track body measurements and weigh-ins, review history and chart trends.",
+      "emptyPurpose": "Enable metrics from the menu and log your first entries.",
+      "steps": [],
+      "version": "4cccd800"
+    },
+    "body-compare": {
+      "title": "Compare",
+      "purpose": "Compare progress photos side by side across two dates.",
+      "emptyPurpose": "Add progress photos from Body → Track to start comparing.",
+      "steps": [],
+      "version": "99fe4a25"
+    },
+    "calendar": {
+      "title": "Calendar",
+      "purpose": "Browse any month, pick a day and drill into its workouts and schedule.",
+      "emptyPurpose": "Log workouts or schedule sessions and the grid fills up.",
+      "steps": [],
+      "version": "5f86276b"
+    },
+    "calendar-filters": {
+      "title": "Filters",
+      "purpose": "Narrow the calendar and history lists by category, exercise and set conditions.",
+      "steps": [],
+      "version": "cbb8f2e9"
+    },
+    "day-arrange": {
+      "title": "Arrange day",
+      "purpose": "Reorder a day's exercises and move whole superset groups.",
+      "steps": [],
+      "version": "6cf3b6d5"
+    },
+    "dev": {
+      "title": "Dev showcase",
+      "purpose": "Component showcase: ExerciseCard and SetRow in every mode and state.",
+      "steps": [
+        {
+          "id": "dev.back",
+          "label": "Back",
+          "help": "Return to the Today screen.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "screen"
+        }
+      ],
+      "version": "2ef9089e"
+    },
+    "dictionary": {
+      "title": "Dictionary",
+      "purpose": "Searchable glossary of training methods and SetForge terms.",
+      "steps": [],
+      "version": "56d0d9fa"
+    },
+    "exercise-overview": {
+      "title": "Exercise",
+      "purpose": "One exercise deep-dive: about, records, goals and full history.",
+      "steps": [],
+      "version": "509a1f1e"
+    },
+    "exercises": {
+      "title": "Exercises",
+      "purpose": "Browse, search and filter the library, then add exercises to your day.",
+      "emptyPurpose": "Create your first exercise or widen the filters.",
+      "steps": [],
+      "version": "1d638651"
+    },
+    "help": {
+      "title": "Help & Shortcuts",
+      "purpose": "Searchable guide to every screen, plus keyboard shortcuts and offline tips.",
+      "steps": [],
+      "version": "b6eece56"
+    },
+    "history": {
+      "title": "History",
+      "purpose": "Scroll every logged workout by month and expand any day's sets.",
+      "emptyPurpose": "Your logged workouts will stack up here month by month.",
+      "steps": [],
+      "version": "24b41414"
+    },
+    "home": {
+      "title": "Home",
+      "purpose": "Your dashboard: today's session, weekly stats and the latest logged workout.",
+      "emptyPurpose": "Follow a program to get a daily training pointer here.",
+      "steps": [],
+      "version": "c0cb3a0a"
+    },
+    "insights": {
+      "title": "Insights",
+      "purpose": "Personal records, rolling stats and per-exercise goals in three tabs.",
+      "emptyPurpose": "Log sets to grow your records, stats and goals.",
+      "steps": [],
+      "version": "e0b3871e"
+    },
+    "library": {
+      "title": "Library",
+      "purpose": "Browse the exercise catalog, filter it and adopt exercises into your account.",
+      "steps": [],
+      "version": "9bbb59ce"
+    },
+    "library-entry": {
+      "title": "Exercise",
+      "purpose": "Catalog detail for one exercise: media, setup, muscles and adoption.",
+      "steps": [],
+      "version": "006d3f8d"
+    },
+    "log-day": {
+      "title": "Log day",
+      "purpose": "Preview a program day, tweak the sets, then log them to today.",
+      "emptyPurpose": "This day has no exercises yet — edit the routine first.",
+      "steps": [],
+      "version": "7f86a0a0"
+    },
+    "more": {
+      "title": "More",
+      "purpose": "Index of secondary destinations: insights, history, library, tools and settings.",
+      "steps": [],
+      "version": "ebc44cfa"
+    },
+    "onboarding": {
+      "title": "Welcome",
+      "purpose": "Six quick questions that tune units, goals and your dashboard.",
+      "steps": [],
+      "version": "43425f5c"
+    },
+    "predefined-editor": {
+      "title": "Edit exercise",
+      "purpose": "Edit an exercise's predefined sets; blank cells copy your last workout.",
+      "steps": [],
+      "version": "b04a8ccd"
+    },
+    "profile": {
+      "title": "Profile",
+      "purpose": "Your account identity, body stats, notification switches and sign-out.",
+      "steps": [],
+      "version": "6b61ded0"
+    },
+    "program-builder": {
+      "title": "Program builder",
+      "purpose": "Generate a phased program from a weekly template in five steps.",
+      "steps": [],
+      "version": "7a23c52c"
+    },
+    "program-day": {
+      "title": "Program day",
+      "purpose": "One program day at a glance: overview, template sets and log-to-today.",
+      "steps": [],
+      "version": "748fc265"
+    },
+    "program-detail": {
+      "title": "Program",
+      "purpose": "Inspect a program day by day: overview, cursor, notes and inline editing.",
+      "emptyPurpose": "Turn on edit mode and add the first day to this program.",
+      "steps": [],
+      "version": "19a7f086"
+    },
+    "programs": {
+      "title": "Programs",
+      "purpose": "Browse, filter and follow your routines, or start a saved session.",
+      "emptyPurpose": "Create your first routine or save a session from a finished workout.",
+      "steps": [],
+      "version": "d57698d7"
+    },
+    "schedule-pick": {
+      "title": "Schedule workout",
+      "purpose": "Pick the routine day or session to place on a chosen date.",
+      "emptyPurpose": "No routines yet — create one under Programs first.",
+      "steps": [],
+      "version": "a882a7cf"
+    },
+    "settings": {
+      "title": "Settings",
+      "purpose": "Preferences, programs, session behaviour, display, tours, data and account controls.",
+      "steps": [],
+      "version": "e85ab438"
+    },
+    "today": {
+      "title": "Today",
+      "purpose": "Log any day's workout: sets, rest timers, guided mode and finish.",
+      "emptyPurpose": "Start a workout for this day or copy your last one forward.",
+      "steps": [],
+      "version": "3ebc66d4"
+    },
+    "today-arrange": {
+      "title": "Arrange today",
+      "purpose": "Reorder today's exercises and move whole superset groups.",
+      "emptyPurpose": "Start logging exercises first — then arrange supersets here.",
+      "steps": [],
+      "version": "3f218cc8"
+    },
+    "tools": {
+      "title": "Tools",
+      "purpose": "Four offline calculators: 1RM, plates, set percentages and an interval timer.",
+      "steps": [],
+      "version": "2971b9d1"
+    },
+    "training": {
+      "title": "Training",
+      "purpose": "Focus on one exercise: log today's sets, review history and chart progress.",
+      "steps": [],
+      "version": "f75f8265"
+    }
+  },
+  "components": {
+    "arrangeBlocks": {
+      "steps": [
+        {
+          "id": "arrangeBlocks.blockUp",
+          "label": "Move group up",
+          "help": "Move the whole superset group earlier.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "arrangeBlocks.blockDown",
+          "label": "Move group down",
+          "help": "Move the whole superset group later.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "arrangeBlocks.memberUp",
+          "label": "Move exercise up",
+          "help": "Move this exercise up inside its group.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "arrangeBlocks.memberDown",
+          "label": "Move exercise down",
+          "help": "Move this exercise down inside its group.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "auth": {
+      "steps": [
+        {
+          "id": "auth.tabSignIn",
+          "label": "Sign in tab",
+          "help": "Switch to signing in with an existing account.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.tabSignUp",
+          "label": "Create tab",
+          "help": "Switch to creating a new account.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.name",
+          "label": "Name",
+          "help": "Optional display name for your account.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.email",
+          "label": "Email",
+          "help": "Your account email address.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.password",
+          "label": "Password",
+          "help": "Your account password (8+ characters to sign up).",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.submit",
+          "label": "Submit",
+          "help": "Sign in or create the account and jump to Today.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "auth.forgot",
+          "label": "Forgot password",
+          "help": "Request a password reset link by email.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "body": {
+      "steps": [
+        {
+          "id": "body.menu",
+          "label": "Menu",
+          "help": "Add an entry, compare photos or configure metrics.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.tabTrack",
+          "label": "Track tab",
+          "help": "Log new entries and photos for each metric.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.tabHistory",
+          "label": "History tab",
+          "help": "Browse every past entry in one table.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.tabGraph",
+          "label": "Graph tab",
+          "help": "Chart a metric's trend over time.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.row",
+          "label": "Metric row",
+          "help": "Tap a metric to log a new entry for a date.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.value",
+          "label": "Value",
+          "help": "Type the number you measured for this entry.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.save",
+          "label": "Save entry",
+          "help": "Store the value (and any photos) for the date.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.photoSlot",
+          "label": "Photo slot",
+          "help": "Tap to attach a progress photo for this pose.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.metric",
+          "label": "Metric",
+          "help": "Choose which measurement to chart.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.range",
+          "label": "Range",
+          "help": "Limit the chart to 3M, 6M or all time.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.chartMenu",
+          "label": "Chart options",
+          "help": "Toggle points, trend line and zero-based axis.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.configDone",
+          "label": "Done",
+          "help": "Close the metric configuration drawer.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.metricToggle",
+          "label": "Metric switch",
+          "help": "Enable or disable a tracked metric.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.newMetric",
+          "label": "New metric",
+          "help": "Name a custom metric to track.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "body.addMetric",
+          "label": "Add metric",
+          "help": "Create the named metric with its unit and goal.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "bodyCompare": {
+      "steps": [
+        {
+          "id": "bodyCompare.slot",
+          "label": "Pose filter",
+          "help": "Show one pose or all poses across both dates.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "bodyCompare.dateA",
+          "label": "Date A",
+          "help": "Pick the earlier photo's date.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "bodyCompare.dateB",
+          "label": "Date B",
+          "help": "Pick the later photo's date.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "bodyCompare.goTrack",
+          "label": "Go to Track",
+          "help": "Jump to the Track tab to add progress photos.",
+          "order": 40,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "calendar": {
+      "steps": [
+        {
+          "id": "calendar.prev",
+          "label": "Prev month",
+          "help": "Step the grid back one month.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.month",
+          "label": "Month label",
+          "help": "Tap the month name to jump back to the current month.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.next",
+          "label": "Next month",
+          "help": "Step the grid forward one month.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.viewMonth",
+          "label": "Month view",
+          "help": "Switch to the month grid of day cells.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.viewList",
+          "label": "List view",
+          "help": "Browse every workout as a month-grouped list.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.filters",
+          "label": "Filters",
+          "help": "Open filters for categories, exercise and set conditions.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.dayCell",
+          "label": "Day cell",
+          "help": "Tap a day to select it; dots mark workouts and schedule.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.listRow",
+          "label": "Workout row",
+          "help": "Open that day in Month view with its panel below.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.chips",
+          "label": "Filter chips",
+          "help": "Active filters — tap × to drop one instantly.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.schedule",
+          "label": "Schedule",
+          "help": "Pick a routine session for the selected day.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.dayMenu",
+          "label": "Day menu",
+          "help": "Start, move, skip or remove the scheduled session.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.reopen",
+          "label": "Reopen",
+          "help": "Put a done, missed or skipped session back on the plan.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "calendarFilters": {
+      "steps": [
+        {
+          "id": "calendarFilters.back",
+          "label": "Back",
+          "help": "Return to the calendar with filters applied.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.reset",
+          "label": "Reset",
+          "help": "Clear every filter back to all workouts.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.matchAny",
+          "label": "Match any",
+          "help": "Show workouts touching any picked category.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.matchAll",
+          "label": "Match all",
+          "help": "Only workouts containing every picked category.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.category",
+          "label": "Category row",
+          "help": "Toggle a category filter on or off.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.exercise",
+          "label": "Exercise filter",
+          "help": "Pick one exercise to filter workouts by.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.search",
+          "label": "Search",
+          "help": "Find the exercise to filter on.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.anyExercise",
+          "label": "Any exercise",
+          "help": "Clear the exercise filter.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.weight",
+          "label": "Weight ≥",
+          "help": "Show workouts with a set at or above this weight.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.reps",
+          "label": "Reps ≥",
+          "help": "Show workouts with a set at or above this rep count.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.distance",
+          "label": "Distance ≥",
+          "help": "Show workouts with a set at or above this distance.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarFilters.time",
+          "label": "Time ≥",
+          "help": "Show workouts with a set at or above this duration.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dateStrip": {
+      "steps": [
+        {
+          "id": "dateStrip.prev",
+          "label": "Previous day",
+          "help": "Step back one day in the log.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dateStrip.chip",
+          "label": "Date chip",
+          "help": "Tap to pick any date from the calendar.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dateStrip.next",
+          "label": "Next day",
+          "help": "Step forward one day in the log.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dateStrip.today",
+          "label": "Today chip",
+          "help": "Jump the log back to today.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dayActionRow": {
+      "steps": [
+        {
+          "id": "dayActionRow.favourite",
+          "label": "Day favourite",
+          "help": "Star this day to find it faster.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayActionRow.schedule",
+          "label": "Schedule day",
+          "help": "Pick a date for this day via the calendar.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayActionRow.history",
+          "label": "History",
+          "help": "See every logged workout of this day.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayActionRow.markOff",
+          "label": "Mark off",
+          "help": "Mark the day complete and advance the cursor.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dayArrange": {
+      "steps": [
+        {
+          "id": "dayArrange.back",
+          "label": "Back",
+          "help": "Return to the program detail.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayArrange.done",
+          "label": "Done",
+          "help": "Save the new exercise order.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dictionary": {
+      "steps": [
+        {
+          "id": "dictionary.back",
+          "label": "Back",
+          "help": "Return to the previous screen.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dictionary.search",
+          "label": "Search",
+          "help": "Filter terms by name or definition.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dictionary.term",
+          "label": "Term row",
+          "help": "Tap a term to expand its definition.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "exerciseCard": {
+      "steps": [
+        {
+          "id": "exerciseCard.header",
+          "label": "Exercise row",
+          "help": "Tap the row to open this exercise.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.headerSummary",
+          "label": "Exercise header",
+          "help": "Name, PR badge and set summary for this exercise.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.collapse",
+          "label": "Collapse",
+          "help": "Expand or fold this exercise's sets.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.menu",
+          "label": "Card menu",
+          "help": "Focus, notes, reorder, group, replace or remove.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.addSet",
+          "label": "Add set",
+          "help": "Append another set to this exercise.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.mediaBlock",
+          "label": "Form video",
+          "help": "Guided demo video for the current exercise.",
+          "order": 140,
+          "when": [
+            "guided"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseCard.tipRow",
+          "label": "Trainer tip",
+          "help": "Coaching cue for this exercise; tap to expand.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "exerciseDetail": {
+      "steps": [
+        {
+          "id": "exerciseDetail.tile",
+          "label": "Notes tile",
+          "help": "Tap to expand the full setup or target notes.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseDetail.tip",
+          "label": "Trainer tip",
+          "help": "Tap to expand the full coaching tip.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "exerciseOverview": {
+      "steps": [
+        {
+          "id": "exerciseOverview.back",
+          "label": "Back",
+          "help": "Return to your exercise list.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.menu",
+          "label": "Menu",
+          "help": "Favourite this exercise or open its training history.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.tabAbout",
+          "label": "About tab",
+          "help": "Catalog detail: media, setup, muscles, tips.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.tabRecords",
+          "label": "Records tab",
+          "help": "Bests, rep records and estimated maxes.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.tabGoals",
+          "label": "Goals tab",
+          "help": "Goals you set for this exercise.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.tabHistory",
+          "label": "History tab",
+          "help": "Every past session of this exercise.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.addGoal",
+          "label": "Add goal",
+          "help": "Create a goal for this exercise.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalRow",
+          "label": "Goal row",
+          "help": "Tap to see progress and edit the target.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalType",
+          "label": "Goal type",
+          "help": "Choose what the goal measures.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalTarget",
+          "label": "Target",
+          "help": "The value you are aiming for.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalCreate",
+          "label": "Create goal",
+          "help": "Save the goal for this exercise.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalSave",
+          "label": "Save target",
+          "help": "Update the goal's target value.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalSaveTarget",
+          "label": "New target",
+          "help": "Type the goal's new target value.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.goalDelete",
+          "label": "Delete goal",
+          "help": "Tap twice to delete the goal for good.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseOverview.historyCard",
+          "label": "Session card",
+          "help": "Tap to expand that day's sets.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "exercises": {
+      "steps": [
+        {
+          "id": "exercises.back",
+          "label": "Back",
+          "help": "Go back without picking anything.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.search",
+          "label": "Search",
+          "help": "Search the library by exercise name.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.menu",
+          "label": "New exercise",
+          "help": "Opens the menu that creates a new exercise.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.row",
+          "label": "Exercise row",
+          "help": "Tap to open it; hold to select several.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.favorite",
+          "label": "Favourite",
+          "help": "Star an exercise to pin it under Favorites.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.rowMenu",
+          "label": "Row menu",
+          "help": "Edit, favourite, history or delete this exercise.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.cancelSelect",
+          "label": "Cancel",
+          "help": "Leave selection mode without adding.",
+          "order": 70,
+          "when": [
+            "select"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.add",
+          "label": "Add selected",
+          "help": "Add every selected exercise to the day.",
+          "order": 80,
+          "when": [
+            "select"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.addSuperset",
+          "label": "Add superset",
+          "help": "Add the selection as one superset group.",
+          "order": 90,
+          "when": [
+            "select"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.filterAll",
+          "label": "All chip",
+          "help": "Browse every exercise grouped by category.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.filterFavorites",
+          "label": "Favorites chip",
+          "help": "Show only your starred exercises.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.filterRecent",
+          "label": "Recent chip",
+          "help": "Show exercises you performed lately.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.filterEquipment",
+          "label": "Equipment filter",
+          "help": "Filter the list by equipment tags.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exercises.filterMuscle",
+          "label": "Muscle filter",
+          "help": "Filter the list by muscle.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "guidedBar": {
+      "steps": [
+        {
+          "id": "guidedBar.prev",
+          "label": "Previous set",
+          "help": "Move the guided pointer to the previous set.",
+          "order": 100,
+          "when": [
+            "guided"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "guidedBar.logSet",
+          "label": "Log set",
+          "help": "Complete the set the pointer is on.",
+          "order": 110,
+          "when": [
+            "guided"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "guidedBar.next",
+          "label": "Next set",
+          "help": "Skip ahead to the next incomplete set.",
+          "order": 120,
+          "when": [
+            "guided"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "guidedBar.finish",
+          "label": "Finish workout",
+          "help": "All sets done — finish the workout here.",
+          "order": 130,
+          "when": [
+            "guided"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "history": {
+      "steps": [
+        {
+          "id": "history.menu",
+          "label": "Menu",
+          "help": "Open filters or jump to the CSV export in Settings.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "history.workout",
+          "label": "Workout block",
+          "help": "Tap to expand this workout's exercises and sets.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "history.summaryRow",
+          "label": "Day summary",
+          "help": "Volume, set count and duration of that workout.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "home": {
+      "steps": [
+        {
+          "id": "home.emptyCard",
+          "label": "No program",
+          "help": "No program yet — pick one and this card drives your day.",
+          "order": 10,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.restCard",
+          "label": "Rest day",
+          "help": "Rest days advance automatically at local midnight.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.todayCard",
+          "label": "Today card",
+          "help": "Today's session: exercises, set count and your primary action.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.chooseProgram",
+          "label": "Choose program",
+          "help": "Browse programs and sessions to follow.",
+          "order": 20,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.continue",
+          "label": "Continue workout",
+          "help": "Jump back into the workout you started today.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.logAnother",
+          "label": "Log another",
+          "help": "Open your saved sessions to start another.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.markRest",
+          "label": "Mark rest",
+          "help": "Mark today's rest day complete and advance the cursor.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.start",
+          "label": "Start workout",
+          "help": "Begin today's session and jump to the logger.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.trainAnyway",
+          "label": "Train anyway",
+          "help": "Start a workout even on a scheduled rest day.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.upcoming",
+          "label": "Upcoming days",
+          "help": "Tap a day to jump to it in the calendar.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.menu",
+          "label": "Program menu",
+          "help": "Skip day, jump to a day, schedule or unfollow.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.stats",
+          "label": "Weekly stats",
+          "help": "Sets, volume and streak for the current week.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.log",
+          "label": "Today log",
+          "help": "Everything you logged today, newest first.",
+          "order": 50,
+          "when": [
+            "populated"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "inlineInput": {
+      "steps": [
+        {
+          "id": "inlineInput.commit",
+          "label": "Name field",
+          "help": "Type a name; Enter saves, Esc cancels.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "insights": {
+      "steps": [
+        {
+          "id": "insights.menu",
+          "label": "Stats period",
+          "help": "Choose the window for the Stats tab: 7d to all time.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.tabRecords",
+          "label": "Records tab",
+          "help": "Personal-best leaderboard per exercise.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.tabStats",
+          "label": "Stats tab",
+          "help": "Rolling training stats for the chosen period.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.tabGoals",
+          "label": "Goals tab",
+          "help": "Progress on every goal you set.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.scopeEstimated",
+          "label": "Estimated",
+          "help": "Rank exercises by estimated one-rep max.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.scopeActual",
+          "label": "Actual",
+          "help": "Rank exercises by the best real set lifted.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.recordRow",
+          "label": "Record row",
+          "help": "Open this exercise's full records and goals.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.goalRow",
+          "label": "Goal row",
+          "help": "Tap a goal to see progress and edit its target.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.goalTarget",
+          "label": "Target",
+          "help": "Set a new target value for the goal.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.goalSave",
+          "label": "Save target",
+          "help": "Update the goal's target value.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "insights.goalDelete",
+          "label": "Delete goal",
+          "help": "Tap twice to delete the goal for good.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "library": {
+      "steps": [
+        {
+          "id": "library.back",
+          "label": "Back",
+          "help": "Return to the previous screen or More.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.menu",
+          "label": "Menu",
+          "help": "Toggle thumbnails or adopt every favourite at once.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.search",
+          "label": "Search",
+          "help": "Search the catalog by exercise name.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.scopeAll",
+          "label": "All",
+          "help": "Show the whole catalog.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.scopeFav",
+          "label": "Favourites",
+          "help": "Show only starred exercises.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.scopeMine",
+          "label": "Mine",
+          "help": "Show only adopted exercises.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.muscles",
+          "label": "Muscles",
+          "help": "Reveal muscle filters to narrow the list.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.equipment",
+          "label": "Equipment",
+          "help": "Reveal equipment filters to narrow the list.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.row",
+          "label": "Exercise row",
+          "help": "Open this exercise's catalog detail page.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.star",
+          "label": "Star",
+          "help": "Favourite it — adopting first if you haven't yet.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "library.add",
+          "label": "Add",
+          "help": "Adopt this exercise into my exercises.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "libraryEntry": {
+      "steps": [
+        {
+          "id": "libraryEntry.back",
+          "label": "Back",
+          "help": "Return to the library list.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "libraryEntry.menu",
+          "label": "Menu",
+          "help": "Add this exercise to my exercises.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "libraryEntry.add",
+          "label": "Add exercise",
+          "help": "Adopt this exercise into my exercises.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "libraryEntry.star",
+          "label": "Star",
+          "help": "Favourite this exercise (adopts it first if needed).",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "libraryEntry.notFound",
+          "label": "Back to library",
+          "help": "The catalog entry could not be found.",
+          "order": 50,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "logDay": {
+      "steps": [
+        {
+          "id": "logDay.back",
+          "label": "Back",
+          "help": "Return to the program detail.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDay.log",
+          "label": "Log to today",
+          "help": "Add the selected sets to today's workout.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDay.intro",
+          "label": "Preview",
+          "help": "Tap cells to adjust; uncheck rows to skip them.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "more": {
+      "steps": [
+        {
+          "id": "more.insights",
+          "label": "Insights",
+          "help": "Open records, rolling stats and goals.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.history",
+          "label": "History",
+          "help": "Open the month-by-month workout timeline.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.exercises",
+          "label": "Exercises",
+          "help": "Open your exercise list and favourites.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.library",
+          "label": "Library",
+          "help": "Browse the full exercise catalog.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.dictionary",
+          "label": "Dictionary",
+          "help": "Open the training-methods glossary.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.profile",
+          "label": "Profile",
+          "help": "Open your account and notification profile.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.tools",
+          "label": "Tools",
+          "help": "Open the calculators and interval timer.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.settings",
+          "label": "Settings",
+          "help": "Open preferences, data and account settings.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.help",
+          "label": "Help",
+          "help": "Open the in-app help and shortcuts page.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "nav": {
+      "steps": [
+        {
+          "id": "nav.home",
+          "label": "Home tab",
+          "help": "Your dashboard: today's session, stats and recent logs.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "nav.calendar",
+          "label": "Calendar tab",
+          "help": "Month dots and day lists of everything you logged.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "nav.programs",
+          "label": "Programs tab",
+          "help": "Routines, sessions and the program builder.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "nav.body",
+          "label": "Body tab",
+          "help": "Measurements, progress photos and compare view.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "nav.more",
+          "label": "More tab",
+          "help": "History, insights, tools, dictionary and settings.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "navpane": {
+      "steps": [
+        {
+          "id": "navpane.home",
+          "label": "Home link",
+          "help": "Your dashboard: today's session, stats and recent logs.",
+          "order": 100,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.today",
+          "label": "Today link",
+          "help": "The set-by-set workout logger with timer and rest.",
+          "order": 110,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.calendar",
+          "label": "Calendar link",
+          "help": "Month dots and day lists of everything you logged.",
+          "order": 120,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.programs",
+          "label": "Programs link",
+          "help": "Routines, sessions and the program builder.",
+          "order": 130,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.body",
+          "label": "Body link",
+          "help": "Measurements, progress photos and compare view.",
+          "order": 140,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.insights",
+          "label": "Insights link",
+          "help": "Records, stats and goals with progress.",
+          "order": 150,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.history",
+          "label": "History link",
+          "help": "Chronological workout log with edit, copy and share.",
+          "order": 160,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.exercises",
+          "label": "Exercises link",
+          "help": "Full catalogue with categories, favourites and notes.",
+          "order": 170,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.library",
+          "label": "Library link",
+          "help": "Browse the built-in exercise encyclopedia in detail.",
+          "order": 180,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.profile",
+          "label": "Profile link",
+          "help": "Your account profile and preferences.",
+          "order": 190,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.tools",
+          "label": "Tools link",
+          "help": "1RM, set and plate calculators plus the timer.",
+          "order": 200,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.settings",
+          "label": "Settings link",
+          "help": "Theme, units, columns, data and account controls.",
+          "order": 210,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "navpane.help",
+          "label": "Help link",
+          "help": "Searchable help for every screen and shortcut.",
+          "order": 220,
+          "when": [
+            "desktop"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "onboarding": {
+      "steps": [
+        {
+          "id": "onboarding.skip",
+          "label": "Skip",
+          "help": "Finish setup later — defaults apply until then.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.progress",
+          "label": "Progress",
+          "help": "How far through the six setup steps you are.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.back",
+          "label": "Back",
+          "help": "Return to the previous step.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.next",
+          "label": "Next",
+          "help": "Continue to the next step (or finish on Review).",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.units",
+          "label": "Units tiles",
+          "help": "Pick kilograms or pounds as your display units.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.goal",
+          "label": "Goal tiles",
+          "help": "Choose your main training goal.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.level",
+          "label": "Level tiles",
+          "help": "Pick your training experience level.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.days",
+          "label": "Days stepper",
+          "help": "Set how many days per week you train.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.height",
+          "label": "Height",
+          "help": "Your height — imperial entries convert automatically.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.weight",
+          "label": "Weight",
+          "help": "Your body weight — imperial entries convert automatically.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.age",
+          "label": "Age",
+          "help": "Your age, used for training guidance.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onboarding.change",
+          "label": "Change link",
+          "help": "Jump back to that step to adjust your answer.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "predefinedEditor": {
+      "steps": [
+        {
+          "id": "predefinedEditor.back",
+          "label": "Back",
+          "help": "Return to the program detail.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "predefinedEditor.save",
+          "label": "Save",
+          "help": "Confirm and return; edits already persist.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "predefinedEditor.skip",
+          "label": "Skip freestyle",
+          "help": "Add the bare exercise to today instead.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "predefinedEditor.legend",
+          "label": "Copy glyph",
+          "help": "↺ fills the blank set from your last workout.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "profile": {
+      "steps": [
+        {
+          "id": "profile.row",
+          "label": "Profile row",
+          "help": "Tap to edit this body stat inline.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.reminder",
+          "label": "Reminder",
+          "help": "Set the daily reminder time (or clear it).",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.haptics",
+          "label": "Haptics",
+          "help": "Vibrate on taps and set completions.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.screenOn",
+          "label": "Keep screen",
+          "help": "Keep the display awake during workouts.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.settings",
+          "label": "Settings link",
+          "help": "Open the full settings screen.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.help",
+          "label": "Help link",
+          "help": "Open the help and shortcuts page.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "profile.signOut",
+          "label": "Sign out",
+          "help": "End the session and clear local data.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "programBuilder": {
+      "steps": [
+        {
+          "id": "programBuilder.back",
+          "label": "Back",
+          "help": "Return to the Programs list.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.create",
+          "label": "Create",
+          "help": "Generate the program and open it.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.name",
+          "label": "Program name",
+          "help": "Name your program; required to create.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.difficulty",
+          "label": "Difficulty",
+          "help": "Pick the program's training level.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.templateName",
+          "label": "Template name",
+          "help": "Name the day's template; same names share.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.dayType",
+          "label": "Day type",
+          "help": "Switch this weekday between workout and rest.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.addExercise",
+          "label": "Add exercise",
+          "help": "Open the searchable picker for this template.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.stepper",
+          "label": "Stepper",
+          "help": "Adjust days per week and estimated minutes.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.addPhase",
+          "label": "Add phase",
+          "help": "Append another training phase row.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programBuilder.phaseWeeks",
+          "label": "Phase weeks",
+          "help": "Set each phase's length; 1–12 weeks.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "programDay": {
+      "steps": [
+        {
+          "id": "programDay.back",
+          "label": "Back",
+          "help": "Return to the program detail.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDay.favourite",
+          "label": "Favourite",
+          "help": "Star this day to find it faster.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDay.menu",
+          "label": "Day menu",
+          "help": "Open in program or schedule this day.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDay.continue",
+          "label": "Continue",
+          "help": "Jump back into today's workout.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDay.log",
+          "label": "Log today",
+          "help": "Add this day's sets to today's workout.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDay.addExercise",
+          "label": "Add exercise",
+          "help": "Pick another exercise for this day.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "programDetail": {
+      "steps": [
+        {
+          "id": "programDetail.back",
+          "label": "Back",
+          "help": "Return to the Programs list.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.rename",
+          "label": "Rename",
+          "help": "Tap the name to rename the program.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.favourite",
+          "label": "Favourite",
+          "help": "Star this program to find it faster.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.edit",
+          "label": "Edit toggle",
+          "help": "Turn inline edit mode on or off.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.menu",
+          "label": "Program menu",
+          "help": "Rename, labels, copy, reorder or delete.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.overview",
+          "label": "Program overview",
+          "help": "Progress ring and highlights; tap to expand.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.notes",
+          "label": "Notes",
+          "help": "Expand or collapse the program notes.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.notesInline",
+          "label": "Notes",
+          "help": "Tap to show this program's notes inline.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayToggle",
+          "label": "Day chevron",
+          "help": "Expand or collapse this day's exercises.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.doneChip",
+          "label": "Done chip",
+          "help": "Tap to unmark this completed day.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.startToday",
+          "label": "Start today",
+          "help": "Start this session now and jump to Today.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.scheduleSession",
+          "label": "Schedule session",
+          "help": "Pick a date for this whole session.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.prevDay",
+          "label": "Previous day",
+          "help": "Move the program cursor back one day.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.skipDay",
+          "label": "Skip day",
+          "help": "Skip this day and advance the cursor.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.jump",
+          "label": "Jump",
+          "help": "Open the list and jump to any day.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.jumpRow",
+          "label": "Day row",
+          "help": "Move the program cursor to this day.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayTypeWorkout",
+          "label": "Workout day",
+          "help": "Make this a training day with exercises.",
+          "order": 160,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayTypeRest",
+          "label": "Rest day",
+          "help": "Turn this day into a scheduled rest day.",
+          "order": 170,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayMenu",
+          "label": "Day menu",
+          "help": "Rename, move, arrange or delete this day.",
+          "order": 180,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayMenu",
+          "label": "Day menu",
+          "help": "Rename or arrange this session day.",
+          "order": 180,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.dayMenu",
+          "label": "Day menu",
+          "help": "Open, arrange, log or schedule this day.",
+          "order": 180,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.addExercise",
+          "label": "Add exercise",
+          "help": "Pick an exercise to append to this day.",
+          "order": 190,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.addDay",
+          "label": "Add day",
+          "help": "Append another training day to the program.",
+          "order": 200,
+          "when": [
+            "edit"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.phaseAll",
+          "label": "All phases",
+          "help": "Show every day regardless of phase.",
+          "order": 210,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.addFirstDay",
+          "label": "Add first day",
+          "help": "Create the first training day in edit mode.",
+          "order": 220,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.editRoutine",
+          "label": "Edit routine",
+          "help": "Turn on edit mode to add your first day.",
+          "order": 230,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "programs": {
+      "steps": [
+        {
+          "id": "programs.new",
+          "label": "New program",
+          "help": "Create a routine, session or builder program.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.tabRoutines",
+          "label": "Routines tab",
+          "help": "Browse multi-week routines to follow.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.tabSessions",
+          "label": "Sessions tab",
+          "help": "Browse saved one-off sessions to start.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.backToRoutines",
+          "label": "Back to routines",
+          "help": "Leave the sessions search and return.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.search",
+          "label": "Search sessions",
+          "help": "Filter the sessions list by name.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.filterAll",
+          "label": "All filter",
+          "help": "Clear difficulty and favourite filters.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.filterFavourites",
+          "label": "Favourites filter",
+          "help": "Show only the programs you starred.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.row",
+          "label": "Routine row",
+          "help": "Open the routine to see and edit its days.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.sessionRow",
+          "label": "Session row",
+          "help": "Open the session to see its exercises.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.follow",
+          "label": "Follow",
+          "help": "Make this routine drive your daily workouts.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.start",
+          "label": "Start session",
+          "help": "Start this session now and jump to Today.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.favourite",
+          "label": "Favourite",
+          "help": "Star the program to find it faster.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.rowMenu",
+          "label": "Row menu",
+          "help": "Edit, schedule, copy, mark off or delete.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.select",
+          "label": "Select routines",
+          "help": "Multi-select routines to delete in bulk.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.deleteSelected",
+          "label": "Delete selected",
+          "help": "Remove every checked routine after confirm.",
+          "order": 150,
+          "when": [
+            "select"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.createFirst",
+          "label": "Create first",
+          "help": "Add your first routine or session here.",
+          "order": 160,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.clearFilters",
+          "label": "Clear filters",
+          "help": "Reset the filters when nothing matches.",
+          "order": 170,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programs.dictionary",
+          "label": "Catalogue menu",
+          "help": "Open the built-in sessions dictionary.",
+          "order": 180,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "restBar": {
+      "steps": [
+        {
+          "id": "restBar.bar",
+          "label": "Rest countdown",
+          "help": "Rest countdown — tap +/− to adjust.",
+          "order": 100,
+          "when": [
+            "resting"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "restBar.minus15",
+          "label": "Less rest",
+          "help": "Take 15 seconds off the countdown.",
+          "order": 110,
+          "when": [
+            "resting"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "restBar.plus15",
+          "label": "More rest",
+          "help": "Add 15 seconds to the countdown.",
+          "order": 120,
+          "when": [
+            "resting"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "restBar.skip",
+          "label": "Skip rest",
+          "help": "End the rest countdown immediately.",
+          "order": 130,
+          "when": [
+            "resting"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "schedulePick": {
+      "steps": [
+        {
+          "id": "schedulePick.back",
+          "label": "Back",
+          "help": "Return to where you came from.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "schedulePick.tabRoutines",
+          "label": "Routines tab",
+          "help": "Browse routines and pick one of their days.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "schedulePick.tabSessions",
+          "label": "Sessions tab",
+          "help": "Browse sessions to schedule whole.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "schedulePick.routineRow",
+          "label": "Routine row",
+          "help": "Expand to pick one of its days.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "schedulePick.dayRow",
+          "label": "Day row",
+          "help": "Schedule this day on the picked date.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "schedulePick.sessionRow",
+          "label": "Session row",
+          "help": "Schedule this session on the picked date.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "setRow": {
+      "steps": [
+        {
+          "id": "setRow.index",
+          "label": "Set number",
+          "help": "This set's position in the exercise.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.type",
+          "label": "Set type",
+          "help": "Tap to cycle; hold to open the picker.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.field1",
+          "label": "Main value",
+          "help": "Type the weight, time or primary value.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.field2",
+          "label": "Second value",
+          "help": "Type reps, distance or the second value.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.rpe",
+          "label": "RPE",
+          "help": "Effort rating; tap to pick 1–10.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.tempo",
+          "label": "Tempo",
+          "help": "Lift tempo, e.g. 3-0-1-0; tap to edit.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.rest",
+          "label": "Rest",
+          "help": "Planned rest after this set; tap to edit.",
+          "order": 160,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.done",
+          "label": "Done",
+          "help": "Tick to complete the set and start rest.",
+          "order": 170,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.more",
+          "label": "More",
+          "help": "Note, copy last, rest timer and apply-to-all.",
+          "order": 180,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.stepper",
+          "label": "Stepper",
+          "help": "Tap −/+ to nudge the focused value.",
+          "order": 190,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setRow.applyAll",
+          "label": "Apply to all",
+          "help": "Copy this set's fields onto every set.",
+          "order": 200,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "today": {
+      "steps": [
+        {
+          "id": "today.calendar",
+          "label": "Calendar",
+          "help": "Open the calendar to jump to another day.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.menu",
+          "label": "Day menu",
+          "help": "Save as session, arrange, history, tools or settings.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.empty",
+          "label": "Empty day",
+          "help": "Nothing logged yet — start fresh or copy a past session.",
+          "order": 30,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.startNew",
+          "label": "Start workout",
+          "help": "Begin an empty workout for this day.",
+          "order": 40,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.copyPrevious",
+          "label": "Copy previous",
+          "help": "Copy your most recent workout onto this day.",
+          "order": 50,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.addExercise",
+          "label": "Add exercise",
+          "help": "Open the picker and start building this day.",
+          "order": 60,
+          "when": [
+            "empty"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.addExercise",
+          "label": "Add exercise",
+          "help": "Add another exercise to this workout.",
+          "order": 60,
+          "when": [
+            "populated"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.summary",
+          "label": "Day summary",
+          "help": "Sets, volume and PRs logged for the day.",
+          "order": 70,
+          "when": [
+            "populated"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.finish",
+          "label": "Finish workout",
+          "help": "Finish the day and advance your program.",
+          "order": 80,
+          "when": [
+            "populated"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "today.finished",
+          "label": "Finished",
+          "help": "This day's workout is already complete.",
+          "order": 90,
+          "when": [
+            "populated"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "todayArrange": {
+      "steps": [
+        {
+          "id": "todayArrange.back",
+          "label": "Back",
+          "help": "Return to the Today screen.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "todayArrange.done",
+          "label": "Done",
+          "help": "Save the new exercise order.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "tools": {
+      "steps": [
+        {
+          "id": "tools.menu",
+          "label": "Collapse all",
+          "help": "Close every open tool panel.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.row",
+          "label": "Tool row",
+          "help": "Tap to expand this calculator inline.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.field",
+          "label": "Number field",
+          "help": "Type the value for this calculator input.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.resultRow",
+          "label": "Result row",
+          "help": "Tap to apply or toggle this row.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.timerStart",
+          "label": "Start timer",
+          "help": "Run the interval timer with beeps and wake-lock.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.timerSkip",
+          "label": "Skip phase",
+          "help": "Jump straight to the next work or rest phase.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tools.timerReset",
+          "label": "Reset timer",
+          "help": "Stop and reset the timer to its configuration.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "tourhelp": {
+      "steps": [
+        {
+          "id": "tourhelp.button",
+          "label": "Help button",
+          "help": "Tour this screen, open help, or replay the welcome tour.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "shortcut": "?",
+          "scope": "component"
+        }
+      ]
+    },
+    "training": {
+      "steps": [
+        {
+          "id": "training.back",
+          "label": "Back",
+          "help": "Return to the day you came from.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.tabTrack",
+          "label": "Track tab",
+          "help": "Log this exercise's sets for the day.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.tabHistory",
+          "label": "History tab",
+          "help": "Browse every past session of this exercise.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.tabGraph",
+          "label": "Graph tab",
+          "help": "Chart this exercise's progress over time.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.notes",
+          "label": "Notes",
+          "help": "Read or edit your private cues for this exercise.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.records",
+          "label": "Records",
+          "help": "Open records and details for this exercise.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.menu",
+          "label": "Exercise menu",
+          "help": "Replace, group, rest override, remove or favourite.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.saveSet",
+          "label": "Save set",
+          "help": "Commit the set value you just typed.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.addToDay",
+          "label": "Add to day",
+          "help": "Add this exercise to the day's workout.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.historyEntry",
+          "label": "History entry",
+          "help": "Tap a past session to edit its sets inline.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.metric",
+          "label": "Metric",
+          "help": "Choose what the graph plots.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.range",
+          "label": "Range",
+          "help": "Limit the graph to 3M, 6M or all time.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "training.chartOptions",
+          "label": "Chart options",
+          "help": "Toggle points, trend line and zero-based axis.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    }
+  },
+  "welcome": {
+    "steps": [
+      {
+        "id": "tourhelp.button",
+        "label": "Help button",
+        "help": "Tour this screen, open help, or replay the welcome tour.",
+        "order": 10,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "shortcut": "?",
+        "scope": "component"
+      },
+      {
+        "id": "nav.home",
+        "label": "Home tab",
+        "help": "Your dashboard: today's session, stats and recent logs.",
+        "order": 100,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "scope": "component"
+      },
+      {
+        "id": "nav.calendar",
+        "label": "Calendar tab",
+        "help": "Month dots and day lists of everything you logged.",
+        "order": 110,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "scope": "component"
+      },
+      {
+        "id": "nav.programs",
+        "label": "Programs tab",
+        "help": "Routines, sessions and the program builder.",
+        "order": 120,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "scope": "component"
+      },
+      {
+        "id": "nav.body",
+        "label": "Body tab",
+        "help": "Measurements, progress photos and compare view.",
+        "order": 130,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "scope": "component"
+      },
+      {
+        "id": "nav.more",
+        "label": "More tab",
+        "help": "History, insights, tools, dictionary and settings.",
+        "order": 140,
+        "when": [
+          "always"
+        ],
+        "hint": false,
+        "placement": "auto",
+        "scope": "component"
+      }
+    ],
+    "version": "3dfef40c"
+  }
+}

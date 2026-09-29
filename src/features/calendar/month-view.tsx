@@ -22,6 +22,7 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { todayKey } from "@/lib/client/format";
 import type { ProjectedDayDTO, ScheduleEntryDTO, WorkoutSummaryDTO } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -130,6 +131,7 @@ export function MonthView({
               key={dayKey}
               type="button"
               data-day-cell={dayKey}
+              {...tourAttrs({ id: "calendar.dayCell", label: "Day cell", help: "Tap a day to select it; dots mark workouts and schedule.", order: 70 })}
               aria-label={`${dayKey}${workout ? " — workout day" : ""}${entry ? ` — ${entry.routineName}${entry.dayName ? ` · ${entry.dayName}` : ""} (${entry.status.toLowerCase()})` : ""}`}
               aria-current={isToday ? "date" : undefined}
               aria-pressed={isSelected}

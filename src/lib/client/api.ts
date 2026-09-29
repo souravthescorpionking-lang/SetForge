@@ -692,3 +692,30 @@ export const clientErrorsApi = {
     }).catch(() => undefined);
   },
 };
+
+// ===================== Part 7: tour system =====================
+
+import type { TourStateDTO, TourStatus, ToursStateResponseDTO } from "@/lib/types";
+
+export const toursApi = {
+  /** Full tour + hint state for the signed-in user. */
+  getState: () => request<ToursStateResponseDTO>("/api/tours/state"),
+  /** Upsert the outcome of one screen's tour (screenId = route name or "__welcome"). */
+  putState: (screenId: string, data: { version: string; status: TourStatus; stepReached: number }) =>
+    request<TourStateDTO>(`/api/tours/state/${encodeURIComponent(screenId)}`, {
+      method: "PUT",
+      body: body(data),
+    }),
+  /** Mark a contextual hint as seen (idempotent). */
+  markHint: (hintId: string) =>
+    request<{ hintId: string; seenAt: string }>(`/api/tours/hints/${encodeURIComponent(hintId)}`, {
+      method: "PUT",
+      body: body({}),
+    }),
+  /** Wipe tour state (all, or one screen's tour). */
+  reset: (scope: { scope: "all" } | { scope: "screen"; screenId: string }) =>
+    request<{ ok: true; scope: "all" | "screen"; deleted?: number }>("/api/tours/reset", {
+      method: "POST",
+      body: body(scope),
+    }),
+};

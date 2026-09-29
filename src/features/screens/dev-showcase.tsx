@@ -7,12 +7,24 @@
 // console.log's the CardAction so smoke tests can verify wiring.
 
 import { useCallback, useState, type ReactNode } from "react";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import { ExerciseCard, toCardSet } from "@/components/exercise-card/exercise-card";
 import type { CardAction, CardExercise, CardSet } from "@/components/exercise-card/exercise-card";
 import { useApp } from "@/lib/client/store";
+import { registerScreen } from "@/lib/tour/register";
+
+// Part 7 LAW 2 — the screen's tour/help contract (harvested by tour:gen).
+// This slot IS the screen (no feature re-export); the shared ExerciseCard and
+// SetRow components contribute their own exerciseCard.* / setRow.* steps.
+const SCREEN = registerScreen({
+  id: "dev",
+  title: "Dev showcase",
+  purpose: "Component showcase: ExerciseCard and SetRow in every mode and state.",
+});
+void SCREEN;
+
 
 const ALL_COLS = { setType: true, rpe: true, tempo: true, rest: true };
 const SUPERSET_COLOUR = "#14b8a6";
@@ -281,6 +293,7 @@ export default function DevShowcaseScreen() {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "dev.back", label: "Back", help: "Return to the Today screen.", order: 10 }}
               onClick={() => navigate("/today")}
               aria-label="Go back"
             >
@@ -288,6 +301,7 @@ export default function DevShowcaseScreen() {
             </Button>
           }
           title="Dev — Components"
+          actions={<TopBarHelp />}
         />
       }
     >

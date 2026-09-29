@@ -21,10 +21,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useState } from "react";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs, type TourAttrs } from "@/lib/tour/attrs";
+import type { TourDecl } from "@/lib/tour/types";
 import {
   Check,
   ChevronDown,
@@ -147,6 +149,7 @@ export default function FiltersScreen() {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "calendarFilters.back", label: "Back", help: "Return to the calendar with filters applied.", order: 10 }}
               onClick={() => navigate("/calendar")}
               aria-label="Back to calendar"
             >
@@ -155,16 +158,20 @@ export default function FiltersScreen() {
           }
           title="Filters"
           actions={
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-11 flex-none gap-1.5 px-3 text-sm font-semibold"
-              onClick={() => resetCalendarFilters()}
-              disabled={activeCount === 0}
-            >
-              <RotateCcw className="h-4 w-4" aria-hidden />
-              Reset
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 flex-none gap-1.5 px-3 text-sm font-semibold"
+                tour={{ id: "calendarFilters.reset", label: "Reset", help: "Clear every filter back to all workouts.", order: 20 }}
+                onClick={() => resetCalendarFilters()}
+                disabled={activeCount === 0}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden />
+                Reset
+              </Button>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -179,6 +186,7 @@ export default function FiltersScreen() {
               data-row
               role="radio"
               aria-checked={filters.categoryMatch === "any"}
+              {...tourAttrs({ id: "calendarFilters.matchAny", label: "Match any", help: "Show workouts touching any picked category.", order: 30 })}
               onClick={() => patchCalendarFilters({ categoryMatch: "any" })}
               className="flex h-12 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm transition-colors hover:bg-accent/50"
             >
@@ -193,6 +201,7 @@ export default function FiltersScreen() {
               data-row
               role="radio"
               aria-checked={filters.categoryMatch === "all"}
+              {...tourAttrs({ id: "calendarFilters.matchAll", label: "Match all", help: "Only workouts containing every picked category.", order: 40 })}
               onClick={() => patchCalendarFilters({ categoryMatch: "all" })}
               className="flex h-12 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm transition-colors hover:bg-accent/50"
             >
@@ -216,6 +225,7 @@ export default function FiltersScreen() {
                   data-row
                   role="checkbox"
                   aria-checked={selected}
+                  {...tourAttrs({ id: "calendarFilters.category", label: "Category row", help: "Toggle a category filter on or off.", order: 50 })}
                   onClick={() => toggleCategory(c.name)}
                   className="flex h-14 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm transition-colors hover:bg-accent/50"
                 >
@@ -245,6 +255,7 @@ export default function FiltersScreen() {
               type="button"
               data-row
               aria-expanded={pickerOpen}
+              {...tourAttrs({ id: "calendarFilters.exercise", label: "Exercise filter", help: "Pick one exercise to filter workouts by.", order: 60 })}
               onClick={() => setPickerOpen((v) => !v)}
               className="flex h-14 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm transition-colors hover:bg-accent/50"
             >
@@ -272,6 +283,7 @@ export default function FiltersScreen() {
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search exercises…"
                     aria-label="Search exercises to filter by"
+                    {...tourAttrs({ id: "calendarFilters.search", label: "Search", help: "Find the exercise to filter on.", order: 70 })}
                     className="h-9 flex-1"
                   />
                 </div>
@@ -286,6 +298,7 @@ export default function FiltersScreen() {
                     <button
                       type="button"
                       data-row
+                      {...tourAttrs({ id: "calendarFilters.anyExercise", label: "Any exercise", help: "Clear the exercise filter.", order: 80 })}
                       onClick={() => pickExercise(null)}
                       className="flex h-12 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/50"
                     >
@@ -299,6 +312,7 @@ export default function FiltersScreen() {
                           key={ex.id}
                           type="button"
                           data-row
+                          {...tourAttrs({ skipTour: true, reason: "Data-driven exercise picker rows below the search field" })}
                           onClick={() => pickExercise(ex)}
                           className="flex h-12 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left text-sm transition-colors hover:bg-accent/50"
                         >
@@ -336,6 +350,7 @@ export default function FiltersScreen() {
               unit="kg"
               value={numberValue(filters.weightMin)}
               disabled={conditionsDisabled}
+              tour={{ id: "calendarFilters.weight", label: "Weight ≥", help: "Show workouts with a set at or above this weight.", order: 90 }}
               onChange={(raw) => patchCalendarFilters({ weightMin: numberPatch(raw) })}
             />
             <ConditionRow
@@ -343,6 +358,7 @@ export default function FiltersScreen() {
               unit="reps"
               value={numberValue(filters.repsMin)}
               disabled={conditionsDisabled}
+              tour={{ id: "calendarFilters.reps", label: "Reps ≥", help: "Show workouts with a set at or above this rep count.", order: 100 }}
               onChange={(raw) => patchCalendarFilters({ repsMin: numberPatch(raw) })}
             />
             <ConditionRow
@@ -350,6 +366,7 @@ export default function FiltersScreen() {
               unit="km"
               value={numberValue(filters.distanceMin)}
               disabled={conditionsDisabled}
+              tour={{ id: "calendarFilters.distance", label: "Distance ≥", help: "Show workouts with a set at or above this distance.", order: 110 }}
               onChange={(raw) => patchCalendarFilters({ distanceMin: numberPatch(raw) })}
             />
             <ConditionRow
@@ -357,6 +374,7 @@ export default function FiltersScreen() {
               unit="min"
               value={filters.timeMinSec == null ? "" : String(filters.timeMinSec / 60)}
               disabled={conditionsDisabled}
+              tour={{ id: "calendarFilters.time", label: "Time ≥", help: "Show workouts with a set at or above this duration.", order: 120 }}
               onChange={(raw) => {
                 const v = numberPatch(raw);
                 patchCalendarFilters({ timeMinSec: v == null ? null : Math.round(v * 60) });
@@ -379,13 +397,17 @@ function ConditionRow({
   value,
   disabled,
   onChange,
+  tour,
 }: {
   label: string;
   unit: string;
   value: string;
   disabled: boolean;
   onChange: (raw: string) => void;
+  /** Inline tour declaration — renders data-tour-id on the input (Part 7). */
+  tour?: TourDecl;
 }) {
+  const tourSpread: TourAttrs = tour ? tourAttrs(tour) : ({} as TourAttrs);
   return (
     <div data-row className="flex h-14 items-center gap-3 overflow-hidden whitespace-nowrap px-3">
       <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -399,6 +421,7 @@ function ConditionRow({
         disabled={disabled}
         placeholder="—"
         aria-label={`${label} ${unit}`}
+        {...tourSpread}
         className="h-9 w-28 flex-none text-right tabular-nums"
         value={value}
         onChange={(e) => onChange(e.target.value)}

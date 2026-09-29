@@ -26,8 +26,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { ChevronLeft, ChevronRight, LayoutGrid, List, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
@@ -166,6 +167,7 @@ export default function CalendarScreen() {
                 size="icon"
                 className="h-11 w-11 flex-none"
                 aria-label="Previous month"
+                tour={{ id: "calendar.prev", label: "Prev month", help: "Step the grid back one month.", order: 10 }}
                 onClick={() => shiftMonth(-1)}
               >
                 <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -175,6 +177,7 @@ export default function CalendarScreen() {
                 onClick={goToday}
                 aria-label={`Go to current month (${monthLabel})`}
                 title="Jump to current month"
+                {...tourAttrs({ id: "calendar.month", label: "Month label", help: "Tap the month name to jump back to the current month.", order: 20 })}
                 className="min-w-0 max-w-[150px] truncate rounded-md px-2 py-2 text-sm font-semibold transition-colors hover:bg-accent"
               >
                 {monthLabel}
@@ -185,6 +188,7 @@ export default function CalendarScreen() {
                 size="icon"
                 className="h-11 w-11 flex-none"
                 aria-label="Next month"
+                tour={{ id: "calendar.next", label: "Next month", help: "Step the grid forward one month.", order: 30 }}
                 onClick={() => shiftMonth(1)}
               >
                 <ChevronRight className="h-5 w-5" aria-hidden />
@@ -205,6 +209,7 @@ export default function CalendarScreen() {
                   role="tab"
                   aria-selected={view === "month"}
                   onClick={() => setView("month")}
+                  {...tourAttrs({ id: "calendar.viewMonth", label: "Month view", help: "Switch to the month grid of day cells.", order: 40 })}
                   className={cn(
                     "flex h-11 w-11 items-center justify-center gap-1.5 rounded-l-md text-sm font-semibold transition-colors sm:w-auto sm:px-3",
                     view === "month"
@@ -220,6 +225,7 @@ export default function CalendarScreen() {
                   role="tab"
                   aria-selected={view === "list"}
                   onClick={() => setView("list")}
+                  {...tourAttrs({ id: "calendar.viewList", label: "List view", help: "Browse every workout as a month-grouped list.", order: 50 })}
                   className={cn(
                     "flex h-11 w-11 items-center justify-center gap-1.5 rounded-r-md border-l border-border text-sm font-semibold transition-colors sm:w-auto sm:px-3",
                     view === "list"
@@ -238,6 +244,7 @@ export default function CalendarScreen() {
                 size="icon"
                 className="relative h-11 w-11 flex-none"
                 aria-label={activeCount > 0 ? `Filters (${activeCount} active)` : "Filters"}
+                tour={{ id: "calendar.filters", label: "Filters", help: "Open filters for categories, exercise and set conditions.", order: 60 }}
                 onClick={() => navigate("/calendar/filters")}
               >
                 <SlidersHorizontal className="h-5 w-5" aria-hidden />
@@ -248,6 +255,8 @@ export default function CalendarScreen() {
                   />
                 ) : null}
               </Button>
+
+              <TopBarHelp />
             </>
           }
         />

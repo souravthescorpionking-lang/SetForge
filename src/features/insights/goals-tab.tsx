@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Target, Trash2, Trophy } from "lucide-react";
 import { goalsApi, ApiError, type GoalInput } from "@/lib/client/api";
 import { qk, useInvalidate, useOnline } from "@/lib/client/query";
@@ -107,6 +108,7 @@ export function GoalsTab() {
               type="button"
               data-row
               aria-expanded={expandedId === g.id}
+              {...tourAttrs({ id: "insights.goalRow", label: "Goal row", help: "Tap a goal to see progress and edit its target.", order: 80 })}
               onClick={() => setExpandedId((cur) => (cur === g.id ? null : g.id))}
               className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 text-left transition-colors hover:bg-accent/50"
             >
@@ -249,14 +251,16 @@ function GoalExpansion({
           onChange={(e) => setTarget(e.target.value)}
           placeholder={targetPlaceholder}
           aria-label={targetPlaceholder}
+          {...tourAttrs({ id: "insights.goalTarget", label: "Target", help: "Set a new target value for the goal.", order: 90 })}
         />
-        <Button type="button" className="h-full flex-1 rounded-lg font-semibold" disabled={saving} onClick={() => void save()}>
+        <Button type="button" className="h-full flex-1 rounded-lg font-semibold" disabled={saving} tour={{ id: "insights.goalSave", label: "Save target", help: "Update the goal's target value.", order: 100 }} onClick={() => void save()}>
           {saving ? "Saving…" : "Save target"}
         </Button>
         <Button
           type="button"
           variant="outline"
           className={cn("h-full flex-none gap-1 rounded-lg", armed ? "border-destructive/50 text-destructive" : "text-muted-foreground")}
+          tour={{ id: "insights.goalDelete", label: "Delete goal", help: "Tap twice to delete the goal for good.", order: 110 }}
           onClick={() => void remove()}
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />

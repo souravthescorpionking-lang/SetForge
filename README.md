@@ -13,7 +13,10 @@ library catalog (filters, favourites, adopt) · training dictionary (25 terms) �
 calendar + schedule (time-of-day, missed-day derivation) · history with weight tables ·
 body metrics (track/history/graph) with progress photos (4 slots per record) and an
 A/B photo compare screen · insights/records/stats/goals · tools (1RM, plates, interval
-timer) · profile hub + 6-step onboarding · offline outbox sync, PWA install,
+timer) · profile hub + 6-step onboarding · **self-generating tour system: welcome
+tour, per-screen guided tours, contextual hints, generated Help page and
+shortcuts (`bun run tour:gen` harvests inline `tourAttrs`/`tour` declarations —
+see CONTRIBUTING.md "UI = Tour")** · offline outbox sync, PWA install,
 notifications, haptics, light/dark themes.
 
 ---

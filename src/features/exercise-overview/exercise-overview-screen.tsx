@@ -39,7 +39,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import {
   ExerciseCard,
   toCardSet,
@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronLeft, History, MoreVertical, Plus, Star, Target, Trash2, Trophy } from "lucide-react";
 import { toast } from "sonner";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
 import { qk, useInvalidate } from "@/lib/client/query";
@@ -153,6 +154,7 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "exerciseOverview.back", label: "Back", help: "Return to your exercise list.", order: 10 }}
               onClick={goBack}
               aria-label="Go back"
             >
@@ -175,31 +177,37 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
           }
           actions={
             exercise ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-11 w-11 flex-none"
-                    aria-label="More actions"
-                  >
-                    <MoreVertical className="h-5 w-5" aria-hidden />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => void toggleFavourite(exercise)}>
-                    <Star className="h-4 w-4" aria-hidden />
-                    {exercise.isFavorite ? "Unfavourite" : "Favourite"}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => navigate(`/today/${exercise.id}?tab=history`)}
-                  >
-                    <History className="h-4 w-4" aria-hidden /> Training history
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : undefined
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-11 w-11 flex-none"
+                      aria-label="More actions"
+                      tour={{ id: "exerciseOverview.menu", label: "Menu", help: "Favourite this exercise or open its training history.", order: 20 }}
+                    >
+                      <MoreVertical className="h-5 w-5" aria-hidden />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => void toggleFavourite(exercise)}>
+                      <Star className="h-4 w-4" aria-hidden />
+                      {exercise.isFavorite ? "Unfavourite" : "Favourite"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate(`/today/${exercise.id}?tab=history`)}
+                    >
+                      <History className="h-4 w-4" aria-hidden /> Training history
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <TopBarHelp />
+              </>
+            ) : (
+              <TopBarHelp />
+            )
           }
         />
       }
@@ -212,6 +220,15 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
               role="tab"
               aria-selected={tab === t}
               onClick={() => switchTab(t)}
+              {...tourAttrs(
+                t === "about"
+                  ? { id: "exerciseOverview.tabAbout", label: "About tab", help: "Catalog detail: media, setup, muscles, tips.", order: 30 }
+                  : t === "records"
+                    ? { id: "exerciseOverview.tabRecords", label: "Records tab", help: "Bests, rep records and estimated maxes.", order: 40 }
+                    : t === "goals"
+                      ? { id: "exerciseOverview.tabGoals", label: "Goals tab", help: "Goals you set for this exercise.", order: 50 }
+                      : { id: "exerciseOverview.tabHistory", label: "History tab", help: "Every past session of this exercise.", order: 60 },
+              )}
               className={cn(
                 "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap transition-colors",
                 tab === t ? "text-primary" : "text-muted-foreground hover:text-foreground",
@@ -244,6 +261,7 @@ export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: str
               type="button"
               variant="secondary"
               className="mt-4 gap-1.5"
+              tour={{ skipTour: true, reason: "Not-found state back button for a deleted exercise" }}
               onClick={() => navigate("/exercises")}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden /> Back to exercises
@@ -510,6 +528,7 @@ function GoalsTab({ exercise }: { exercise: ExerciseDTO }) {
         type="button"
         data-row
         aria-expanded={creating}
+        {...tourAttrs({ id: "exerciseOverview.addGoal", label: "Add goal", help: "Create a goal for this exercise.", order: 70 })}
         onClick={() => {
           setCreating((c) => !c);
           setExpandedId(null);
@@ -541,6 +560,7 @@ function GoalsTab({ exercise }: { exercise: ExerciseDTO }) {
               type="button"
               data-row
               aria-expanded={expandedId === g.id}
+              {...tourAttrs({ id: "exerciseOverview.goalRow", label: "Goal row", help: "Tap to see progress and edit the target.", order: 80 })}
               onClick={() => setExpandedId((cur) => (cur === g.id ? null : g.id))}
               className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 text-left transition-colors hover:bg-accent/50"
             >
@@ -639,8 +659,12 @@ function GoalCreator({
   return (
     <div className="flex h-24 flex-none flex-col gap-1 rounded-lg border bg-card p-1.5">
       <div className="flex min-h-0 flex-1 items-center overflow-hidden">
-        <Select value={type} onValueChange={setType}>
-          <SelectTrigger className="h-full w-full rounded-lg" aria-label="Goal type">
+        <Select value={type} onValueChange={setType} {...tourAttrs({ skipTour: true, reason: "Goal-type select root renders no DOM node" })}>
+          <SelectTrigger
+            className="h-full w-full rounded-lg"
+            aria-label="Goal type"
+            {...tourAttrs({ id: "exerciseOverview.goalType", label: "Goal type", help: "Choose what the goal measures.", order: 90 })}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -663,11 +687,13 @@ function GoalCreator({
           onChange={(e) => setTarget(e.target.value)}
           placeholder={placeholder}
           aria-label={placeholder}
+          {...tourAttrs({ id: "exerciseOverview.goalTarget", label: "Target", help: "The value you are aiming for.", order: 100 })}
         />
         <Button
           type="button"
           className="h-full flex-1 rounded-lg font-semibold"
           disabled={saving}
+          tour={{ id: "exerciseOverview.goalCreate", label: "Create goal", help: "Save the goal for this exercise.", order: 110 }}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Add goal"}
@@ -775,11 +801,13 @@ function GoalExpansion({
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           aria-label="Goal target"
+          {...tourAttrs({ id: "exerciseOverview.goalSaveTarget", label: "New target", help: "Type the goal's new target value.", order: 120 })}
         />
         <Button
           type="button"
           className="h-full flex-1 rounded-lg font-semibold"
           disabled={saving}
+          tour={{ id: "exerciseOverview.goalSave", label: "Save target", help: "Update the goal's target value.", order: 120 }}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Save target"}
@@ -791,6 +819,7 @@ function GoalExpansion({
             "h-full flex-none gap-1 rounded-lg",
             armed ? "border-destructive/50 text-destructive" : "text-muted-foreground",
           )}
+          tour={{ id: "exerciseOverview.goalDelete", label: "Delete goal", help: "Tap twice to delete the goal for good.", order: 130 }}
           onClick={() => void remove()}
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -920,6 +949,7 @@ function HistoryTab({
                     role="button"
                     tabIndex={0}
                     aria-label={`${collapsed ? "Expand" : "Collapse"} sets from ${formatDayLabel(day)}`}
+                    {...tourAttrs({ id: "exerciseOverview.historyCard", label: "Session card", help: "Tap to expand that day's sets.", order: 140 })}
                     className="flex-none cursor-pointer"
                     onClick={(e) => {
                       // taps on the card's own controls (buttons/inputs) never toggle

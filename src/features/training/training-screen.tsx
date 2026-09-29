@@ -41,7 +41,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   ExerciseCard,
   toCardSet,
@@ -103,6 +104,11 @@ import {
 } from "@/features/today/card-popovers";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Part 7 LAW 2 — the screen's tour/help contract lives in the screen slot
+// (src/features/screens/training.tsx); this module only declares the inline
+// training.* steps.
+
 const TABS = ["track", "history", "graph"] as const;
 type TabKey = (typeof TABS)[number];
 const TAB_LABELS: Record<TabKey, string> = { track: "Track", history: "History", graph: "Graph" };
@@ -458,6 +464,7 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "training.back", label: "Back", help: "Return to the day you came from.", order: 10 }}
               onClick={() => navigate(todayHref)}
               aria-label="Go back to the day"
             >
@@ -466,8 +473,9 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
           }
           title={titleNode}
           actions={
-            exercise ? (
-              <>
+            <>
+              {exercise ? (
+                <>
                 {/* Notes — per-exercise note editor (anchored popover) */}
                 <Popover
                   open={notesOpen}
@@ -483,6 +491,7 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                       size="icon"
                       className="h-11 w-11 flex-none"
                       aria-label="Exercise notes"
+                      tour={{ id: "training.notes", label: "Notes", help: "Read or edit your private cues for this exercise.", order: 50 }}
                     >
                       <MessageSquareText className="h-5 w-5" aria-hidden />
                     </Button>
@@ -497,12 +506,14 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                       aria-label="Exercise notes"
                       placeholder="Cues, setup, grip width…"
                       className="mt-2 min-h-24"
+                      {...tourAttrs({ skipTour: true, reason: "Notes editor inside the anchored notes popover" })}
                     />
                     <div className="mt-2 flex justify-end gap-2">
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
+                        tour={{ skipTour: true, reason: "Cancel control inside the notes popover" }}
                         onClick={() => {
                           setNotesOpen(false);
                           setNotesEdited(null);
@@ -510,7 +521,12 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                       >
                         Cancel
                       </Button>
-                      <Button type="button" size="sm" onClick={() => void saveNotes()}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        tour={{ skipTour: true, reason: "Save control inside the notes popover" }}
+                        onClick={() => void saveNotes()}
+                      >
                         <Check className="h-4 w-4" aria-hidden /> Save
                       </Button>
                     </div>
@@ -523,6 +539,7 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                   size="icon"
                   className="h-11 w-11 flex-none"
                   aria-label="Records"
+                  tour={{ id: "training.records", label: "Records", help: "Open records and details for this exercise.", order: 60 }}
                   onClick={() => navigate(`/exercise-overview/${exercise.id}`)}
                 >
                   <Medal className="h-5 w-5" aria-hidden />
@@ -535,6 +552,7 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                       size="icon"
                       className="h-11 w-11 flex-none"
                       aria-label="More actions"
+                      tour={{ id: "training.menu", label: "Exercise menu", help: "Replace, group, rest override, remove or favourite.", order: 70 }}
                     >
                       <MoreVertical className="h-5 w-5" aria-hidden />
                     </Button>
@@ -584,8 +602,10 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
                     />
                   ) : null}
                 </span>
-              </>
-            ) : null
+                </>
+              ) : null}
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -597,6 +617,13 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
               type="button"
               role="tab"
               aria-selected={tab === t}
+              {...tourAttrs(
+                t === "track"
+                  ? { id: "training.tabTrack", label: "Track tab", help: "Log this exercise's sets for the day.", order: 20 }
+                  : t === "history"
+                    ? { id: "training.tabHistory", label: "History tab", help: "Browse every past session of this exercise.", order: 30 }
+                    : { id: "training.tabGraph", label: "Graph tab", help: "Chart this exercise's progress over time.", order: 40 },
+              )}
               onClick={() => switchTab(t)}
               className={cn(
                 "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap text-sm font-semibold transition-colors",
@@ -625,6 +652,7 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
               <Button
                 type="button"
                 className="h-11 w-full gap-2 text-base font-bold"
+                tour={{ id: "training.saveSet", label: "Save set", help: "Commit the set value you just typed.", order: 80 }}
                 // preventDefault keeps focus on the input (no unmount race)
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -760,6 +788,7 @@ function TrackTab({
           <button
             type="button"
             data-row
+            {...tourAttrs({ id: "training.addToDay", label: "Add to day", help: "Add this exercise to the day's workout.", order: 90 })}
             className="flex h-12 items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3 text-sm font-semibold transition-colors hover:bg-accent"
             onClick={onAddToDay}
           >
@@ -875,6 +904,7 @@ function HistoryTab({
             <div
               role="button"
               tabIndex={0}
+              {...tourAttrs({ id: "training.historyEntry", label: "History entry", help: "Tap a past session to edit its sets inline.", order: 100 })}
               aria-label={`${editing ? "Stop editing" : "Edit"} sets from ${formatDayLabel(dayKey)}`}
               className="flex-none cursor-pointer"
               onClick={(e) => {
@@ -994,10 +1024,15 @@ function GraphTab({ exercise }: { exercise: ExerciseDTO }) {
     <div className="flex flex-col gap-3">
       {/* ControlRow — 48px data-row: metric | range | ⋮ options */}
       <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
-        <Select value={metric} onValueChange={setMetric}>
+        <Select
+          value={metric}
+          onValueChange={setMetric}
+          {...tourAttrs({ skipTour: true, reason: "Metric select root renders no DOM node" })}
+        >
           <SelectTrigger
             className="h-11 min-w-0 flex-1 rounded-lg text-sm font-semibold"
             aria-label="Graph metric"
+            {...tourAttrs({ id: "training.metric", label: "Metric", help: "Choose what the graph plots.", order: 110 })}
           >
             <SelectValue />
           </SelectTrigger>
@@ -1009,10 +1044,15 @@ function GraphTab({ exercise }: { exercise: ExerciseDTO }) {
             ))}
           </SelectContent>
         </Select>
-        <Select value={range} onValueChange={(v) => setRange(v as RangeValue)}>
+        <Select
+          value={range}
+          onValueChange={(v) => setRange(v as RangeValue)}
+          {...tourAttrs({ skipTour: true, reason: "Range select root renders no DOM node" })}
+        >
           <SelectTrigger
             className="h-11 w-[88px] flex-none rounded-lg text-sm font-semibold"
             aria-label="Graph range"
+            {...tourAttrs({ id: "training.range", label: "Range", help: "Limit the graph to 3M, 6M or all time.", order: 120 })}
           >
             <SelectValue />
           </SelectTrigger>
@@ -1031,6 +1071,7 @@ function GraphTab({ exercise }: { exercise: ExerciseDTO }) {
               variant="ghost"
               className="h-11 w-11 flex-none px-0"
               aria-label="Chart options"
+              tour={{ id: "training.chartOptions", label: "Chart options", help: "Toggle points, trend line and zero-based axis.", order: 130 }}
             >
               <MoreVertical className="h-5 w-5" aria-hidden />
             </Button>
@@ -1192,6 +1233,7 @@ function RestOverridePopover({
               type="button"
               variant="outline"
               size="sm"
+              tour={{ skipTour: true, reason: "Rest presets inside the override popover" }}
               className="h-9 px-0 text-xs font-bold tabular-nums"
               onClick={() => {
                 onStart(sec, null);
@@ -1209,6 +1251,7 @@ function RestOverridePopover({
             inputMode="numeric"
             placeholder="Seconds"
             aria-label="Custom rest seconds"
+            {...tourAttrs({ skipTour: true, reason: "Custom seconds field inside the rest popover" })}
             className="h-9 min-w-0 flex-1"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -1222,6 +1265,7 @@ function RestOverridePopover({
             size="sm"
             className="h-9 flex-none"
             disabled={!Number(custom)}
+            tour={{ skipTour: true, reason: "Start control inside the rest override popover" }}
             onClick={startCustom}
           >
             <Timer className="h-4 w-4" aria-hidden /> Start

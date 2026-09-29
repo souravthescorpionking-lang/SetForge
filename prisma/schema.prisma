@@ -36,6 +36,9 @@ model User {
   activeRoutine ActiveRoutine?
   scheduleEntries ScheduleEntry[]
   profile    UserProfile?
+  // ---- Part 7: tour system ----
+  tourStates UserTourState[]
+  hintStates UserHintState[]
 }
 
 model Session {
@@ -118,8 +121,44 @@ model UserSettings {
   tempoPresets        Json? // string[]; default ["2-0-2-0","3-1-1-0","4-0-1-0","1-0-1-0"] applied app-side
   showCaloriesCard    Boolean @default(false) // Home calories card (manual kcal log)
   showThumbnails      Boolean @default(true) // library row thumbnails
+  // ---- Part 7: tour system ----
+  showTours           Boolean @default(true) // auto-start screen tours + welcome tour
+  showHints           Boolean @default(true) // contextual one-time hints
+  replayToursOnUpdate Boolean @default(false) // auto-replay when a screen's tour version bumps
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+}
+
+// ---------- Part 7: tour system ----------
+
+// One row per (user, screenId): the last outcome of that screen's tour.
+// screenId is a route name ("home", "programs", …) or "__welcome" for the
+// welcome tour. version mirrors the generated registry version hash — a
+// mismatch means the tour content changed since the user last saw it.
+model UserTourState {
+  id          String   @id
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  screenId    String
+  version     String
+  status      String // SEEN | SKIPPED | COMPLETED
+  stepReached Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, screenId])
+  @@index([userId])
+}
+
+// One row per (user, hintId): a contextual hint the user has dismissed.
+model UserHintState {
+  id      String   @id
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hintId  String
+  seenAt  DateTime @default(now())
+
+  @@unique([userId, hintId])
+  @@index([userId])
 }
 
 // ---------- Exercise catalogue ----------

@@ -44,6 +44,7 @@ export function GuidedBar({
       <Button
         type="button"
         variant="outline"
+        tour={{ id: "guidedBar.prev", label: "Previous set", help: "Move the guided pointer to the previous set.", order: 100, when: ["guided"] }}
         className="h-11 w-11 flex-none px-0"
         aria-label="Previous set"
         onClick={onPrev}
@@ -54,6 +55,7 @@ export function GuidedBar({
       {allDone ? (
         <Button
           type="button"
+          tour={{ id: "guidedBar.finish", label: "Finish workout", help: "All sets done — finish the workout here.", order: 130, when: ["guided"] }}
           className="h-11 min-w-0 flex-1 gap-2 whitespace-nowrap text-sm font-bold"
           onClick={onFinish}
           aria-label="Finish this workout"
@@ -64,6 +66,7 @@ export function GuidedBar({
       ) : (
         <Button
           type="button"
+          tour={{ id: "guidedBar.logSet", label: "Log set", help: "Complete the set the pointer is on.", order: 110, when: ["guided"] }}
           className="h-11 min-w-0 flex-1 gap-2 whitespace-nowrap text-sm font-bold"
           onClick={onLog}
           disabled={!canLog}
@@ -76,6 +79,7 @@ export function GuidedBar({
       <Button
         type="button"
         variant="outline"
+        tour={{ id: "guidedBar.next", label: "Next set", help: "Skip ahead to the next incomplete set.", order: 120, when: ["guided"] }}
         className="h-11 w-11 flex-none px-0"
         aria-label="Next set"
         onClick={onNext}

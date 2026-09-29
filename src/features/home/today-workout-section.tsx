@@ -17,6 +17,7 @@ import {
   type CardVisibleColumns,
 } from "@/components/exercise-card/exercise-card";
 import { useApp } from "@/lib/client/store";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { useWorkoutByDate } from "@/lib/client/query";
 import { exerciseUnit } from "@/features/exercises/labels";
 import type { WorkoutExerciseDTO } from "@/lib/types";
@@ -52,7 +53,11 @@ export function TodayWorkoutSection({
   });
 
   return (
-    <section aria-label="Today's workout" className="flex flex-none flex-col gap-2">
+    <section
+      aria-label="Today's workout"
+      {...tourAttrs({ id: "home.log", label: "Today log", help: "Everything you logged today, newest first.", order: 50, when: ["populated"] })}
+      className="flex flex-none flex-col gap-2"
+    >
       <p className="flex h-8 flex-none items-center overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
         <span className="truncate">Today&apos;s workout</span>
       </p>

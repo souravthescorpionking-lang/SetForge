@@ -18,7 +18,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -82,31 +82,35 @@ export default function HistoryScreen() {
         <TopBar
           title="History"
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 flex-none"
-                  aria-label="More actions"
-                >
-                  <MoreVertical className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => navigate("/calendar/filters")}>
-                  <SlidersHorizontal className="h-4 w-4" aria-hidden /> Filters
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    toast.info("Workout CSV export lives in Settings → Data")
-                  }
-                >
-                  <FileDown className="h-4 w-4" aria-hidden /> Export…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-11 w-11 flex-none"
+                    aria-label="More actions"
+                    tour={{ id: "history.menu", label: "Menu", help: "Open filters or jump to the CSV export in Settings.", order: 10 }}
+                  >
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => navigate("/calendar/filters")}>
+                    <SlidersHorizontal className="h-4 w-4" aria-hidden /> Filters
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      toast.info("Workout CSV export lives in Settings → Data")
+                    }
+                  >
+                    <FileDown className="h-4 w-4" aria-hidden /> Export…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }

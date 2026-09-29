@@ -16,8 +16,9 @@
 // (records + estimated default). No cards anywhere — tables only per spec.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -74,26 +75,29 @@ export default function InsightsScreen() {
             </span>
           }
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Insights options">
-                  <MoreVertical className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuLabel>Stats period</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {STATS_PERIODS.map((p) => (
-                  <DropdownMenuCheckboxItem
-                    key={p.value}
-                    checked={period === p.value}
-                    onCheckedChange={() => writeQuery({ period: p.value })}
-                  >
-                    {p.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Insights options" tour={{ id: "insights.menu", label: "Stats period", help: "Choose the window for the Stats tab: 7d to all time.", order: 10 }}>
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuLabel>Stats period</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {STATS_PERIODS.map((p) => (
+                    <DropdownMenuCheckboxItem
+                      key={p.value}
+                      checked={period === p.value}
+                      onCheckedChange={() => writeQuery({ period: p.value })}
+                    >
+                      {p.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -106,6 +110,13 @@ export default function InsightsScreen() {
               role="tab"
               aria-selected={tab === t}
               onClick={() => writeQuery({ tab: t })}
+              {...tourAttrs(
+                t === "records"
+                  ? { id: "insights.tabRecords", label: "Records tab", help: "Personal-best leaderboard per exercise.", order: 20 }
+                  : t === "stats"
+                    ? { id: "insights.tabStats", label: "Stats tab", help: "Rolling training stats for the chosen period.", order: 30 }
+                    : { id: "insights.tabGoals", label: "Goals tab", help: "Progress on every goal you set.", order: 40 },
+              )}
               className={cn(
                 "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap text-sm font-semibold transition-colors",
                 tab === t ? "text-primary" : "text-muted-foreground hover:text-foreground",

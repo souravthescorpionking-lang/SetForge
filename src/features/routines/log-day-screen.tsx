@@ -20,7 +20,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Loader2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -242,11 +243,13 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
               className="h-11 w-11 flex-none"
               onClick={() => navigate(`/programs/${routineId}`)}
               aria-label="Back to routine"
+              tour={{ id: "logDay.back", label: "Back", help: "Return to the program detail.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
           }
           title={day ? `Log: ${day.name}` : "Log day"}
+          actions={<TopBarHelp />}
         />
       }
       bottomBar={
@@ -255,6 +258,7 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
             type="button"
             className="h-11 w-full gap-2 text-base font-bold"
             disabled={logging || selectedCount === 0}
+            tour={{ id: "logDay.log", label: "Log to today", help: "Add the selected sets to today's workout.", order: 20 }}
             onClick={() => void doLog()}
           >
             {logging ? (
@@ -279,7 +283,12 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
         ) : !routine || !day ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Day not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate("/programs")}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Error-state back link for a missing day" }}
+              onClick={() => navigate("/programs")}
+            >
               Back to routines
             </Button>
           </div>
@@ -289,6 +298,7 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
             <Button
               type="button"
               variant="outline"
+              tour={{ skipTour: true, reason: "Empty-state link back to the routine editor" }}
               onClick={() => navigate(`/programs/${routineId}`)}
             >
               Edit the routine
@@ -296,7 +306,10 @@ function LogDayInner({ routineId, dayId }: { routineId: string; dayId: string })
           </div>
         ) : (
           <>
-            <p className="flex-none px-1 text-xs leading-relaxed text-muted-foreground">
+            <p
+              {...tourAttrs({ id: "logDay.intro", label: "Preview", help: "Tap cells to adjust; uncheck rows to skip them.", order: 30, hint: true })}
+              className="flex-none px-1 text-xs leading-relaxed text-muted-foreground"
+            >
               Tap cells to adjust values before logging · uncheck rows to leave them out · blank
               cells copy your last workout
             </p>

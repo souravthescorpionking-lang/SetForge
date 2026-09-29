@@ -20,7 +20,8 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -400,6 +401,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
               className="h-11 w-11 flex-none"
               onClick={() => navigate(`/programs/${routineId}`)}
               aria-label={`Back to ${routine?.name ?? "program"}`}
+              tour={{ id: "programDay.back", label: "Back", help: "Return to the program detail.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -415,6 +417,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
                   className={cn("h-11 w-11 flex-none", dayIsFav && "text-amber-500 hover:text-amber-500")}
                   aria-pressed={dayIsFav}
                   aria-label={dayIsFav ? `Unfavourite ${day.name}` : `Favourite ${day.name}`}
+                  tour={{ id: "programDay.favourite", label: "Favourite", help: "Star this day to find it faster.", order: 20 }}
                   onClick={() => void toggleDayFavourite()}
                 >
                   <Star className="h-5 w-5" aria-hidden fill={dayIsFav ? "currentColor" : "none"} />
@@ -427,6 +430,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
                       size="icon"
                       className="h-11 w-11 flex-none"
                       aria-label="More actions"
+                      tour={{ id: "programDay.menu", label: "Day menu", help: "Open in program or schedule this day.", order: 30 }}
                     >
                       <MoreVertical className="h-5 w-5" aria-hidden />
                     </Button>
@@ -440,8 +444,11 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <TopBarHelp />
               </>
-            ) : undefined
+            ) : (
+              <TopBarHelp />
+            )
           }
         />
       }
@@ -453,6 +460,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
                 type="button"
                 className="h-11 w-full gap-2 text-base font-bold"
                 aria-label="Continue today's workout"
+                tour={{ id: "programDay.continue", label: "Continue", help: "Jump back into today's workout.", order: 40 }}
                 onClick={() => navigate("/today")}
               >
                 <Play className="h-5 w-5" aria-hidden />
@@ -464,6 +472,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
                 className="h-11 w-full gap-2 text-base font-bold"
                 disabled={logging}
                 aria-label={`Log ${day.name} to today`}
+                tour={{ id: "programDay.log", label: "Log today", help: "Add this day's sets to today's workout.", order: 40 }}
                 onClick={() => void doLogToday()}
               >
                 <Zap className="h-5 w-5" aria-hidden />
@@ -478,7 +487,12 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
         {error || (!isLoading && !day) ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Day not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate(`/programs/${routineId}`)}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Error-state back link for a missing day" }}
+              onClick={() => navigate(`/programs/${routineId}`)}
+            >
               Back to program
             </Button>
           </div>
@@ -494,7 +508,12 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
             <p className="max-w-[280px] text-center text-xs text-muted-foreground">
               Nothing to log for a rest day — open the program to see where it sits.
             </p>
-            <Button type="button" variant="outline" onClick={() => navigate(`/programs/${routineId}`)}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Rest-day link back to the program view" }}
+              onClick={() => navigate(`/programs/${routineId}`)}
+            >
               Open in program
             </Button>
           </div>
@@ -555,6 +574,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
               type="button"
               data-row
               className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+              {...tourAttrs({ id: "programDay.addExercise", label: "Add exercise", help: "Pick another exercise for this day.", order: 50 })}
               onClick={() => navigate(`/exercises?context=routine&routineId=${routineId}&dayId=${day.id}`)}
             >
               <Plus className="h-4 w-4 flex-none" aria-hidden />

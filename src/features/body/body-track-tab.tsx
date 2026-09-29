@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { measurementsApi } from "@/lib/client/api";
 import { qk, useInvalidate } from "@/lib/client/query";
 import { relativeFromNow, round2 } from "@/lib/client/format";
@@ -67,6 +68,7 @@ export function BodyTrackTab({ measurements, loading, expandedId, onExpandedChan
             type="button"
             data-row
             aria-expanded={expandedId === m.id}
+            {...tourAttrs({ id: "body.row", label: "Metric row", help: "Tap a metric to log a new entry for a date.", order: 50 })}
             onClick={() => onExpandedChange(expandedId === m.id ? null : m.id)}
             className={cn(
               "flex h-14 items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3 text-left transition-colors hover:bg-accent/50",
@@ -169,6 +171,7 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
           onChange={(e) => setValue(e.target.value)}
           placeholder={`Value (${m.unit.name})`}
           aria-label={`New ${m.name} value in ${m.unit.name}`}
+          {...tourAttrs({ id: "body.value", label: "Value", help: "Type the number you measured for this entry.", order: 60 })}
         />
         <Input
           type="date"
@@ -183,11 +186,12 @@ function TrackEditor({ measurement: m, onClose }: { measurement: MeasurementDTO;
           type="button"
           className="h-full flex-1 font-semibold"
           disabled={saving}
+          tour={{ id: "body.save", label: "Save entry", help: "Store the value (and any photos) for the date.", order: 70 }}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Save entry"}
         </Button>
-        <Button type="button" variant="outline" className="h-full flex-1" disabled={saving} onClick={onClose}>
+        <Button type="button" variant="outline" className="h-full flex-1" disabled={saving} tour={{ skipTour: true, reason: "Secondary cancel next to the Save entry button" }} onClick={onClose}>
           Cancel
         </Button>
       </div>

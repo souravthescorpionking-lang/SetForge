@@ -17,7 +17,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Loader2, RotateCcw, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -206,21 +207,26 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
               className="h-11 w-11 flex-none"
               onClick={() => navigate(`/programs/${routineId}`)}
               aria-label="Back to routine"
+              tour={{ id: "predefinedEditor.back", label: "Back", help: "Return to the program detail.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
           }
           title={re ? re.exercise.name : "Predefined sets"}
           actions={
-            <Button
-              type="button"
-              className="h-11 flex-none gap-1.5 px-4"
-              disabled={!located}
-              onClick={save}
-            >
-              <Check className="h-4 w-4" aria-hidden />
-              Save
-            </Button>
+            <>
+              <Button
+                type="button"
+                className="h-11 flex-none gap-1.5 px-4"
+                disabled={!located}
+                tour={{ id: "predefinedEditor.save", label: "Save", help: "Confirm and return; edits already persist.", order: 20 }}
+                onClick={save}
+              >
+                <Check className="h-4 w-4" aria-hidden />
+                Save
+              </Button>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -231,6 +237,7 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
             variant="outline"
             className="h-11 w-full gap-2 text-base font-bold"
             disabled={busy && skipping}
+            tour={{ id: "predefinedEditor.skip", label: "Skip freestyle", help: "Add the bare exercise to today instead.", order: 30 }}
             onClick={() => void skipFreestyle()}
           >
             {skipping ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : null}
@@ -248,14 +255,22 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
         ) : !located || !re || !day ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Exercise not found in this routine</p>
-            <Button type="button" variant="outline" onClick={() => navigate(`/programs/${routineId}`)}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Error-state back link for a missing exercise" }}
+              onClick={() => navigate(`/programs/${routineId}`)}
+            >
               Back to routine
             </Button>
           </div>
         ) : (
           <>
             {/* legend row (32px section header — not a data-row) */}
-            <p className="flex h-8 flex-none items-center gap-2 overflow-hidden px-1 text-xs font-medium text-muted-foreground">
+            <p
+              {...tourAttrs({ id: "predefinedEditor.legend", label: "Copy glyph", help: "↺ fills the blank set from your last workout.", order: 40, hint: true })}
+              className="flex h-8 flex-none items-center gap-2 overflow-hidden px-1 text-xs font-medium text-muted-foreground"
+            >
               <RotateCcw className="h-3.5 w-3.5 flex-none" aria-hidden />
               <span className="truncate">↺ = copy from last workout</span>
               <span className="truncate text-muted-foreground/60">

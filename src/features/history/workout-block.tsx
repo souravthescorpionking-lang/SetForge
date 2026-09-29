@@ -26,6 +26,7 @@ import {
   type CardVisibleColumns,
 } from "@/components/exercise-card/exercise-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { useApp } from "@/lib/client/store";
 import { useWorkoutByDate } from "@/lib/client/query";
 import { dayKeyOf, formatDayLabel, formatSec, round2 } from "@/lib/client/format";
@@ -129,6 +130,7 @@ export function WorkoutBlock({
       {/* workout summary row — 48px data-row */}
       <div
         data-row
+        {...tourAttrs({ id: "history.summaryRow", label: "Day summary", help: "Volume, set count and duration of that workout.", order: 30, hint: true })}
         className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3 text-sm"
       >
         {summaryParts.map((part, i) => (
@@ -166,6 +168,7 @@ export function WorkoutBlock({
                 role="button"
                 tabIndex={0}
                 aria-label={`${expanded ? "Collapse" : "Expand"} sets of ${we.exercise.name}`}
+                {...tourAttrs({ id: "history.workout", label: "Workout block", help: "Tap to expand this workout's exercises and sets.", order: 20 })}
                 className="flex-none cursor-pointer"
                 onClick={(e) => {
                   // taps on the card's own controls never toggle

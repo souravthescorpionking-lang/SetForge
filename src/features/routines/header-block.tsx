@@ -15,6 +15,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { cn } from "@/lib/utils";
 import { ProgressRing, DurationRing } from "@/components/shared/progress-ring";
 import { EquipmentChipRow, MuscleChipRow } from "@/components/shared/muscle-dots";
@@ -69,6 +70,7 @@ export function ProgramHeaderBlock({
         className="flex h-[120px] w-full flex-none items-center gap-3 px-3 text-left"
         aria-expanded={open}
         aria-label={expandable ? "Program overview — tap for details" : "Program overview"}
+        {...tourAttrs({ id: "programDetail.overview", label: "Program overview", help: "Progress ring and highlights; tap to expand.", order: 60 })}
         onClick={() => expandable && setOpen((o) => !o)}
       >
         <ProgressRing

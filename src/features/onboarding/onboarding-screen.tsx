@@ -48,6 +48,8 @@ import { toast } from "sonner";
 import { profileApi } from "@/lib/client/api";
 import { hapticSelection, hapticSuccess, hapticTap } from "@/lib/client/haptics";
 import { useApp } from "@/lib/client/store";
+import { tourAttrs } from "@/lib/tour/attrs";
+import type { TourDecl } from "@/lib/tour/types";
 import { PROFILE_GOALS, PROFILE_GOAL_LABELS, PROFILE_LEVELS } from "@/lib/constants";
 import type { UserProfileDTO } from "@/lib/types";
 import { replaceHash } from "@/features/shell/router";
@@ -226,6 +228,7 @@ export default function OnboardingScreen() {
               type="button"
               variant="ghost"
               className="h-11 gap-1 px-3 text-xs"
+              tour={{ id: "onboarding.skip", label: "Skip", help: "Finish setup later — defaults apply until then.", order: 10 }}
               onClick={() => void skip()}
               disabled={saving}
             >
@@ -241,6 +244,7 @@ export default function OnboardingScreen() {
               type="button"
               variant="ghost"
               className="h-11 flex-none px-4"
+              tour={{ id: "onboarding.back", label: "Back", help: "Return to the previous step.", order: 30 }}
               onClick={() => goTo(step - 1)}
               disabled={saving}
             >
@@ -250,6 +254,7 @@ export default function OnboardingScreen() {
           <Button
             type="button"
             className="h-12 min-w-0 flex-1 text-base font-semibold"
+            tour={{ id: "onboarding.next", label: "Next", help: "Continue to the next step (or finish on Review).", order: 40 }}
             onClick={next}
             disabled={nextDisabled || saving}
           >
@@ -264,6 +269,7 @@ export default function OnboardingScreen() {
       {/* 4px progress bar — step N of 6 */}
       <div
         className="h-1 flex-none overflow-hidden bg-primary/10"
+        {...tourAttrs({ id: "onboarding.progress", label: "Progress", help: "How far through the six setup steps you are.", order: 20 })}
         role="progressbar"
         aria-label="Onboarding progress"
         aria-valuemin={1}
@@ -300,6 +306,7 @@ export default function OnboardingScreen() {
                     }}
                     ariaLabel={`Units: ${u === "metric" ? "Metric — kilograms and centimetres" : "Imperial — pounds and inches"}`}
                     className="h-24 flex-col justify-center gap-1"
+                    tour={{ id: "onboarding.units", label: "Units tiles", help: "Pick kilograms or pounds as your display units.", order: 50 }}
                   >
                     <span className="flex w-full items-center justify-between gap-2">
                       <span className="text-lg font-bold leading-none">{u === "metric" ? "Metric" : "Imperial"}</span>
@@ -328,6 +335,7 @@ export default function OnboardingScreen() {
                       }}
                       ariaLabel={`Goal: ${PROFILE_GOAL_LABELS[g]}`}
                       className="h-16 items-center gap-3"
+                      tour={{ id: "onboarding.goal", label: "Goal tiles", help: "Choose your main training goal.", order: 60 }}
                     >
                       <span className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <Icon className="h-5 w-5" aria-hidden />
@@ -359,6 +367,7 @@ export default function OnboardingScreen() {
                       }}
                       ariaLabel={`Level: ${l.label}`}
                       className="h-24 flex-col items-center justify-center gap-1 text-center"
+                      tour={{ id: "onboarding.level", label: "Level tiles", help: "Pick your training experience level.", order: 70 }}
                     >
                       <TileCheck selected={level === l.value} className="absolute right-2 top-2" />
                       <Icon className="h-6 w-6 flex-none text-primary" aria-hidden />
@@ -484,6 +493,7 @@ function BodyStep({
               className="h-12 w-12 p-0"
               disabled={days <= 1}
               aria-label="Decrease training days per week"
+              tour={{ id: "onboarding.days", label: "Days stepper", help: "Set how many days per week you train.", order: 80 }}
               onClick={() => setDays(days - 1)}
             >
               <Minus className="h-5 w-5" aria-hidden />
@@ -501,6 +511,7 @@ function BodyStep({
               className="h-12 w-12 p-0"
               disabled={days >= 7}
               aria-label="Increase training days per week"
+              tour={{ skipTour: true, reason: "Plus twin of the days stepper in the wizard" }}
               onClick={() => setDays(days + 1)}
             >
               <Plus className="h-5 w-5" aria-hidden />
@@ -519,6 +530,7 @@ function BodyStep({
         error={heightError}
         hint={imperial && heightCm != null ? `≈ ${roundTo1(heightCm)} cm` : null}
         placeholder={imperial ? "e.g. 70" : "e.g. 178"}
+        tour={{ id: "onboarding.height", label: "Height", help: "Your height — imperial entries convert automatically.", order: 90 }}
       />
       <NumberField
         id="onboarding-weight"
@@ -530,6 +542,7 @@ function BodyStep({
         error={weightError}
         hint={imperial && weightKg != null ? `≈ ${roundTo1(weightKg)} kg` : null}
         placeholder={imperial ? "e.g. 180" : "e.g. 80"}
+        tour={{ id: "onboarding.weight", label: "Weight", help: "Your body weight — imperial entries convert automatically.", order: 100 }}
       />
       <NumberField
         id="onboarding-age"
@@ -540,6 +553,7 @@ function BodyStep({
         onChange={setAgeInput}
         error={ageError}
         placeholder="e.g. 30"
+        tour={{ id: "onboarding.age", label: "Age", help: "Your age, used for training guidance.", order: 110 }}
       />
     </section>
   );
@@ -603,6 +617,7 @@ function ReviewStep({
             <button
               type="button"
               onClick={() => onChangeStep(r.step)}
+              {...tourAttrs({ id: "onboarding.change", label: "Change link", help: "Jump back to that step to adjust your answer.", order: 120 })}
               className="h-11 flex-none rounded-md px-2 text-xs font-semibold text-primary hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               change
@@ -630,12 +645,15 @@ function SelectTile({
   onPress,
   ariaLabel,
   className,
+  tour,
   children,
 }: {
   selected: boolean;
   onPress: () => void;
   ariaLabel: string;
   className?: string;
+  /** Inline tour declaration — renders data-tour-id on the tile (Part 7). */
+  tour?: TourDecl;
   children: React.ReactNode;
 }) {
   return (
@@ -643,6 +661,7 @@ function SelectTile({
       type="button"
       aria-pressed={selected}
       aria-label={ariaLabel}
+      {...(tour ? tourAttrs(tour) : {})}
       onClick={onPress}
       className={cn(
         "relative flex w-full rounded-lg border bg-card p-3 text-left",
@@ -682,6 +701,7 @@ function NumberField({
   error,
   hint,
   placeholder,
+  tour,
 }: {
   id: string;
   label: string;
@@ -692,6 +712,8 @@ function NumberField({
   error: string | null;
   hint?: string | null;
   placeholder?: string;
+  /** Inline tour declaration — renders data-tour-id on the input (Part 7). */
+  tour?: TourDecl;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -711,6 +733,7 @@ function NumberField({
         placeholder={placeholder ?? ""}
         aria-invalid={error != null}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
+        {...(tour ? tourAttrs(tour) : {})}
       />
       {error ? (
         <p id={`${id}-error`} className="px-1 text-xs text-destructive" role="alert">

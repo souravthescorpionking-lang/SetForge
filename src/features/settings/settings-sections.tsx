@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { authApi, accountApi, recordsApi } from "@/lib/client/api";
+import { authApi, accountApi, recordsApi, toursApi } from "@/lib/client/api";
 import { useInvalidate, useOnline } from "@/lib/client/query";
 import { useApp } from "@/lib/client/store";
 import { todayKey } from "@/lib/client/format";
@@ -51,9 +51,11 @@ import { clearSwCaches, isStandalone, useInstallPrompt } from "@/components/shar
 import { armDailyReminder, requestReminderPermission } from "@/lib/client/notifications";
 import type { SettingsDTO } from "@/lib/types";
 import { toast } from "sonner";
-import { Check, ChevronRight, Loader2, LogOut, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronRight, Loader2, LogOut, Play, Trash2, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { replaceHash } from "@/features/shell/router";
+import { registry, requestWelcomeTour, screenTourHash, useTourStore } from "@/features/tour";
+import type { SeenRecord } from "@/features/tour/persist";
 
 export const APP_VERSION = "1.0.0";
 
@@ -1204,5 +1206,136 @@ export function DisplaySection() {
         onCheckedChange={(v) => patch({ showCaloriesCard: v })}
       />
     </>
+  );
+}
+
+// ── Help & tours (Part 7) ────────────────────────────────────────────────────
+
+/** Status chip: seen map vs registry version. */
+function tourStatusChip(rec: SeenRecord | undefined, version: string): { label: string; cls: string } {
+  if (!rec) return { label: "New", cls: "border-border bg-muted/50 text-muted-foreground" };
+  if (rec.version !== version) return { label: "Updated", cls: "border-primary/60 bg-primary/5 text-primary" };
+  if (rec.status === "COMPLETED") return { label: "Completed", cls: "border-primary/40 bg-primary/10 text-primary" };
+  if (rec.status === "SKIPPED") return { label: "Skipped", cls: "border-border bg-muted/50 text-muted-foreground" };
+  return { label: "Seen", cls: "border-border bg-muted/50 text-muted-foreground" };
+}
+
+export function ToursSection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  const qc = useQueryClient();
+  const seen = useTourStore((s) => s.seen);
+
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  if (!settings) return null;
+
+  const patch = (p: Partial<SettingsDTO>) => {
+    void updateSettings(p).catch(() => undefined); // store already toasts on failure
+  };
+
+  // Per-screen rows from the generated registry (skip the non-content screens).
+  const screens = Object.entries(registry.screens)
+    .filter(([id]) => id !== "auth" && id !== "onboarding" && id !== "dev")
+    .sort((a, b) => a[1].title.localeCompare(b[1].title));
+
+  const doReset = async () => {
+    setResetting(true);
+    try {
+      await toursApi.reset({ scope: "all" });
+      useTourStore.getState()._resetSeen("all");
+      await qc.invalidateQueries({ queryKey: ["tours", "state"] });
+      toast.success("All tours reset — they will show again");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reset tours");
+    } finally {
+      setResetting(false);
+      setResetOpen(false);
+    }
+  };
+
+  return (
+    <section aria-label="Help and tours" className="flex flex-col">
+      <SectionHeader title="Help & tours" />
+      <SwitchRow
+        label="Show tours"
+        hint="auto-start on first visit"
+        checked={settings.showTours}
+        onCheckedChange={(v) => patch({ showTours: v })}
+      />
+      <SwitchRow
+        label="Show hints"
+        hint="one-time contextual tips"
+        checked={settings.showHints}
+        onCheckedChange={(v) => patch({ showHints: v })}
+      />
+      <SwitchRow
+        label="Replay tours when screens change"
+        checked={settings.replayToursOnUpdate}
+        onCheckedChange={(v) => patch({ replayToursOnUpdate: v })}
+      />
+      <ActionRow label="Replay welcome tour" onClick={() => requestWelcomeTour()} />
+      <ActionRow label="Reset all tours" destructive onClick={() => setResetOpen(true)} />
+
+      {screens.length > 0 ? (
+        <div className="mt-2 max-h-96 overflow-y-auto scroll-slim rounded-lg border border-border bg-card" aria-label="Tour status per screen">
+          {screens.map(([id, entry]) => {
+            const chip = tourStatusChip(seen[id], entry.version);
+            return (
+              <div key={id} className="flex h-12 items-center gap-2 border-b border-border/50 px-3 last:border-b-0">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.title}</span>
+                <span
+                  aria-label={`Tour status: ${chip.label}`}
+                  className={cn(
+                    "flex h-5 flex-none items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+                    chip.cls,
+                  )}
+                >
+                  {chip.label}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-9 flex-none gap-1.5 px-3"
+                  aria-label={`Replay ${entry.title} tour`}
+                  onClick={() => replaceHash(screenTourHash(id))}
+                >
+                  <Play className="h-3.5 w-3.5" aria-hidden />
+                  Replay
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset all tours?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every screen tour, the welcome tour and all one-time hints will show again. Your workouts,
+              settings and other data are untouched.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={resetting}
+              onClick={(e) => {
+                e.preventDefault();
+                setResetOpen(false);
+                void doReset();
+              }}
+            >
+              {resetting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+              Reset tours
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
   );
 }

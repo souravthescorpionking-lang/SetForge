@@ -24,4 +24,6 @@ export { NavBar } from "./nav-bar";
 export { NavPane } from "./nav-pane";
 export type { NavPaneProps } from "./nav-pane";
 
+export { TopBarHelp, TOURHELP_DECL } from "./top-bar-help";
+
 export { useHashSegment } from "./use-hash-segment";

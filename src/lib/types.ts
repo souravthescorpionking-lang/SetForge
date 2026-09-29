@@ -46,7 +46,30 @@ export type SettingsDTO = {
   tempoPresets: string[];
   showCaloriesCard: boolean;
   showThumbnails: boolean;
+  // ---- Part 7: tour system ----
+  showTours: boolean;
+  showHints: boolean;
+  replayToursOnUpdate: boolean;
 };
+
+// ---- Part 7: tour system ----
+
+/** Outcome of one screen tour. "SEEN" marks a tour as visited without completing it. */
+export type TourStatus = "SEEN" | "SKIPPED" | "COMPLETED";
+
+/** Last recorded outcome of a screen's tour (screenId = route name or "__welcome"). */
+export type TourStateDTO = {
+  screenId: string;
+  version: string;
+  status: TourStatus;
+  stepReached: number;
+  updatedAt: string;
+};
+
+/** A dismissed contextual hint (hintId = step id with hint: true). */
+export type TourHintStateDTO = { hintId: string; seenAt: string };
+
+export type ToursStateResponseDTO = { states: TourStateDTO[]; hints: TourHintStateDTO[] };
 
 export type SessionDTO = { user: UserDTO; settings: SettingsDTO };
 
@@ -489,7 +512,6 @@ export type DashboardDTO = {
     weekWorkouts: number;
     weeklyWorkoutTarget: number;
   };
-  quickSessions: ProgramSummaryDTO[];
   todayWorkout: {
     id: string;
     finishedAt: string | null;

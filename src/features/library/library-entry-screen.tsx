@@ -18,9 +18,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +84,7 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "libraryEntry.back", label: "Back", help: "Return to the library list.", order: 10 }}
               onClick={goBack}
               aria-label="Go back"
             >
@@ -92,31 +94,37 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
           title={entry ? entry.name : "Exercise"}
           actions={
             entry ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-11 w-11 flex-none"
-                    aria-label="More actions"
-                  >
-                    <MoreVertical className="h-5 w-5" aria-hidden />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  {entry.adopted ? (
-                    <DropdownMenuItem disabled>
-                      <Check className="h-4 w-4" aria-hidden /> In my exercises
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem onClick={() => void adopt(entry.key)}>
-                      <Plus className="h-4 w-4" aria-hidden /> Add to my exercises
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : undefined
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-11 w-11 flex-none"
+                      aria-label="More actions"
+                      tour={{ id: "libraryEntry.menu", label: "Menu", help: "Add this exercise to my exercises.", order: 20 }}
+                    >
+                      <MoreVertical className="h-5 w-5" aria-hidden />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    {entry.adopted ? (
+                      <DropdownMenuItem disabled>
+                        <Check className="h-4 w-4" aria-hidden /> In my exercises
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={() => void adopt(entry.key)}>
+                        <Plus className="h-4 w-4" aria-hidden /> Add to my exercises
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <TopBarHelp />
+              </>
+            ) : (
+              <TopBarHelp />
+            )
           }
         />
       }
@@ -142,6 +150,7 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
               type="button"
               variant="secondary"
               className="mt-4 gap-1.5"
+              {...tourAttrs({ id: "libraryEntry.notFound", label: "Back to library", help: "The catalog entry could not be found.", order: 50, when: ["empty"] })}
               onClick={() => navigate("/library")}
             >
               <ChevronLeft className="h-4 w-4" aria-hidden /> Back to library
@@ -160,6 +169,7 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
                   className="h-11 min-w-0 flex-1 gap-1.5"
                   disabled
                   aria-label={`${entry.name} is in my exercises`}
+                  tour={{ skipTour: true, reason: "Disabled adopted-state button on the entry action row" }}
                 >
                   <Check className="h-4 w-4" aria-hidden /> In my exercises
                 </Button>
@@ -167,6 +177,7 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
                 <Button
                   type="button"
                   className="h-11 min-w-0 flex-1 gap-1.5"
+                  tour={{ id: "libraryEntry.add", label: "Add exercise", help: "Adopt this exercise into my exercises.", order: 30 }}
                   onClick={() => void adopt(entry.key)}
                 >
                   <Plus className="h-4 w-4" aria-hidden /> Add to my exercises
@@ -185,6 +196,7 @@ export default function LibraryEntryScreen({ catalogKey }: { catalogKey: string 
                       : `Favourite ${entry.name}`
                     : `Favourite and add ${entry.name} to my exercises`
                 }
+                tour={{ id: "libraryEntry.star", label: "Star", help: "Favourite this exercise (adopts it first if needed).", order: 40 }}
                 onClick={onStar}
               >
                 <Star

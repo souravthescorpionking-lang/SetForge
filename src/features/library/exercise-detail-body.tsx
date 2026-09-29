@@ -20,6 +20,7 @@
 
 import { useState } from "react";
 import { ChevronDown, Lightbulb } from "lucide-react";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
 import { hapticTap } from "@/lib/client/haptics";
@@ -131,6 +132,7 @@ export function ExerciseDetailBody({ data }: { data: ExerciseDetailData }) {
                 type="button"
                 aria-expanded={expandedTile === t.key}
                 aria-label={`${t.label} notes${expandedTile === t.key ? " (expanded)" : ""}`}
+                {...tourAttrs({ id: "exerciseDetail.tile", label: "Notes tile", help: "Tap to expand the full setup or target notes.", order: 100 })}
                 onClick={() => {
                   hapticTap();
                   setExpandedTile((prev) => (prev === t.key ? null : t.key));
@@ -180,6 +182,7 @@ export function ExerciseDetailBody({ data }: { data: ExerciseDetailData }) {
             data-row
             aria-expanded={tipOpen}
             aria-label={`Trainer tip${tipOpen ? " (expanded)" : ""}`}
+            {...tourAttrs({ id: "exerciseDetail.tip", label: "Trainer tip", help: "Tap to expand the full coaching tip.", order: 110 })}
             onClick={() => {
               hapticTap();
               setTipOpen((v) => !v);

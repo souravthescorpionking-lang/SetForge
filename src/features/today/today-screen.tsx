@@ -38,7 +38,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   ExerciseCard,
   toCardSet,
@@ -95,6 +96,10 @@ import {
 } from "./card-popovers";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Part 7 LAW 2 — the screen's tour/help contract lives in the screen slot
+// (src/features/screens/today.tsx); this module only declares the inline
+// steps (today.* + the exerciseCard.* underHeader anchors below).
 
 /** Map a CardSet patch (SetRow/ExerciseCard contract) onto the API's SetInput. */
 function cardPatchToSetInput(patch: Partial<CardSet>): SetInput {
@@ -723,6 +728,7 @@ export default function TodayScreen() {
                 size="icon"
                 className="h-11 w-11 flex-none"
                 aria-label="Calendar"
+                tour={{ id: "today.calendar", label: "Calendar", help: "Open the calendar to jump to another day.", order: 10 }}
                 onClick={() => navigate("/calendar")}
               >
                 <CalendarDays className="h-5 w-5" aria-hidden />
@@ -735,6 +741,7 @@ export default function TodayScreen() {
                     size="icon"
                     className="h-11 w-11 flex-none"
                     aria-label="More actions"
+                    tour={{ id: "today.menu", label: "Day menu", help: "Save as session, arrange, history, tools or settings.", order: 20 }}
                   >
                     <MoreVertical className="h-5 w-5" aria-hidden />
                   </Button>
@@ -773,6 +780,7 @@ export default function TodayScreen() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <TopBarHelp />
             </>
           }
         />
@@ -866,9 +874,22 @@ export default function TodayScreen() {
                 showGuidedVideo || showTipRow ? (
                   <>
                     {showGuidedVideo ? (
-                      <GuidedVideoPanel weId={we.id} videoUrl={we.exercise.videoUrl} height={180} />
+                      // Part 7 — exerciseCard.mediaBlock anchor (the block itself
+                      // is consumer-supplied via the underHeader slot).
+                      <div
+                        {...tourAttrs({ id: "exerciseCard.mediaBlock", label: "Form video", help: "Guided demo video for the current exercise.", order: 140, when: ["guided"] })}
+                      >
+                        <GuidedVideoPanel weId={we.id} videoUrl={we.exercise.videoUrl} height={180} />
+                      </div>
                     ) : null}
-                    {showTipRow ? <TrainerTipRow tip={we.exercise.trainerTip!} /> : null}
+                    {showTipRow ? (
+                      // Part 7 — exerciseCard.tipRow anchor (same slot contract).
+                      <div
+                        {...tourAttrs({ id: "exerciseCard.tipRow", label: "Trainer tip", help: "Coaching cue for this exercise; tap to expand.", order: 150 })}
+                      >
+                        <TrainerTipRow tip={we.exercise.trainerTip!} />
+                      </div>
+                    ) : null}
                   </>
                 ) : undefined;
               return (
@@ -913,7 +934,13 @@ export default function TodayScreen() {
               );
             })}
 
-            <SummaryRow workout={workout} unit={defaultUnitFor(settings)} />
+            {/* Part 7 — today.summary anchor (SummaryRow is a display-only row;
+                the wrapper carries the declaration without touching it). */}
+            <div
+              {...tourAttrs({ id: "today.summary", label: "Day summary", help: "Sets, volume and PRs logged for the day.", order: 70, when: ["populated"] })}
+            >
+              <SummaryRow workout={workout} unit={defaultUnitFor(settings)} />
+            </div>
 
             {/* bottom breathing spacer — bars are flex siblings, nothing to clear */}
             <div className="h-4 flex-none" aria-hidden />

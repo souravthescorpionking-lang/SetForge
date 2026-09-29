@@ -27,28 +27,44 @@ import {
 } from "lucide-react";
 import type { SessionDTO } from "@/lib/types";
 import { useHashSegment } from "./use-hash-segment";
+import type { TourDecl } from "@/lib/tour/types";
 
 interface PaneDestination {
   key: string;
   label: string;
   hash: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Shared tour declaration (LAW 3) — desktop-only steps. */
+  tour: TourDecl;
 }
 
 const DESTINATIONS: readonly PaneDestination[] = [
-  { key: "home", label: "Home", hash: "#/home", icon: Flame },
-  { key: "today", label: "Today", hash: "#/today", icon: Dumbbell },
-  { key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays },
-  { key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2 },
-  { key: "body", label: "Body", hash: "#/body", icon: Ruler },
-  { key: "insights", label: "Insights", hash: "#/insights", icon: BarChart3 },
-  { key: "history", label: "History", hash: "#/history", icon: History },
-  { key: "exercises", label: "Exercises", hash: "#/exercises", icon: Dumbbell },
-  { key: "library", label: "Library", hash: "#/library", icon: BookOpen },
-  { key: "profile", label: "Profile", hash: "#/profile", icon: UserRound },
-  { key: "tools", label: "Tools", hash: "#/tools", icon: Calculator },
-  { key: "settings", label: "Settings", hash: "#/settings", icon: Settings },
-  { key: "help", label: "Help", hash: "#/help", icon: CircleHelp },
+  { key: "home", label: "Home", hash: "#/home", icon: Flame,
+    tour: { id: "navpane.home", label: "Home link", help: "Your dashboard: today's session, stats and recent logs.", order: 100, when: ["desktop"] } },
+  { key: "today", label: "Today", hash: "#/today", icon: Dumbbell,
+    tour: { id: "navpane.today", label: "Today link", help: "The set-by-set workout logger with timer and rest.", order: 110, when: ["desktop"] } },
+  { key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays,
+    tour: { id: "navpane.calendar", label: "Calendar link", help: "Month dots and day lists of everything you logged.", order: 120, when: ["desktop"] } },
+  { key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2,
+    tour: { id: "navpane.programs", label: "Programs link", help: "Routines, sessions and the program builder.", order: 130, when: ["desktop"] } },
+  { key: "body", label: "Body", hash: "#/body", icon: Ruler,
+    tour: { id: "navpane.body", label: "Body link", help: "Measurements, progress photos and compare view.", order: 140, when: ["desktop"] } },
+  { key: "insights", label: "Insights", hash: "#/insights", icon: BarChart3,
+    tour: { id: "navpane.insights", label: "Insights link", help: "Records, stats and goals with progress.", order: 150, when: ["desktop"] } },
+  { key: "history", label: "History", hash: "#/history", icon: History,
+    tour: { id: "navpane.history", label: "History link", help: "Chronological workout log with edit, copy and share.", order: 160, when: ["desktop"] } },
+  { key: "exercises", label: "Exercises", hash: "#/exercises", icon: Dumbbell,
+    tour: { id: "navpane.exercises", label: "Exercises link", help: "Full catalogue with categories, favourites and notes.", order: 170, when: ["desktop"] } },
+  { key: "library", label: "Library", hash: "#/library", icon: BookOpen,
+    tour: { id: "navpane.library", label: "Library link", help: "Browse the built-in exercise encyclopedia in detail.", order: 180, when: ["desktop"] } },
+  { key: "profile", label: "Profile", hash: "#/profile", icon: UserRound,
+    tour: { id: "navpane.profile", label: "Profile link", help: "Your account profile and preferences.", order: 190, when: ["desktop"] } },
+  { key: "tools", label: "Tools", hash: "#/tools", icon: Calculator,
+    tour: { id: "navpane.tools", label: "Tools link", help: "1RM, set and plate calculators plus the timer.", order: 200, when: ["desktop"] } },
+  { key: "settings", label: "Settings", hash: "#/settings", icon: Settings,
+    tour: { id: "navpane.settings", label: "Settings link", help: "Theme, units, columns, data and account controls.", order: 210, when: ["desktop"] } },
+  { key: "help", label: "Help", hash: "#/help", icon: CircleHelp,
+    tour: { id: "navpane.help", label: "Help link", help: "Searchable help for every screen and shortcut.", order: 220, when: ["desktop"] } },
 ];
 
 export interface NavPaneProps {
@@ -86,6 +102,7 @@ export function NavPane({ session }: NavPaneProps) {
             <button
               key={d.key}
               type="button"
+              data-tour-id={"skipTour" in d.tour ? undefined : d.tour.id}
               onClick={() => {
                 window.location.hash = d.hash;
               }}
@@ -109,6 +126,7 @@ export function NavPane({ session }: NavPaneProps) {
       <div className="flex-none border-t border-border p-4">
         <button
           type="button"
+          data-tour-id="navpane.account"
           onClick={() => {
             window.location.hash = "#/settings";
           }}

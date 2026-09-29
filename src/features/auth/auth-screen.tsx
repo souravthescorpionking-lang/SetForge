@@ -20,6 +20,7 @@ import type { FormEvent } from "react";
 import { Screen, ScrollBody } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { authApi } from "@/lib/client/api";
 import { useApp } from "@/lib/client/store";
 import { toast } from "sonner";
@@ -146,6 +147,11 @@ export default function AuthScreen() {
                   setError(null);
                   setNotice(null);
                 }}
+                {...tourAttrs(
+                  m === "login"
+                    ? { id: "auth.tabSignIn", label: "Sign in tab", help: "Switch to signing in with an existing account.", order: 10 }
+                    : { id: "auth.tabSignUp", label: "Create tab", help: "Switch to creating a new account.", order: 20 },
+                )}
                 className={cn(
                   "flex h-12 items-center justify-center rounded-lg text-sm font-semibold transition-colors",
                   mode === m ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -169,6 +175,7 @@ export default function AuthScreen() {
               maxLength={80}
               autoComplete="name"
               aria-label="Name (optional)"
+              {...tourAttrs({ id: "auth.name", label: "Name", help: "Optional display name for your account.", order: 30 })}
             />
           ) : null}
 
@@ -182,6 +189,7 @@ export default function AuthScreen() {
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               aria-label="Email"
+              {...tourAttrs({ id: "auth.email", label: "Email", help: "Your account email address.", order: 40 })}
             />
           )}
 
@@ -196,6 +204,7 @@ export default function AuthScreen() {
               autoComplete={mode === "signup" ? "new-password" : "current-password"}
               minLength={mode === "signup" ? 8 : undefined}
               aria-label="Password"
+              {...tourAttrs({ id: "auth.password", label: "Password", help: "Your account password (8+ characters to sign up).", order: 50 })}
             />
           )}
 
@@ -211,6 +220,7 @@ export default function AuthScreen() {
                 autoComplete="new-password"
                 minLength={8}
                 aria-label="New password"
+                {...tourAttrs({ skipTour: true, reason: "Password-reset view inputs (deep-link only)" })}
               />
               <Input
                 type="password"
@@ -222,6 +232,7 @@ export default function AuthScreen() {
                 autoComplete="new-password"
                 minLength={8}
                 aria-label="Repeat new password"
+                {...tourAttrs({ skipTour: true, reason: "Password-reset view inputs (deep-link only)" })}
               />
             </>
           )}
@@ -237,7 +248,7 @@ export default function AuthScreen() {
             </p>
           ) : null}
 
-          <Button type="submit" className="h-12 rounded-lg text-base font-bold" disabled={busy}>
+          <Button type="submit" className="h-12 rounded-lg text-base font-bold" disabled={busy} tour={{ id: "auth.submit", label: "Submit", help: "Sign in or create the account and jump to Today.", order: 60 }}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             {mode === "login"
               ? "Sign in"
@@ -252,6 +263,7 @@ export default function AuthScreen() {
             <button
               type="button"
               className="h-11 rounded-lg px-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              {...tourAttrs({ id: "auth.forgot", label: "Forgot password", help: "Request a password reset link by email.", order: 70 })}
               onClick={() => {
                 setMode("reset-request");
                 setError(null);
@@ -266,6 +278,7 @@ export default function AuthScreen() {
             <button
               type="button"
               className="h-11 rounded-lg px-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              {...tourAttrs({ skipTour: true, reason: "Return-to-sign-in link inside the reset views" })}
               onClick={() => {
                 setMode("login");
                 setError(null);

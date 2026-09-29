@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rowBase } from "@/lib/ui/tokens";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { useApp } from "@/lib/client/store";
 import { hapticSuccess } from "@/lib/client/haptics";
 import { fieldsForType, formatRestSec, type SetField } from "@/lib/constants";
@@ -263,6 +264,7 @@ export function ExerciseCard({
         <Button
           type="button"
           variant="ghost"
+          tour={{ id: "exerciseCard.collapse", label: "Collapse", help: "Expand or fold this exercise's sets.", order: 110 }}
           className="h-6 w-6 flex-none p-0"
           onClick={() => onAction?.({ type: "toggle-collapse" })}
           aria-label={collapsed ? `Expand ${exercise.name}` : `Collapse ${exercise.name}`}
@@ -308,6 +310,7 @@ export function ExerciseCard({
               <Button
                 type="button"
                 variant="ghost"
+                tour={{ id: "exerciseCard.menu", label: "Card menu", help: "Focus, notes, reorder, group, replace or remove.", order: 120 }}
                 className="h-11 w-11 p-0"
                 aria-label={`Actions for ${exercise.name}`}
               >
@@ -337,6 +340,7 @@ export function ExerciseCard({
       data-row
       role="button"
       tabIndex={hasActions ? 0 : undefined}
+      {...tourAttrs({ id: "exerciseCard.header", label: "Exercise row", help: "Tap the row to open this exercise.", order: 100 })}
       aria-label={`Open ${exercise.name}`}
       onClick={hasActions ? () => onAction?.({ type: "open" }) : undefined}
       onKeyDown={
@@ -357,7 +361,11 @@ export function ExerciseCard({
       {headerInner}
     </div>
   ) : (
-    <header data-row className="flex h-14 items-center gap-1 overflow-hidden whitespace-nowrap pl-2">
+    <header
+      data-row
+      {...tourAttrs({ id: "exerciseCard.headerSummary", label: "Exercise header", help: "Name, PR badge and set summary for this exercise.", order: 100 })}
+      className="flex h-14 items-center gap-1 overflow-hidden whitespace-nowrap pl-2"
+    >
       {headerInner}
     </header>
   );
@@ -367,6 +375,10 @@ export function ExerciseCard({
       <div aria-hidden className="w-1 flex-none" style={{ backgroundColor: barColour }} />
       <div className="min-w-0 flex-1">
         {hideHeader ? null : header}
+        {/* Part 7: tour anchors for consumer-supplied underHeader blocks
+            (guided video panel / trainer tip row) are declared where those
+            blocks are composed — see today-screen.tsx (exerciseCard.mediaBlock,
+            exerciseCard.tipRow). */}
         {underHeader != null ? underHeader : null}
         {rowsVisible && (ordered.length > 0 || addSetRow) ? (
           <div className={hideHeader ? undefined : "border-t border-border"}>
@@ -386,6 +398,7 @@ export function ExerciseCard({
               <button
                 type="button"
                 data-row
+                {...tourAttrs({ id: "exerciseCard.addSet", label: "Add set", help: "Append another set to this exercise.", order: 130 })}
                 aria-label={`Add set to ${exercise.name}`}
                 className={cn(
                   rowBase,

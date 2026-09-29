@@ -33,7 +33,8 @@
 
 import { useEffect, useMemo, useState, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -162,6 +163,7 @@ function FacetChipRow({
             type="button"
             aria-pressed={active}
             className={chipClass(active)}
+            {...tourAttrs({ skipTour: true, reason: "Data-driven facet chips for labels, muscles, equipment" })}
             onClick={() => onToggle(v)}
           >
             {active ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
@@ -567,6 +569,7 @@ export default function RoutinesScreen() {
       className={cn("h-11 w-11 flex-none p-0", isFav && "text-amber-500 hover:text-amber-500")}
       aria-pressed={isFav}
       aria-label={isFav ? `Unfavourite ${program.name}` : `Favourite ${program.name}`}
+      tour={{ id: "programs.favourite", label: "Favourite", help: "Star the program to find it faster.", order: 120 }}
       onClick={(e) => {
         e.stopPropagation();
         void toggleRoutineFavourite(program);
@@ -585,6 +588,7 @@ export default function RoutinesScreen() {
             variant="ghost"
             className="h-11 w-11 p-0"
             aria-label={`Actions for ${program.name}`}
+            tour={{ id: "programs.rowMenu", label: "Row menu", help: "Edit, schedule, copy, mark off or delete.", order: 130 }}
           >
             <MoreVertical className="h-5 w-5" aria-hidden />
           </Button>
@@ -652,6 +656,7 @@ export default function RoutinesScreen() {
         tabIndex={0}
         aria-label={`${program.name} — ${program.dayCount} days, ${program.exerciseCount} exercises, ${usedAgoFromDayKey(program.lastUsedAt)}`}
         aria-pressed={selectMode ? selected : undefined}
+        {...tourAttrs({ id: "programs.row", label: "Routine row", help: "Open the routine to see and edit its days.", order: 80 })}
         className={cn(ROW_CLS, selectMode && selected && "border-primary/60 bg-primary/5")}
         onClick={() => {
           if (selectMode) {
@@ -695,6 +700,7 @@ export default function RoutinesScreen() {
               checked={selected}
               aria-label={`Select ${program.name}`}
               className="h-6 w-6"
+              {...tourAttrs({ skipTour: true, reason: "Row checkbox inside bulk-select mode rows" })}
               onCheckedChange={() => {
                 setSelectedIds((prev) => {
                   const next = new Set(prev);
@@ -721,6 +727,7 @@ export default function RoutinesScreen() {
                     ? `Following ${program.name}${cursor ? ` · Day ${cursor.dayIndex + 1} of ${cursor.dayCount}` : ""}`
                     : `Follow ${program.name}`
                 }
+                tour={{ id: "programs.follow", label: "Follow", help: "Make this routine drive your daily workouts.", order: 100 }}
                 onClick={() => onFollowClick(program)}
               >
                 {isFollowed ? (
@@ -745,6 +752,7 @@ export default function RoutinesScreen() {
                     disabled
                     className="h-11 w-[96px] flex-none whitespace-nowrap px-2 text-xs font-bold"
                     aria-label="Follow disabled — needs a workout day"
+                    tour={{ skipTour: true, reason: "Disabled follow; routine has no workout day" }}
                   >
                     Follow
                   </Button>
@@ -779,6 +787,7 @@ export default function RoutinesScreen() {
         role="button"
         tabIndex={0}
         aria-label={`${program.name} — ${program.exerciseCount} exercises, ${usedAgoFromDayKey(program.lastUsedAt)}`}
+        {...tourAttrs({ id: "programs.sessionRow", label: "Session row", help: "Open the session to see its exercises.", order: 90 })}
         className={ROW_CLS}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("button, input, a, [role=menuitem]")) return;
@@ -808,6 +817,7 @@ export default function RoutinesScreen() {
             type="button"
             className="h-11 w-[72px] flex-none gap-1 whitespace-nowrap px-2 text-xs font-bold"
             aria-label={`Start session ${program.name}`}
+            tour={{ id: "programs.start", label: "Start session", help: "Start this session now and jump to Today.", order: 110 }}
             onClick={() => void startSession(program)}
           >
             <Play className="h-4 w-4" aria-hidden />
@@ -843,6 +853,7 @@ export default function RoutinesScreen() {
                       size="icon"
                       className="h-11 w-11 flex-none"
                       aria-label="Sessions catalogue actions"
+                      tour={{ id: "programs.dictionary", label: "Catalogue menu", help: "Open the built-in sessions dictionary.", order: 180 }}
                     >
                       <MoreVertical className="h-5 w-5" aria-hidden />
                     </Button>
@@ -860,6 +871,7 @@ export default function RoutinesScreen() {
                   variant={selectMode ? "default" : "outline"}
                   className="h-11 flex-none gap-1.5 px-3 text-xs font-bold"
                   aria-pressed={selectMode}
+                  tour={{ id: "programs.select", label: "Select routines", help: "Multi-select routines to delete in bulk.", order: 140 }}
                   onClick={() => {
                     setSelectedIds(new Set());
                     setSelectMode((m) => !m);
@@ -877,6 +889,7 @@ export default function RoutinesScreen() {
                     size="icon"
                     className="h-11 w-11 flex-none"
                     aria-label="New program"
+                    tour={{ id: "programs.new", label: "New program", help: "Create a routine, session or builder program.", order: 10 }}
                   >
                     <Plus className="h-5 w-5" aria-hidden />
                   </Button>
@@ -901,6 +914,7 @@ export default function RoutinesScreen() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <TopBarHelp />
             </>
           }
         />
@@ -915,6 +929,7 @@ export default function RoutinesScreen() {
                 variant="outline"
                 className="h-11 flex-none gap-1 px-2 text-xs font-bold"
                 aria-label="Back to routines"
+                tour={{ id: "programs.backToRoutines", label: "Back to routines", help: "Leave the sessions search and return.", order: 40 }}
                 onClick={() => switchTab("routines")}
               >
                 <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -927,6 +942,7 @@ export default function RoutinesScreen() {
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search sessions…"
                   aria-label="Search sessions"
+                  {...tourAttrs({ id: "programs.search", label: "Search sessions", help: "Filter the sessions list by name.", order: 50 })}
                   className="h-full w-full min-w-0 flex-1 rounded-none border-0 bg-transparent pl-2 pr-3 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
                 />
               </div>
@@ -942,6 +958,11 @@ export default function RoutinesScreen() {
                   role="tab"
                   aria-selected={tab === t}
                   onClick={() => switchTab(t)}
+                  {...tourAttrs(
+                    t === "routines"
+                      ? { id: "programs.tabRoutines", label: "Routines tab", help: "Browse multi-week routines to follow.", order: 20 }
+                      : { id: "programs.tabSessions", label: "Sessions tab", help: "Browse saved one-off sessions to start.", order: 30 },
+                  )}
                   className={cn(
                     "h-11 min-w-0 flex-1 rounded-lg border text-sm font-bold capitalize transition-colors",
                     tab === t
@@ -963,6 +984,7 @@ export default function RoutinesScreen() {
               type="button"
               className="h-11 w-full gap-2 bg-destructive text-white font-bold hover:bg-destructive/90"
               disabled={selectedIds.size === 0}
+              tour={{ id: "programs.deleteSelected", label: "Delete selected", help: "Remove every checked routine after confirm.", order: 150, when: ["select"] }}
               onClick={() => setDeleteManyOpen(true)}
             >
               <Trash2 className="h-5 w-5" aria-hidden />
@@ -981,6 +1003,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={routineChip === "ALL" && !favOnly}
                 className={chipClass(routineChip === "ALL" && !favOnly)}
+                {...tourAttrs({ id: "programs.filterAll", label: "All filter", help: "Clear difficulty and favourite filters.", order: 60 })}
                 onClick={() => {
                   setRoutineChip("ALL");
                   setFavOnly(false);
@@ -994,6 +1017,7 @@ export default function RoutinesScreen() {
                   type="button"
                   aria-pressed={routineChip === d}
                   className={chipClass(routineChip === d)}
+                  {...tourAttrs({ skipTour: true, reason: "Data-driven difficulty filter chips" })}
                   onClick={() => setRoutineChip(d)}
                 >
                   <DifficultyPill difficulty={d} className="h-6 min-w-0 px-1.5 text-[10px]" />
@@ -1003,6 +1027,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={favOnly}
                 className={chipClass(favOnly)}
+                {...tourAttrs({ id: "programs.filterFavourites", label: "Favourites filter", help: "Show only the programs you starred.", order: 70 })}
                 onClick={() => setFavOnly((f) => !f)}
               >
                 <Star className="h-3.5 w-3.5" aria-hidden fill={favOnly ? "currentColor" : "none"} />
@@ -1012,6 +1037,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={labelsOpen}
                 className={chipClass(labelsOpen)}
+                {...tourAttrs({ skipTour: true, reason: "Labels filter expander for the facet chip row" })}
                 onClick={() => setLabelsOpen((o) => !o)}
               >
                 Labels
@@ -1037,6 +1063,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionChip === "ALL"}
                 className={chipClass(sessionChip === "ALL")}
+                {...tourAttrs({ skipTour: true, reason: "Sessions tab All filter chip" })}
                 onClick={() => setSessionChip("ALL")}
               >
                 All
@@ -1045,6 +1072,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionChip === "FAVOURITES"}
                 className={chipClass(sessionChip === "FAVOURITES")}
+                {...tourAttrs({ skipTour: true, reason: "Sessions tab favourites filter chip" })}
                 onClick={() => setSessionChip("FAVOURITES")}
               >
                 Favourites
@@ -1053,6 +1081,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionChip === "MINE"}
                 className={chipClass(sessionChip === "MINE")}
+                {...tourAttrs({ skipTour: true, reason: "Sessions tab mine filter chip" })}
                 onClick={() => setSessionChip("MINE")}
               >
                 Mine
@@ -1065,6 +1094,7 @@ export default function RoutinesScreen() {
                     type="button"
                     aria-pressed={sessionChip === key}
                     className={chipClass(sessionChip === key)}
+                    {...tourAttrs({ skipTour: true, reason: "Sessions tab duration filter chips" })}
                     onClick={() => setSessionChip(key)}
                   >
                     ≤{m}m
@@ -1075,6 +1105,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionFacet === "muscle"}
                 className={chipClass(sessionFacet === "muscle")}
+                {...tourAttrs({ skipTour: true, reason: "Muscle facet expander for session filters" })}
                 onClick={() => setSessionFacet((f) => (f === "muscle" ? null : "muscle"))}
               >
                 Muscle
@@ -1084,6 +1115,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionFacet === "equipment"}
                 className={chipClass(sessionFacet === "equipment")}
+                {...tourAttrs({ skipTour: true, reason: "Equipment facet expander for session filters" })}
                 onClick={() => setSessionFacet((f) => (f === "equipment" ? null : "equipment"))}
               >
                 Equipment
@@ -1093,6 +1125,7 @@ export default function RoutinesScreen() {
                 type="button"
                 aria-pressed={sessionFacet === "labels"}
                 className={chipClass(sessionFacet === "labels")}
+                {...tourAttrs({ skipTour: true, reason: "Labels facet expander for session filters" })}
                 onClick={() => setSessionFacet((f) => (f === "labels" ? null : "labels"))}
               >
                 Labels
@@ -1183,6 +1216,7 @@ export default function RoutinesScreen() {
             <Button
               type="button"
               className="gap-1.5"
+              tour={{ id: "programs.createFirst", label: "Create first", help: "Add your first routine or session here.", order: 160, when: ["empty"] }}
               onClick={() => setCreating(tab === "sessions" ? "SESSION" : "ROUTINE")}
             >
               <Plus className="h-4 w-4" aria-hidden />
@@ -1193,7 +1227,12 @@ export default function RoutinesScreen() {
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border lg:col-span-2">
             <Search className="h-6 w-6 text-muted-foreground" aria-hidden />
             <p className="text-sm font-semibold">Nothing matches these filters</p>
-            <Button type="button" variant="outline" className="gap-1.5" onClick={tab === "routines" ? () => {
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              tour={{ id: "programs.clearFilters", label: "Clear filters", help: "Reset the filters when nothing matches.", order: 170 }}
+              onClick={tab === "routines" ? () => {
               setRoutineChip("ALL");
               setFavOnly(false);
               setLabelsOpen(false);

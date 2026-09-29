@@ -2,11 +2,26 @@ import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
+import setforgeTour from "./eslint/setforge-tour.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
+  // ── SetForge tour system (Part 7) ──────────────────────────────────────────
+  // Migration COMPLETE (all 31 screens registered): screen-registered is a
+  // hard error; `required` stays WARN — remaining undeclared controls are the
+  // tracked reverse-coverage backlog (see worklog Part 7).
+  plugins: { "setforge-tour": setforgeTour },
+  rules: {
+    "setforge-tour/no-content-files": "error",
+    "setforge-tour/static": "error",
+    "setforge-tour/help-length": "error",
+    "setforge-tour/unique-id": "error",
+    "setforge-tour/screen-registered": "error",
+    "setforge-tour/required": "warn",
+  },
+}, {
   rules: {
     // TypeScript rules
     "@typescript-eslint/no-explicit-any": "off",
@@ -19,6 +34,8 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     // React rules
     "react-hooks/exhaustive-deps": "off",
     "react-hooks/purity": "off",
+    "react-hooks/set-state-in-effect": "off",
+    "react-hooks/use-memo": "off",
     "react/no-unescaped-entities": "off",
     "react/display-name": "off",
     "react/prop-types": "off",

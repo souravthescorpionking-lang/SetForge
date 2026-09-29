@@ -7,8 +7,10 @@
 // dialogs.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { BarChart3, History, Dumbbell, Wrench, Settings, CircleHelp, ChevronRight, BookOpen, UserRound, BookMarked } from "lucide-react";
+import { tourAttrs } from "@/lib/tour/attrs";
+import type { TourDecl } from "@/lib/tour/types";
 import { cn } from "@/lib/utils";
 
 interface MoreDestination {
@@ -31,9 +33,23 @@ const DESTINATIONS: readonly MoreDestination[] = [
   { key: "help", label: "Help", hint: "tour · shortcuts", hash: "#/help", icon: CircleHelp },
 ];
 
+// Part 7 — one tour step per destination row (static literals; harvested by
+// tour:gen as components.more steps). The lookup is keyed like DESTINATIONS.
+const ROW_DECLS: Record<string, TourDecl> = {
+  insights: { id: "more.insights", label: "Insights", help: "Open records, rolling stats and goals.", order: 10 },
+  history: { id: "more.history", label: "History", help: "Open the month-by-month workout timeline.", order: 20 },
+  exercises: { id: "more.exercises", label: "Exercises", help: "Open your exercise list and favourites.", order: 30 },
+  library: { id: "more.library", label: "Library", help: "Browse the full exercise catalog.", order: 40 },
+  dictionary: { id: "more.dictionary", label: "Dictionary", help: "Open the training-methods glossary.", order: 50 },
+  profile: { id: "more.profile", label: "Profile", help: "Open your account and notification profile.", order: 60 },
+  tools: { id: "more.tools", label: "Tools", help: "Open the calculators and interval timer.", order: 70 },
+  settings: { id: "more.settings", label: "Settings", help: "Open preferences, data and account settings.", order: 80 },
+  help: { id: "more.help", label: "Help", help: "Open the in-app help and shortcuts page.", order: 90 },
+};
+
 export default function MoreScreen() {
   return (
-    <Screen topBar={<TopBar title="More" />}>
+    <Screen topBar={<TopBar title="More" actions={<TopBarHelp />} />}>
       <ScrollBody>
         <nav aria-label="More destinations" className="flex flex-col gap-2">
           {DESTINATIONS.map((d) => {
@@ -44,6 +60,7 @@ export default function MoreScreen() {
                 type="button"
                 data-row
                 aria-label={`${d.label} — ${d.hint}`}
+                {...tourAttrs(ROW_DECLS[d.key]!)}
                 onClick={() => {
                   window.location.hash = d.hash;
                 }}

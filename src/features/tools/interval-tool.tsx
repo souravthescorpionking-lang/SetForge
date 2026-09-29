@@ -283,6 +283,7 @@ export function IntervalTool() {
         <Button
           type="button"
           className="h-12 flex-1 rounded-lg font-bold"
+          tour={{ id: "tools.timerStart", label: "Start timer", help: "Run the interval timer with beeps and wake-lock.", order: 50 }}
           onClick={() => (status === "idle" || phase === "done" ? start() : running ? pause() : resume())}
           aria-label={running ? "Pause timer" : status === "paused" ? "Resume timer" : "Start timer"}
         >
@@ -293,6 +294,7 @@ export function IntervalTool() {
           type="button"
           variant="outline"
           className="h-12 flex-1 rounded-lg"
+          tour={{ id: "tools.timerSkip", label: "Skip phase", help: "Jump straight to the next work or rest phase.", order: 60 }}
           onClick={skipPhase}
           disabled={status === "idle"}
           aria-label="Skip to next phase"
@@ -303,6 +305,7 @@ export function IntervalTool() {
           type="button"
           variant="ghost"
           className="h-12 flex-1 rounded-lg"
+          tour={{ id: "tools.timerReset", label: "Reset timer", help: "Stop and reset the timer to its configuration.", order: 70 }}
           onClick={reset}
           aria-label="Reset timer"
         >

@@ -11,6 +11,7 @@
 
 import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ export function ToolRow({
       type="button"
       data-row
       aria-expanded={open}
+      {...tourAttrs({ id: "tools.row", label: "Tool row", help: "Tap to expand this calculator inline.", order: 20 })}
       onClick={onClick}
       className="flex h-14 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1 text-left hover:bg-accent/40"
     >
@@ -95,6 +97,7 @@ export function FieldRow({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         aria-label={ariaLabel ?? label}
+        {...tourAttrs({ id: "tools.field", label: "Number field", help: "Type the value for this calculator input.", order: 30 })}
       />
       {unit ? <span className="w-8 flex-none text-xs text-muted-foreground">{unit}</span> : null}
     </div>
@@ -132,7 +135,7 @@ export function ResultRow({
   );
   if (onClick) {
     return (
-      <button type="button" data-row className={cls} onClick={onClick} aria-label={ariaLabel}>
+      <button type="button" data-row {...tourAttrs({ id: "tools.resultRow", label: "Result row", help: "Tap to apply or toggle this row.", order: 40 })} className={cls} onClick={onClick} aria-label={ariaLabel}>
         {body}
       </button>
     );

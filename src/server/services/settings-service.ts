@@ -54,6 +54,10 @@ export async function updateSettings(
     tempoPresets: string[];
     showCaloriesCard: boolean;
     showThumbnails: boolean;
+    // ---- Part 7: tour system ----
+    showTours: boolean;
+    showHints: boolean;
+    replayToursOnUpdate: boolean;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });

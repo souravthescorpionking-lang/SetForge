@@ -15,7 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useState } from "react";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { ArrowDownUp, Check, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
@@ -115,6 +115,7 @@ export default function TodayArrangeScreen() {
               className="h-11 w-11 flex-none"
               onClick={() => navigate(backPath)}
               aria-label="Back to today"
+              tour={{ id: "todayArrange.back", label: "Back", help: "Return to the Today screen.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -126,16 +127,20 @@ export default function TodayArrangeScreen() {
             </span>
           }
           actions={
-            <Button
-              type="button"
-              className="h-11 flex-none gap-1.5 px-4 text-sm font-bold"
-              disabled={saving || !workout || members.length < 2}
-              aria-label="Save the new exercise order"
-              onClick={() => void save()}
-            >
-              <Check className="h-4 w-4" aria-hidden />
-              {saving ? "Saving…" : "Done"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                className="h-11 flex-none gap-1.5 px-4 text-sm font-bold"
+                disabled={saving || !workout || members.length < 2}
+                aria-label="Save the new exercise order"
+                tour={{ id: "todayArrange.done", label: "Done", help: "Save the new exercise order.", order: 20 }}
+                onClick={() => void save()}
+              >
+                <Check className="h-4 w-4" aria-hidden />
+                {saving ? "Saving…" : "Done"}
+              </Button>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -153,7 +158,12 @@ export default function TodayArrangeScreen() {
             <p className="max-w-[280px] text-center text-xs text-muted-foreground">
               Start logging exercises first — then arrange supersets here.
             </p>
-            <Button type="button" variant="outline" onClick={() => navigate(backPath)}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Empty-state link back to the Today screen" }}
+              onClick={() => navigate(backPath)}
+            >
               Back to today
             </Button>
           </div>

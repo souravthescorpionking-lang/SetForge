@@ -12,6 +12,7 @@
 import { Flame, Dumbbell, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
+import { tourAttrs } from "@/lib/tour/attrs";
 import type { DashboardDTO } from "@/lib/types";
 import { round1 } from "@/lib/client/format";
 
@@ -48,6 +49,7 @@ export function StatsRow({ stats }: { stats: DashboardDTO["stats"] }) {
       <div
         data-row
         aria-label="This week"
+        {...tourAttrs({ id: "home.stats", label: "Weekly stats", help: "Sets, volume and streak for the current week.", order: 40 })}
         className="flex h-14 items-stretch gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card"
       >
         <Cell icon={Dumbbell} value={`${stats.weekSets}`} label={stats.weekSets === 1 ? "set this week" : "sets this week"} />

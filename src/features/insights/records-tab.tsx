@@ -14,6 +14,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { CategoryDot } from "@/components/shared/category-dot";
 import { Trophy } from "lucide-react";
 import { recordsApi, type AllRecordsRow } from "@/lib/client/api";
@@ -76,6 +77,11 @@ export function RecordsTab({
             type="button"
             aria-pressed={scope === s.value}
             onClick={() => onScopeChange(s.value)}
+            {...tourAttrs(
+              s.value === "estimated"
+                ? { id: "insights.scopeEstimated", label: "Estimated", help: "Rank exercises by estimated one-rep max.", order: 50 }
+                : { id: "insights.scopeActual", label: "Actual", help: "Rank exercises by the best real set lifted.", order: 60 },
+            )}
             className={cn(
               "h-full min-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold transition-colors",
               scope === s.value ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent",
@@ -108,6 +114,7 @@ export function RecordsTab({
               key={r.exerciseId}
               type="button"
               data-row
+              {...tourAttrs({ id: "insights.recordRow", label: "Record row", help: "Open this exercise's full records and goals.", order: 70 })}
               onClick={() => navigate(`/exercise-overview/${r.exerciseId}`)}
               aria-label={`${r.exerciseName} records`}
               className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 text-left transition-colors hover:bg-accent/50"

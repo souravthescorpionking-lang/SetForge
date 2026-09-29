@@ -21,9 +21,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CameraOff, ImageIcon } from "lucide-react";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   Select,
   SelectContent,
@@ -137,7 +138,7 @@ export default function BodyCompareScreen() {
 
   if (photosQuery.isLoading) {
     return (
-      <Screen topBar={<TopBar title="Compare photos" />}>
+      <Screen topBar={<TopBar title="Compare photos" actions={<TopBarHelp />} />}>
         <ScrollBody>
           <div className="flex flex-col gap-3">
             <Skeleton className="h-10 w-full rounded-full" />
@@ -157,12 +158,12 @@ export default function BodyCompareScreen() {
 
   if (photosQuery.isError) {
     return (
-      <Screen topBar={<TopBar title="Compare photos" />}>
+      <Screen topBar={<TopBar title="Compare photos" actions={<TopBarHelp />} />}>
         <ScrollBody>
           <div className="flex flex-col items-center gap-3 rounded-lg border bg-card px-6 py-10 text-center">
             <p className="text-sm font-semibold">Could not load photos</p>
             <p className="text-xs text-muted-foreground">Check your connection and try again.</p>
-            <Button type="button" variant="outline" className="h-11 px-5" onClick={() => void photosQuery.refetch()}>
+            <Button type="button" variant="outline" className="h-11 px-5" tour={{ skipTour: true, reason: "Error-state retry button for the photo query" }} onClick={() => void photosQuery.refetch()}>
               Retry
             </Button>
           </div>
@@ -173,7 +174,7 @@ export default function BodyCompareScreen() {
 
   if (photos.length === 0) {
     return (
-      <Screen topBar={<TopBar title="Compare photos" />}>
+      <Screen topBar={<TopBar title="Compare photos" actions={<TopBarHelp />} />}>
         <ScrollBody>
           <div className="flex flex-col items-center gap-3 rounded-lg border bg-card px-6 py-12 text-center">
             <CameraOff className="h-10 w-10 text-muted-foreground/60" aria-hidden />
@@ -186,6 +187,7 @@ export default function BodyCompareScreen() {
             <Button
               type="button"
               className="h-11 px-5 font-semibold"
+              tour={{ id: "bodyCompare.goTrack", label: "Go to Track", help: "Jump to the Track tab to add progress photos.", order: 40, when: ["empty"] }}
               onClick={() => replaceHash("#/body?tab=track")}
             >
               Go to Track
@@ -197,7 +199,7 @@ export default function BodyCompareScreen() {
   }
 
   return (
-    <Screen topBar={<TopBar title="Compare photos" />}>
+    <Screen topBar={<TopBar title="Compare photos" actions={<TopBarHelp />} />}>
       <ScrollBody>
         <div className="flex flex-col gap-3">
           {/* slot filter — 40px chips, horizontally scrollable */}
@@ -214,6 +216,7 @@ export default function BodyCompareScreen() {
                 type="button"
                 aria-pressed={activeSlot === s}
                 className={chipClass(activeSlot === s)}
+                {...tourAttrs({ id: "bodyCompare.slot", label: "Pose filter", help: "Show one pose or all poses across both dates.", order: 10 })}
                 onClick={() => {
                   hapticSelection();
                   setSlot(s);
@@ -226,8 +229,12 @@ export default function BodyCompareScreen() {
 
           {/* A / B date pickers */}
           <div className="grid grid-cols-2 gap-2">
-            <Select value={a ?? ""} onValueChange={pickA}>
-              <SelectTrigger className="h-11 w-full rounded-lg" aria-label="Date A">
+            <Select value={a ?? ""} onValueChange={pickA} {...tourAttrs({ skipTour: true, reason: "Date-A select root renders no DOM node" })}>
+              <SelectTrigger
+                className="h-11 w-full rounded-lg"
+                aria-label="Date A"
+                {...tourAttrs({ id: "bodyCompare.dateA", label: "Date A", help: "Pick the earlier photo's date.", order: 20 })}
+              >
                 <span className="mr-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
                   A
                 </span>
@@ -241,8 +248,12 @@ export default function BodyCompareScreen() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={b ?? ""} onValueChange={pickB}>
-              <SelectTrigger className="h-11 w-full rounded-lg" aria-label="Date B">
+            <Select value={b ?? ""} onValueChange={pickB} {...tourAttrs({ skipTour: true, reason: "Date-B select root renders no DOM node" })}>
+              <SelectTrigger
+                className="h-11 w-full rounded-lg"
+                aria-label="Date B"
+                {...tourAttrs({ id: "bodyCompare.dateB", label: "Date B", help: "Pick the later photo's date.", order: 30 })}
+              >
                 <span className="mr-1 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
                   B
                 </span>

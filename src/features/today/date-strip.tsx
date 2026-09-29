@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { addDaysKey, isToday, todayKey } from "@/lib/client/format";
 import { dateToLocalKey, keyToLocalDate } from "./day-utils";
 
@@ -72,6 +73,7 @@ export function DateStrip({
         variant="ghost"
         size="icon"
         aria-label="Previous day"
+        tour={{ id: "dateStrip.prev", label: "Previous day", help: "Step back one day in the log.", order: 100 }}
         className="h-11 w-11 flex-none rounded-lg"
         onClick={() => onChange(addDaysKey(dateKey, -1))}
       >
@@ -82,6 +84,7 @@ export function DateStrip({
         <PopoverTrigger asChild>
           <button
             type="button"
+            {...tourAttrs({ id: "dateStrip.chip", label: "Date chip", help: "Tap to pick any date from the calendar.", order: 110 })}
             className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border bg-card px-3 text-sm font-semibold tabular-nums transition-colors hover:border-primary/50 hover:bg-accent"
             aria-label={`Pick a date (currently ${formatDateStripLabel(dateKey)})`}
           >
@@ -114,6 +117,7 @@ export function DateStrip({
         variant="ghost"
         size="icon"
         aria-label="Next day"
+        tour={{ id: "dateStrip.next", label: "Next day", help: "Step forward one day in the log.", order: 120 }}
         className="h-11 w-11 flex-none rounded-lg"
         onClick={() => onChange(addDaysKey(dateKey, 1))}
       >
@@ -122,6 +126,7 @@ export function DateStrip({
 
       <button
         type="button"
+        {...tourAttrs({ id: "dateStrip.today", label: "Today chip", help: "Jump the log back to today.", order: 130 })}
         onClick={() => {
           if (!onToday) onChange(todayKey());
         }}

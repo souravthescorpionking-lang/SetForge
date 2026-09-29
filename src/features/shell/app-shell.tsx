@@ -58,6 +58,7 @@ import BodyCompareScreen from "@/features/screens/body-compare";
 import { ScreenErrorBoundary } from "@/components/shared/screen-error-boundary";
 import { profileApi } from "@/lib/client/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { TourProvider, requestTourStart } from "@/features/tour";
 
 export function AppShell({ initialSession }: { initialSession: SessionDTO | null }) {
   const storeSession = useApp((s) => s.session);
@@ -97,8 +98,9 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
     }
   }, [session, route.name, profile, queryClient]);
 
-  // Global keyboard shortcuts (desktop, audit M5):
-  //   ?  → Help & Shortcuts     N → add exercise (picker)     / → focus search
+  // Global keyboard shortcuts (desktop, audit M5 + Part 7 tour keys):
+  //   ?  → open the per-screen help/tour popover     N → add exercise (picker)
+  //   Shift+? → tour the current screen               / → focus search
   // Ignored while typing in any editable element or with modifiers held.
   useEffect(() => {
     if (!session) return;
@@ -107,10 +109,12 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
       const t = e.target as HTMLElement | null;
       const tag = t?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable) return;
-      if (e.key === "?" ) {
-        if (route.name !== "help") {
-          replaceHash("#/help");
-          e.preventDefault();
+      if (e.key === "?") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          requestTourStart(route.name, { force: true });
+        } else {
+          window.dispatchEvent(new CustomEvent("sf:tour-help"));
         }
         return;
       }
@@ -139,13 +143,19 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
     return <AuthScreen />;
   }
 
+  // TourProvider (Part 7) — wraps the authenticated shell; the overlay and
+  // hint cards portal to document.body (LAW 4/5: only fixed elements).
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground lg:flex-row">
-      <NavPane session={session} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ScreenErrorBoundary route={route.name}>{renderScreen(route)}</ScreenErrorBoundary>
+    <TourProvider profile={profile}>
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground lg:flex-row">
+        <NavPane session={session} />
+        {/* data-screen-container: tour anchors must live inside the rendered
+            screen (the NavPane sidebar is deliberately outside). */}
+        <div data-screen-container className="flex min-w-0 flex-1 flex-col">
+          <ScreenErrorBoundary route={route.name}>{renderScreen(route)}</ScreenErrorBoundary>
+        </div>
       </div>
-    </div>
+    </TourProvider>
   );
 }
 

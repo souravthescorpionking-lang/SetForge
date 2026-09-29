@@ -11,6 +11,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { queueMutation } from "@/lib/client/offline";
 import { useInvalidate, useOnline } from "@/lib/client/query";
 import { routinesApi, exercisesApi, type PredefinedSetInput } from "@/lib/client/api";
@@ -150,6 +151,9 @@ export function DragGlyph(): ReactNode {
 
 // ---------- inline rename input (input-in-place, Enter saves / Esc cancels) ----------
 
+// Part 7 — one shared declaration for every inline name input (renames, new
+// routine/session rows, label rows across the programs cluster screens).
+
 export function InlineInput({
   value,
   onCommit,
@@ -174,6 +178,7 @@ export function InlineInput({
       value={draft}
       placeholder={placeholder}
       aria-label={ariaLabel}
+      {...tourAttrs({ id: "inlineInput.commit", label: "Name field", help: "Type a name; Enter saves, Esc cancels.", order: 100, hint: true })}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={(e) => e.target.select()}
       onKeyDown={(e) => {

@@ -299,6 +299,10 @@ export const settingsUpdateSchema = z.object({
   tempoPresets: z.array(z.string().regex(TEMPO_REGEX, "Invalid tempo")).min(0).max(8).optional(),
   showCaloriesCard: z.boolean().optional(),
   showThumbnails: z.boolean().optional(),
+  // ---- Part 7: tour system ----
+  showTours: z.boolean().optional(),
+  showHints: z.boolean().optional(),
+  replayToursOnUpdate: z.boolean().optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),

@@ -25,7 +25,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -126,6 +127,7 @@ function Stepper({
         className="h-10 w-10 flex-none p-0"
         disabled={value != null && value <= min}
         aria-label={`Decrease ${ariaLabel}`}
+        tour={{ id: "programBuilder.stepper", label: "Stepper", help: "Adjust days per week and estimated minutes.", order: 80 }}
         onClick={() => {
           hapticTap();
           onDecrement();
@@ -146,6 +148,7 @@ function Stepper({
         className="h-10 w-10 flex-none p-0"
         disabled={value != null && value >= max}
         aria-label={`Increase ${ariaLabel}`}
+        tour={{ skipTour: true, reason: "The + half of the builder stepper pair" }}
         onClick={() => {
           hapticTap();
           onIncrement();
@@ -334,6 +337,7 @@ export default function ProgramBuilderScreen() {
             value={day.name}
             placeholder="Push, Pull…"
             aria-label={`${WEEKDAYS[index]} workout template name`}
+            {...tourAttrs({ id: "programBuilder.templateName", label: "Template name", help: "Name the day's template; same names share.", order: 50 })}
             onChange={(e) => setDayName(index, e.target.value)}
             className="h-10 min-w-0 flex-1 rounded-md"
           />
@@ -350,6 +354,7 @@ export default function ProgramBuilderScreen() {
               variant="outline"
               className="h-10 w-24 flex-none justify-between gap-1 px-2 text-xs font-bold"
               aria-label={`${WEEKDAYS[index]} day type: ${day.type === "WORKOUT" ? "workout" : "rest"}`}
+              tour={{ id: "programBuilder.dayType", label: "Day type", help: "Switch this weekday between workout and rest.", order: 60 }}
             >
               {day.type === "WORKOUT" ? (
                 <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
@@ -412,6 +417,7 @@ export default function ProgramBuilderScreen() {
               variant="ghost"
               className="h-10 w-10 flex-none p-0 text-muted-foreground"
               aria-label={`Remove ${e.name} from ${templateName}`}
+              tour={{ skipTour: true, reason: "Remove chip on an added exercise row" }}
               onClick={() => removeExerciseFrom(templateName, e.exerciseId)}
             >
               <X className="h-4 w-4" aria-hidden />
@@ -424,6 +430,7 @@ export default function ProgramBuilderScreen() {
           data-row
           aria-expanded={pickerOpen}
           aria-label={`Add exercise to ${templateName}`}
+          {...tourAttrs({ id: "programBuilder.addExercise", label: "Add exercise", help: "Open the searchable picker for this template.", order: 70 })}
           className={cn(
             "flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap px-3 text-left text-sm font-medium transition-colors",
             pickerOpen
@@ -458,6 +465,7 @@ export default function ProgramBuilderScreen() {
                     value={pickerSearch}
                     placeholder="Search your exercises…"
                     aria-label={`Search exercises for ${templateName}`}
+                    {...tourAttrs({ skipTour: true, reason: "Search input inside the inline picker" })}
                     onChange={(e) => setPickerSearch(e.target.value)}
                     className="h-10 rounded-md pl-9"
                   />
@@ -481,6 +489,7 @@ export default function ProgramBuilderScreen() {
                         type="button"
                         data-row
                         aria-label={`Add ${ex.name} to ${templateName}`}
+                        {...tourAttrs({ skipTour: true, reason: "Data-driven result rows in the inline picker" })}
                         onClick={() => addExerciseTo(templateName, ex.id, ex.name)}
                         className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-md px-2 text-left transition-colors hover:bg-accent/50"
                       >
@@ -515,6 +524,7 @@ export default function ProgramBuilderScreen() {
               className="h-11 w-11 flex-none"
               onClick={() => navigate("/programs")}
               aria-label="Back to programs"
+              tour={{ id: "programBuilder.back", label: "Back", help: "Return to the Programs list.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -526,15 +536,19 @@ export default function ProgramBuilderScreen() {
             </span>
           }
           actions={
-            <Button
-              type="button"
-              className="h-11 flex-none px-4 text-sm font-bold"
-              disabled={!canCreate}
-              aria-label="Create the program"
-              onClick={() => void create()}
-            >
-              {creating ? "Creating…" : "Create"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                className="h-11 flex-none px-4 text-sm font-bold"
+                disabled={!canCreate}
+                aria-label="Create the program"
+                tour={{ id: "programBuilder.create", label: "Create", help: "Generate the program and open it.", order: 20 }}
+                onClick={() => void create()}
+              >
+                {creating ? "Creating…" : "Create"}
+              </Button>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -548,6 +562,7 @@ export default function ProgramBuilderScreen() {
             placeholder="Program name (e.g. Winter Strength Block)"
             aria-label="Program name"
             maxLength={80}
+            {...tourAttrs({ id: "programBuilder.name", label: "Program name", help: "Name your program; required to create.", order: 30 })}
             onChange={(e) => setName(e.target.value)}
             className="h-12 rounded-md text-base font-semibold"
           />
@@ -569,6 +584,7 @@ export default function ProgramBuilderScreen() {
                     hapticTap();
                     setDifficulty(d);
                   }}
+                  {...tourAttrs({ id: "programBuilder.difficulty", label: "Difficulty", help: "Pick the program's training level.", order: 40 })}
                   className={cn(
                     "h-9 min-w-0 flex-1 rounded-md text-xs font-bold leading-none transition-colors",
                     selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent",
@@ -587,6 +603,7 @@ export default function ProgramBuilderScreen() {
                 className="flex h-8 flex-none items-center rounded-full border border-primary/40 bg-primary/5 px-3 text-[11px] font-bold text-primary"
                 aria-label="Days per week is derived from the weekly template"
                 title="Derived from the weekly template"
+                {...tourAttrs({ skipTour: true, reason: "Static auto badge; days derive from the template" })}
               >
                 auto
               </button>
@@ -595,6 +612,7 @@ export default function ProgramBuilderScreen() {
                 type="button"
                 className="flex h-8 flex-none items-center rounded-full border border-border px-3 text-[11px] font-bold text-muted-foreground transition-colors hover:bg-accent"
                 aria-label="Reset days per week to automatic"
+                {...tourAttrs({ skipTour: true, reason: "Reset-to-auto chip beside the days stepper" })}
                 onClick={() => {
                   hapticTap();
                   setDaysManual(null);
@@ -640,6 +658,7 @@ export default function ProgramBuilderScreen() {
                 placeholder={`Phase ${index + 1}`}
                 aria-label={`Phase ${index + 1} name`}
                 maxLength={40}
+                {...tourAttrs({ skipTour: true, reason: "Phase name field in the phases list" })}
                 onChange={(e) =>
                   setPhases((prev) =>
                     prev.map((p, i) => (i === index ? { ...p, name: e.target.value } : p)),
@@ -654,6 +673,7 @@ export default function ProgramBuilderScreen() {
                   className="h-10 w-9 flex-none p-0"
                   disabled={phase.weeks <= 1}
                   aria-label={`Decrease ${phase.name || `Phase ${index + 1}`} weeks`}
+                  tour={{ id: "programBuilder.phaseWeeks", label: "Phase weeks", help: "Set each phase's length; 1–12 weeks.", order: 100, hint: true }}
                   onClick={() => {
                     hapticTap();
                     setPhases((prev) =>
@@ -676,6 +696,7 @@ export default function ProgramBuilderScreen() {
                   className="h-10 w-9 flex-none p-0"
                   disabled={phase.weeks >= 12}
                   aria-label={`Increase ${phase.name || `Phase ${index + 1}`} weeks`}
+                  tour={{ skipTour: true, reason: "The + half of the phase weeks stepper" }}
                   onClick={() => {
                     hapticTap();
                     setPhases((prev) =>
@@ -695,6 +716,7 @@ export default function ProgramBuilderScreen() {
                 className="h-11 w-11 flex-none p-0 text-muted-foreground hover:text-destructive"
                 disabled={phases.length <= 1}
                 aria-label={`Remove ${phase.name || `Phase ${index + 1}`}`}
+                tour={{ skipTour: true, reason: "Phase remove button in the phases list" }}
                 onClick={() => removePhase(index)}
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
@@ -706,6 +728,7 @@ export default function ProgramBuilderScreen() {
             data-row
             disabled={phases.length >= 12}
             aria-label="Add phase"
+            {...tourAttrs({ id: "programBuilder.addPhase", label: "Add phase", help: "Append another training phase row.", order: 90 })}
             className="flex h-10 w-full items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={addPhase}
           >
@@ -765,6 +788,7 @@ export default function ProgramBuilderScreen() {
                     type="button"
                     aria-label={`Remove label ${l}`}
                     className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    {...tourAttrs({ skipTour: true, reason: "Label remove chip in the builder labels step" })}
                     onClick={() => setLabels((prev) => prev.filter((x) => x !== l))}
                   >
                     <X className="h-3.5 w-3.5" aria-hidden />
@@ -796,6 +820,7 @@ export default function ProgramBuilderScreen() {
               type="button"
               data-row
               className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+              {...tourAttrs({ skipTour: true, reason: "New-label row inside the builder labels step" })}
               onClick={() => setAddingLabel(true)}
             >
               <Plus className="h-4 w-4 flex-none" aria-hidden />

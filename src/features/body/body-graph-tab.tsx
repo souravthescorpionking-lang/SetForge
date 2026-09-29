@@ -26,6 +26,7 @@ import {
   YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -155,8 +156,12 @@ export function BodyGraphTab({ measurements }: { measurements: MeasurementDTO[] 
     <div className="flex flex-col gap-2">
       {/* ControlRow — 48px data-row: metric | range | ⋮ options */}
       <div data-row className="flex h-12 items-center gap-2 overflow-hidden whitespace-nowrap">
-        <Select value={effectiveId} onValueChange={setSelectedId}>
-          <SelectTrigger className="h-11 min-w-0 flex-1 rounded-lg text-sm font-semibold" aria-label="Measurement">
+        <Select value={effectiveId} onValueChange={setSelectedId} {...tourAttrs({ skipTour: true, reason: "Metric select root renders no DOM node" })}>
+          <SelectTrigger
+            className="h-11 min-w-0 flex-1 rounded-lg text-sm font-semibold"
+            aria-label="Measurement"
+            {...tourAttrs({ id: "body.metric", label: "Metric", help: "Choose which measurement to chart.", order: 90 })}
+          >
             <SelectValue placeholder="Pick measurement" />
           </SelectTrigger>
           <SelectContent>
@@ -167,8 +172,12 @@ export function BodyGraphTab({ measurements }: { measurements: MeasurementDTO[] 
             ))}
           </SelectContent>
         </Select>
-        <Select value={range} onValueChange={(v) => setRange(v as RangeValue)}>
-          <SelectTrigger className="h-11 w-[88px] flex-none rounded-lg text-sm font-semibold" aria-label="Graph range">
+        <Select value={range} onValueChange={(v) => setRange(v as RangeValue)} {...tourAttrs({ skipTour: true, reason: "Range select root renders no DOM node" })}>
+          <SelectTrigger
+            className="h-11 w-[88px] flex-none rounded-lg text-sm font-semibold"
+            aria-label="Graph range"
+            {...tourAttrs({ id: "body.range", label: "Range", help: "Limit the chart to 3M, 6M or all time.", order: 100 })}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -181,7 +190,7 @@ export function BodyGraphTab({ measurements }: { measurements: MeasurementDTO[] 
         </Select>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" className="h-11 w-11 flex-none px-0" aria-label="Chart options">
+            <Button type="button" variant="ghost" className="h-11 w-11 flex-none px-0" aria-label="Chart options" tour={{ id: "body.chartMenu", label: "Chart options", help: "Toggle points, trend line and zero-based axis.", order: 110 }}>
               <MoreVertical className="h-5 w-5" aria-hidden />
             </Button>
           </DropdownMenuTrigger>

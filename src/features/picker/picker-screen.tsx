@@ -54,7 +54,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -121,6 +122,11 @@ import { useToggleFavourite } from "@/features/exercises/use-favourite";
 import type { CategoryDTO, ExerciseDTO, SetDTO } from "@/lib/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Part 7 LAW 2 — the screen's tour/help contract lives in the screen slot
+// (src/features/screens/picker.tsx); this module only declares the inline
+// exercises.* steps.
+
 const DEFAULT_UNIT = "__default__";
 const LONG_PRESS_MS = 420; // SetRow TypeCell long-press precedent
 const HOLD_SLOP_PX = 8; // pointer travel that cancels a long-press
@@ -653,6 +659,7 @@ export default function PickerScreen() {
           data-row
           role="button"
           tabIndex={0}
+          {...tourAttrs({ id: "exercises.row", label: "Exercise row", help: "Tap to open it; hold to select several.", order: 40 })}
           aria-label={`${ex.name} — ${metaLabel(ex, setCountById.get(ex.id))}`}
           aria-pressed={selectActive ? selected : undefined}
           className={cn(
@@ -705,6 +712,7 @@ export default function PickerScreen() {
             className="h-11 w-11 flex-none px-0"
             aria-label={ex.isFavorite ? `Remove ${ex.name} from favourites` : `Add ${ex.name} to favourites`}
             aria-pressed={ex.isFavorite}
+            tour={{ id: "exercises.favorite", label: "Favourite", help: "Star an exercise to pin it under Favorites.", order: 50 }}
             onClick={() => void toggleFavourite(ex)}
           >
             <Star
@@ -736,6 +744,7 @@ export default function PickerScreen() {
                 variant="ghost"
                 className="h-11 w-11 flex-none px-0"
                 aria-label={`Actions for ${ex.name}`}
+                tour={{ id: "exercises.rowMenu", label: "Row menu", help: "Edit, favourite, history or delete this exercise.", order: 60 }}
               >
                 <MoreVertical className="h-5 w-5" aria-hidden />
               </Button>
@@ -792,6 +801,7 @@ export default function PickerScreen() {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "exercises.back", label: "Back", help: "Go back without picking anything.", order: 10 }}
               onClick={() => navigate(todayHref)}
               aria-label="Go back"
             >
@@ -807,29 +817,34 @@ export default function PickerScreen() {
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={replaceWeId ? "Find a replacement…" : routineMode ? "Find an exercise for this day…" : "Search exercises…"}
                 aria-label="Search exercises"
+                {...tourAttrs({ id: "exercises.search", label: "Search", help: "Search the library by exercise name.", order: 20 })}
                 className="h-full w-full min-w-0 flex-1 rounded-none border-0 bg-transparent pl-2 pr-3 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
               />
             </div>
           }
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 flex-none"
-                  aria-label="More actions"
-                >
-                  <MoreVertical className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => setEditorFor("new")}>
-                  <Plus className="h-4 w-4" aria-hidden /> New exercise
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-11 w-11 flex-none"
+                    aria-label="More actions"
+                    tour={{ id: "exercises.menu", label: "New exercise", help: "Opens the menu that creates a new exercise.", order: 30 }}
+                  >
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setEditorFor("new")}>
+                    <Plus className="h-4 w-4" aria-hidden /> New exercise
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -865,6 +880,7 @@ export default function PickerScreen() {
                 type="button"
                 variant="outline"
                 className="h-11 flex-none gap-1 px-3"
+                tour={{ id: "exercises.cancelSelect", label: "Cancel", help: "Leave selection mode without adding.", order: 70, when: ["select"] }}
                 onClick={exitSelectMode}
                 aria-label="Cancel selection"
               >
@@ -876,6 +892,7 @@ export default function PickerScreen() {
               type="button"
               className="h-11 min-w-0 flex-1 gap-2 text-sm font-bold sm:text-base"
               disabled={busy}
+              tour={{ id: "exercises.add", label: "Add selected", help: "Add every selected exercise to the day.", order: 80, when: ["select"] }}
               onClick={() => void addSelected()}
             >
               <Check className="h-5 w-5 flex-none" aria-hidden />
@@ -886,6 +903,7 @@ export default function PickerScreen() {
               className="h-11 min-w-0 flex-1 gap-2 text-sm font-bold sm:text-base"
               disabled={busy || selectedIds.length < 2}
               title={selectedIds.length < 2 ? "Select at least 2 exercises" : "Add as a superset group"}
+              tour={{ id: "exercises.addSuperset", label: "Add superset", help: "Add the selection as one superset group.", order: 90, when: ["select"] }}
               onClick={() => void addSelectedAsSuperset()}
             >
               <Link2 className="h-5 w-5 flex-none" aria-hidden />
@@ -1002,6 +1020,11 @@ function ChipScroller({
       <button
         type="button"
         className={pickerChipClass(active)}
+        {...tourAttrs(
+          dim === "equipment"
+            ? { id: "exercises.filterEquipment", label: "Equipment filter", help: "Filter the list by equipment tags.", order: 130 }
+            : { id: "exercises.filterMuscle", label: "Muscle filter", help: "Filter the list by muscle.", order: 140 },
+        )}
         aria-pressed={count > 0}
         aria-expanded={openFilter === dim}
         title={count > 0 ? `${count} ${label.toLowerCase()} filter${count === 1 ? "" : "s"} applied` : `Filter by ${label.toLowerCase()}`}
@@ -1028,12 +1051,18 @@ function ChipScroller({
       data-row
       className="no-scrollbar flex h-10 w-full items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
     >
-      <button type="button" className={pickerChipClass(chip === "ALL")} onClick={() => onSelect("ALL")}>
+      <button
+        type="button"
+        className={pickerChipClass(chip === "ALL")}
+        {...tourAttrs({ id: "exercises.filterAll", label: "All chip", help: "Browse every exercise grouped by category.", order: 100 })}
+        onClick={() => onSelect("ALL")}
+      >
         All
       </button>
       <button
         type="button"
         className={pickerChipClass(chip === "FAVORITES")}
+        {...tourAttrs({ id: "exercises.filterFavorites", label: "Favorites chip", help: "Show only your starred exercises.", order: 110 })}
         onClick={() => onSelect("FAVORITES")}
       >
         Favorites
@@ -1041,6 +1070,7 @@ function ChipScroller({
       <button
         type="button"
         className={pickerChipClass(chip === "RECENT")}
+        {...tourAttrs({ id: "exercises.filterRecent", label: "Recent chip", help: "Show exercises you performed lately.", order: 120 })}
         onClick={() => onSelect("RECENT")}
       >
         Recent
@@ -1049,6 +1079,7 @@ function ChipScroller({
         <button
           key={c.id}
           type="button"
+          {...tourAttrs({ skipTour: true, reason: "Data-driven category chips inside the filter scroller" })}
           className={pickerChipClass(chip === c.id)}
           onClick={() => onSelect(c.id)}
         >
@@ -1109,6 +1140,7 @@ function FilterChipRow({
             <button
               key={o.value}
               type="button"
+              {...tourAttrs({ skipTour: true, reason: "Option chips inside the equipment/muscle filter row" })}
               className={pickerChipClass(active)}
               aria-pressed={active}
               title={active ? `Remove ${o.label} filter` : `Filter by ${o.label}`}
@@ -1201,6 +1233,7 @@ function ExerciseEditorBlock({
           onChange={(e) => setName(e.target.value)}
           placeholder="Exercise name"
           aria-label="Exercise name"
+          {...tourAttrs({ skipTour: true, reason: "Name field of the inline exercise editor" })}
           className="h-10 min-w-0 flex-1"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -1209,15 +1242,33 @@ function ExerciseEditorBlock({
             }
           }}
         />
-        <Button type="button" size="sm" className="h-10 flex-none" disabled={saving} onClick={() => void save()}>
+        <Button
+          type="button"
+          size="sm"
+          tour={{ skipTour: true, reason: "Save action of the inline exercise editor" }}
+          className="h-10 flex-none"
+          disabled={saving}
+          onClick={() => void save()}
+        >
           <Check className="h-4 w-4" aria-hidden /> Save
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-10 flex-none" onClick={onDone}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          tour={{ skipTour: true, reason: "Cancel action of the inline exercise editor" }}
+          className="h-10 flex-none"
+          onClick={onDone}
+        >
           Cancel
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={categoryId || undefined} onValueChange={setCategoryId}>
+        <Select
+          value={categoryId || undefined}
+          onValueChange={setCategoryId}
+          {...tourAttrs({ skipTour: true, reason: "Category select root renders no DOM node" })}
+        >
           <SelectTrigger className="h-10 min-w-32 flex-1 rounded-lg" aria-label="Category">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
@@ -1229,7 +1280,11 @@ function ExerciseEditorBlock({
             ))}
           </SelectContent>
         </Select>
-        <Select value={type} onValueChange={setType}>
+        <Select
+          value={type}
+          onValueChange={setType}
+          {...tourAttrs({ skipTour: true, reason: "Modality select root renders no DOM node" })}
+        >
           <SelectTrigger className="h-10 min-w-32 flex-1 rounded-lg" aria-label="Modality">
             <SelectValue />
           </SelectTrigger>
@@ -1241,7 +1296,11 @@ function ExerciseEditorBlock({
             ))}
           </SelectContent>
         </Select>
-        <Select value={unit} onValueChange={setUnit}>
+        <Select
+          value={unit}
+          onValueChange={setUnit}
+          {...tourAttrs({ skipTour: true, reason: "Unit select root renders no DOM node" })}
+        >
           <SelectTrigger className="h-10 w-24 flex-none rounded-lg" aria-label="Weight unit">
             <SelectValue />
           </SelectTrigger>
@@ -1257,6 +1316,7 @@ function ExerciseEditorBlock({
           inputMode="decimal"
           placeholder="Increment"
           aria-label="Weight increment"
+          {...tourAttrs({ skipTour: true, reason: "Increment field of the inline exercise editor" })}
           className="h-10 w-24 flex-none"
         />
       </div>

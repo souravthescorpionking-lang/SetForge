@@ -19,11 +19,12 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,25 +100,28 @@ export default function BodyScreen() {
         <TopBar
           title="Body"
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Body options">
-                  <MoreVertical className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={onAddMeasurement}>
-                  <Plus className="h-4 w-4" aria-hidden /> Add measurement
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => replaceHash("#/body/compare")}>
-                  <Camera className="h-4 w-4" aria-hidden /> Compare photos
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setConfigOpen((v) => !v)}>
-                  <Settings2 className="h-4 w-4" aria-hidden />
-                  {configOpen ? "Hide metric setup" : "Configure metrics"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Body options" tour={{ id: "body.menu", label: "Menu", help: "Add an entry, compare photos or configure metrics.", order: 10 }}>
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={onAddMeasurement}>
+                    <Plus className="h-4 w-4" aria-hidden /> Add measurement
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => replaceHash("#/body/compare")}>
+                    <Camera className="h-4 w-4" aria-hidden /> Compare photos
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setConfigOpen((v) => !v)}>
+                    <Settings2 className="h-4 w-4" aria-hidden />
+                    {configOpen ? "Hide metric setup" : "Configure metrics"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -130,6 +134,13 @@ export default function BodyScreen() {
               role="tab"
               aria-selected={tab === t}
               onClick={() => switchTab(t)}
+              {...tourAttrs(
+                t === "track"
+                  ? { id: "body.tabTrack", label: "Track tab", help: "Log new entries and photos for each metric.", order: 20 }
+                  : t === "history"
+                    ? { id: "body.tabHistory", label: "History tab", help: "Browse every past entry in one table.", order: 30 }
+                    : { id: "body.tabGraph", label: "Graph tab", help: "Chart a metric's trend over time.", order: 40 },
+              )}
               className={cn(
                 "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap text-sm font-semibold transition-colors",
                 tab === t ? "text-primary" : "text-muted-foreground hover:text-foreground",
@@ -262,6 +273,7 @@ function MetricsSetup({
           variant="ghost"
           className="h-11 w-11 flex-none px-0"
           aria-label="Done configuring metrics"
+          tour={{ id: "body.configDone", label: "Done", help: "Close the metric configuration drawer.", order: 120 }}
           onClick={onDone}
         >
           <X className="h-5 w-5" aria-hidden />
@@ -286,6 +298,7 @@ function MetricsSetup({
               className="h-11 w-9 flex-none px-0"
               disabled={i === 0}
               aria-label={`Move ${m.name} up`}
+              tour={{ skipTour: true, reason: "Metric reorder arrows inside the setup drawer" }}
               onClick={() => move(m, -1)}
             >
               <ChevronUp className="h-4 w-4" aria-hidden />
@@ -296,6 +309,7 @@ function MetricsSetup({
               className="h-11 w-9 flex-none px-0"
               disabled={i === measurements.length - 1}
               aria-label={`Move ${m.name} down`}
+              tour={{ skipTour: true, reason: "Metric reorder arrows inside the setup drawer" }}
               onClick={() => move(m, 1)}
             >
               <ChevronDown className="h-4 w-4" aria-hidden />
@@ -304,6 +318,7 @@ function MetricsSetup({
               checked={m.isEnabled}
               onCheckedChange={(v) => setEnabled(m, v)}
               aria-label={`${m.isEnabled ? "Disable" : "Enable"} ${m.name}`}
+              {...tourAttrs({ id: "body.metricToggle", label: "Metric switch", help: "Enable or disable a tracked metric.", order: 130 })}
             />
           </div>
         ))
@@ -319,8 +334,9 @@ function MetricsSetup({
             placeholder="New metric name"
             maxLength={60}
             aria-label="New metric name"
+            {...tourAttrs({ id: "body.newMetric", label: "New metric", help: "Name a custom metric to track.", order: 140 })}
           />
-          <Select value={unitId} onValueChange={setUnitId}>
+          <Select value={unitId} onValueChange={setUnitId} {...tourAttrs({ skipTour: true, reason: "Unit select root renders no DOM node" })}>
             <SelectTrigger className="h-full w-[92px] flex-none rounded-lg text-sm" aria-label="Unit">
               <SelectValue placeholder={unitsQuery.isLoading ? "…" : "Unit"} />
             </SelectTrigger>
@@ -334,7 +350,7 @@ function MetricsSetup({
           </Select>
         </div>
         <div className="flex min-h-0 flex-1 gap-2">
-          <Select value={goalType} onValueChange={setGoalType}>
+          <Select value={goalType} onValueChange={setGoalType} {...tourAttrs({ skipTour: true, reason: "Goal-type select root renders no DOM node" })}>
             <SelectTrigger className="h-full min-w-0 flex-1 rounded-lg text-sm" aria-label="Goal type">
               <SelectValue />
             </SelectTrigger>
@@ -357,12 +373,14 @@ function MetricsSetup({
               onChange={(e) => setTargetValue(e.target.value)}
               placeholder="Target"
               aria-label="Target value"
+              {...tourAttrs({ skipTour: true, reason: "Conditional goal-target input in the metric creator" })}
             />
           ) : null}
           <Button
             type="button"
             className="h-full flex-1 rounded-lg font-semibold"
             disabled={!name.trim() || !unitId || creating}
+            tour={{ id: "body.addMetric", label: "Add metric", help: "Create the named metric with its unit and goal.", order: 150 }}
             onClick={() => void create()}
           >
             {creating ? "Adding…" : "Add"}

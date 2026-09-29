@@ -14,6 +14,7 @@
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { tourAttrs } from "@/lib/tour/attrs";
 import type { CalendarFilters } from "./filter-state";
 import { patchCalendarFilters } from "./filter-store";
 
@@ -119,6 +120,7 @@ export function FilterChipRow({ filters }: { filters: CalendarFilters }) {
     <div
       ref={scrollerRef}
       data-chip-scroller
+      {...tourAttrs({ id: "calendar.chips", label: "Filter chips", help: "Active filters — tap × to drop one instantly.", order: 80, hint: true })}
       className="no-scrollbar flex h-10 w-full min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
       role="list"
       aria-label="Applied filters"
@@ -134,6 +136,7 @@ export function FilterChipRow({ filters }: { filters: CalendarFilters }) {
             type="button"
             onClick={chip.onRemove}
             aria-label={`Remove filter: ${chip.label}`}
+            {...tourAttrs({ skipTour: true, reason: "Data-driven applied-filter chips; × removes one filter" })}
             className="flex h-7 w-7 flex-none items-center justify-center rounded-full transition-colors hover:bg-primary/15"
           >
             <X className="h-3.5 w-3.5" aria-hidden />

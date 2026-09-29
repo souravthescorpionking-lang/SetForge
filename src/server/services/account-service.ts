@@ -102,6 +102,10 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       tempoPresets: jsonStringArray(settings.tempoPresets).length > 0 ? jsonStringArray(settings.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
       showCaloriesCard: settings.showCaloriesCard,
       showThumbnails: settings.showThumbnails,
+      // ---- Part 7: tour system ----
+      showTours: settings.showTours,
+      showHints: settings.showHints,
+      replayToursOnUpdate: settings.replayToursOnUpdate,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({

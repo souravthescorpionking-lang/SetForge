@@ -132,6 +132,7 @@ export function DayActionRow({
         className={cn(CELL_CLS, fav && "text-amber-500 hover:text-amber-500")}
         aria-pressed={fav}
         aria-label={fav ? `Unfavourite ${dayName}` : `Favourite ${dayName}`}
+        tour={{ id: "dayActionRow.favourite", label: "Day favourite", help: "Star this day to find it faster.", order: 110 }}
         onClick={() => void toggleFavourite()}
       >
         <Star className={iconCls} aria-hidden fill={fav ? "currentColor" : "none"} />
@@ -142,6 +143,7 @@ export function DayActionRow({
         variant="ghost"
         className={CELL_CLS}
         aria-label={`Schedule ${dayName}`}
+        tour={{ id: "dayActionRow.schedule", label: "Schedule day", help: "Pick a date for this day via the calendar.", order: 120 }}
         onClick={onSchedule}
       >
         <CalendarClock className={iconCls} aria-hidden />
@@ -152,6 +154,7 @@ export function DayActionRow({
         variant="ghost"
         className={CELL_CLS}
         aria-label={`History for ${dayName}`}
+        tour={{ id: "dayActionRow.history", label: "History", help: "See every logged workout of this day.", order: 130 }}
         onClick={() => navigate(`/history?routineId=${routineId}&dayId=${dayId}`)}
       >
         <History className={iconCls} aria-hidden />
@@ -162,6 +165,7 @@ export function DayActionRow({
         variant="ghost"
         className={cn(CELL_CLS, isCompleted && "text-emerald-600 dark:text-emerald-400")}
         aria-label={isCompleted ? `Unmark ${dayName}` : `Mark ${dayName} off`}
+        tour={{ id: "dayActionRow.markOff", label: "Mark off", help: "Mark the day complete and advance the cursor.", order: 140 }}
         onClick={() => (isCompleted ? void unmarkOff() : void markOff())}
       >
         <CheckCircle2 className={iconCls} aria-hidden />

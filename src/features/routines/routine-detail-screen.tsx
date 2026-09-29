@@ -27,7 +27,8 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -738,6 +739,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
           onClick={() => toggleDay(day.id)}
           aria-label={open ? `Collapse ${day.name}` : `Expand ${day.name}`}
           aria-expanded={open}
+          tour={{ id: "programDetail.dayToggle", label: "Day chevron", help: "Expand or collapse this day's exercises.", order: 80 }}
         >
           <ChevronDown
             className={cn("h-4 w-4 transition-transform", open ? "" : "-rotate-90")}
@@ -803,6 +805,11 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     aria-checked={selected}
                     aria-label={`${t === "WORKOUT" ? "Workout" : "Rest"} day`}
                     onClick={() => void toggleDayType(day, t)}
+                    {...tourAttrs(
+                      t === "WORKOUT"
+                        ? { id: "programDetail.dayTypeWorkout", label: "Workout day", help: "Make this a training day with exercises.", order: 160, when: ["edit"] }
+                        : { id: "programDetail.dayTypeRest", label: "Rest day", help: "Turn this day into a scheduled rest day.", order: 170, when: ["edit"] },
+                    )}
                     className={cn(
                       "h-10 min-w-0 flex-1 rounded-md text-[11px] font-bold leading-none transition-colors",
                       selected
@@ -825,6 +832,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     variant="ghost"
                     className="h-11 w-11 p-0"
                     aria-label={`Actions for ${day.name}`}
+                    tour={{ id: "programDetail.dayMenu", label: "Day menu", help: "Rename, move, arrange or delete this day.", order: 180, when: ["edit"] }}
                   >
                     <MoreVertical className="h-5 w-5" aria-hidden />
                   </Button>
@@ -871,6 +879,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   variant="ghost"
                   className="h-11 w-11 p-0"
                   aria-label={`Actions for ${day.name}`}
+                  tour={{ id: "programDetail.dayMenu", label: "Day menu", help: "Rename or arrange this session day.", order: 180, when: ["edit"] }}
                 >
                   <MoreVertical className="h-5 w-5" aria-hidden />
                 </Button>
@@ -895,6 +904,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 type="button"
                 className="flex h-8 w-12 flex-none items-center justify-center gap-1 rounded-md border border-emerald-600/30 bg-emerald-600/15 text-[11px] font-bold uppercase leading-none text-emerald-600 transition-colors hover:bg-emerald-600/25 dark:border-emerald-400/30 dark:text-emerald-400"
                 aria-label={`${day.name} marked off — tap to unmark`}
+                {...tourAttrs({ id: "programDetail.doneChip", label: "Done chip", help: "Tap to unmark this completed day.", order: 90 })}
                 onClick={() => void unmarkDayDone(day)}
               >
                 <Check className="h-3.5 w-3.5" aria-hidden />
@@ -910,6 +920,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     variant="ghost"
                     className="h-11 w-11 p-0"
                     aria-label={`Actions for ${day.name}`}
+                    tour={{ id: "programDetail.dayMenu", label: "Day menu", help: "Open, arrange, log or schedule this day.", order: 180 }}
                   >
                     <MoreVertical className="h-5 w-5" aria-hidden />
                   </Button>
@@ -1006,6 +1017,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
             type="button"
             data-row
             className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+            {...tourAttrs({ id: "programDetail.addExercise", label: "Add exercise", help: "Pick an exercise to append to this day.", order: 190, when: ["edit"] })}
             onClick={() => navigate(`/exercises?context=routine&routineId=${routineId}&dayId=${day.id}`)}
           >
             <Plus className="h-4 w-4 flex-none" aria-hidden />
@@ -1039,6 +1051,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 type="button"
                 aria-label={`Remove label ${l}`}
                 className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                {...tourAttrs({ skipTour: true, reason: "Label remove chip inside the labels editor" })}
                 onClick={() => void saveLabels((routine.labels ?? []).filter((x) => x !== l))}
               >
                 <X className="h-3.5 w-3.5" aria-hidden />
@@ -1077,6 +1090,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
           type="button"
           data-row
           className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+          {...tourAttrs({ skipTour: true, reason: "New-label row inside the labels editor" })}
           onClick={() => setAddingLabel(true)}
         >
           <Plus className="h-4 w-4 flex-none" aria-hidden />
@@ -1099,6 +1113,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               className="h-11 w-11 flex-none"
               onClick={() => navigate("/programs")}
               aria-label="Back to programs"
+              tour={{ id: "programDetail.back", label: "Back", help: "Return to the Programs list.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -1125,6 +1140,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 className="min-w-0 flex-1 truncate text-left text-base font-semibold leading-none"
                 aria-label={`Rename ${routine.name}`}
                 title="Tap to rename"
+                {...tourAttrs({ id: "programDetail.rename", label: "Rename", help: "Tap the name to rename the program.", order: 20 })}
                 onClick={() => setRenamingRoutine(true)}
               >
                 {routine.name}
@@ -1145,6 +1161,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   )}
                   aria-pressed={routineIsFav}
                   aria-label={routineIsFav ? `Unfavourite ${routine.name}` : `Favourite ${routine.name}`}
+                  tour={{ id: "programDetail.favourite", label: "Favourite", help: "Star this program to find it faster.", order: 30 }}
                   onClick={() => void toggleRoutineFavourite()}
                 >
                   <Star className="h-5 w-5" aria-hidden fill={routineIsFav ? "currentColor" : "none"} />
@@ -1154,6 +1171,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   variant={editing ? "default" : "outline"}
                   className="h-11 flex-none px-4"
                   aria-pressed={editing}
+                  tour={{ id: "programDetail.edit", label: "Edit toggle", help: "Turn inline edit mode on or off.", order: 40 }}
                   onClick={() => {
                     if (!editing) setNotesDraft(routine?.notes ?? ""); // draft starts from the saved notes
                     setEditing((e) => !e);
@@ -1169,6 +1187,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                       size="icon"
                       className="h-11 w-11 flex-none"
                       aria-label="More actions"
+                      tour={{ id: "programDetail.menu", label: "Program menu", help: "Rename, labels, copy, reorder or delete.", order: 50 }}
                     >
                       <MoreVertical className="h-5 w-5" aria-hidden />
                     </Button>
@@ -1207,8 +1226,11 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <TopBarHelp />
               </>
-            ) : undefined
+            ) : (
+              <TopBarHelp />
+            )
           }
         />
       }
@@ -1222,6 +1244,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 className="h-11 min-w-0 flex-1 gap-1.5 whitespace-nowrap text-sm font-bold"
                 disabled={startBusy}
                 aria-label={`Start ${routine.name} today`}
+                tour={{ id: "programDetail.startToday", label: "Start today", help: "Start this session now and jump to Today.", order: 100 }}
                 onClick={() => void startSessionToday()}
               >
                 <Play className="h-4 w-4" aria-hidden />
@@ -1232,6 +1255,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 variant="outline"
                 className="h-11 min-w-0 flex-1 gap-1.5 whitespace-nowrap text-sm font-semibold"
                 aria-label={`Schedule ${routine.name}`}
+                tour={{ id: "programDetail.scheduleSession", label: "Schedule session", help: "Pick a date for this whole session.", order: 110 }}
                 onClick={() => setSessionScheduleOpen(true)}
               >
                 <CalendarClock className="h-4 w-4" aria-hidden />
@@ -1255,6 +1279,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 variant="outline"
                 className="h-11 w-11 flex-none px-0"
                 aria-label="Previous day"
+                tour={{ id: "programDetail.prevDay", label: "Previous day", help: "Move the program cursor back one day.", order: 120 }}
                 onClick={prevCursorDay}
               >
                 <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -1263,6 +1288,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 type="button"
                 variant="outline"
                 className="h-11 flex-none gap-1 whitespace-nowrap px-3 text-xs font-bold"
+                tour={{ id: "programDetail.skipDay", label: "Skip day", help: "Skip this day and advance the cursor.", order: 130 }}
                 onClick={() => void skipCursorDay()}
               >
                 Skip
@@ -1273,6 +1299,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 variant={jumpOpen ? "default" : "outline"}
                 aria-pressed={jumpOpen}
                 className="h-11 flex-none whitespace-nowrap px-3 text-xs font-bold"
+                tour={{ id: "programDetail.jump", label: "Jump", help: "Open the list and jump to any day.", order: 140 }}
                 onClick={() => setJumpOpen((o) => !o)}
               >
                 Jump…
@@ -1286,6 +1313,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               className="flex h-11 min-w-0 flex-1 items-center gap-2 text-left"
               aria-label={editing ? "Routine notes editor below" : "Expand routine notes"}
               aria-expanded={editing ? true : notesOpen}
+              {...tourAttrs({ id: "programDetail.notes", label: "Notes", help: "Expand or collapse the program notes.", order: 70 })}
               onClick={() => {
                 if (!editing) setNotesOpen((o) => !o);
               }}
@@ -1313,7 +1341,12 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
         {error ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Routine not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate("/programs")}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Error-state back link for a missing routine" }}
+              onClick={() => navigate("/programs")}
+            >
               Back to programs
             </Button>
           </div>
@@ -1339,6 +1372,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   data-row
                   aria-label={`Jump to Day ${index + 1} · ${day.name}`}
                   aria-current={isCurrent ? "true" : undefined}
+                  {...tourAttrs({ id: "programDetail.jumpRow", label: "Day row", help: "Move the program cursor to this day.", order: 150 })}
                   onClick={() => {
                     setJumpOpen(false);
                     void jumpToDay(index);
@@ -1382,6 +1416,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
               type="button"
               variant="outline"
               className="h-11 flex-none"
+              tour={{ skipTour: true, reason: "Cancel row inside the jump-to-day list" }}
               onClick={() => setJumpOpen(false)}
             >
               Cancel
@@ -1419,6 +1454,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                       type="button"
                       aria-pressed={phaseChip === "ALL"}
                       className={chipClass(phaseChip === "ALL")}
+                      {...tourAttrs({ id: "programDetail.phaseAll", label: "All phases", help: "Show every day regardless of phase.", order: 210 })}
                       onClick={() => setPhaseChip("ALL")}
                     >
                       All
@@ -1431,6 +1467,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                           type="button"
                           aria-pressed={phaseChip === key}
                           className={chipClass(phaseChip === key)}
+                          {...tourAttrs({ skipTour: true, reason: "Data-driven phase filter chips" })}
                           onClick={() => setPhaseChip(key)}
                         >
                           {key}
@@ -1450,6 +1487,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3 text-left transition-colors hover:bg-accent/40"
                 aria-label={editing ? "Routine notes editor below" : "Expand routine notes"}
                 aria-expanded={editing ? true : notesOpen}
+                {...tourAttrs({ id: "programDetail.notesInline", label: "Notes", help: "Tap to show this program's notes inline.", order: 70 })}
                 onClick={() => {
                   if (!editing) setNotesOpen((o) => !o);
                 }}
@@ -1482,6 +1520,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 placeholder="Notes for this routine (e.g. progression scheme, rest rules)…"
                 onChange={(e) => setNotesDraft(e.target.value)}
                 onBlur={() => void saveNotes()}
+                {...tourAttrs({ skipTour: true, reason: "Notes draft textarea; the notes row anchors it" })}
                 className="flex-none w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring/40"
               />
             ) : notesOpen && routine.notes ? (
@@ -1506,7 +1545,12 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                   Split this routine into training days, then log a whole day in one tap.
                 </p>
                 {editing && !isSession ? (
-                  <Button type="button" className="gap-1.5" onClick={() => void addDay()}>
+                  <Button
+                    type="button"
+                    className="gap-1.5"
+                    tour={{ id: "programDetail.addFirstDay", label: "Add first day", help: "Create the first training day in edit mode.", order: 220, when: ["empty"] }}
+                    onClick={() => void addDay()}
+                  >
                     <Plus className="h-4 w-4" aria-hidden /> Add first day
                   </Button>
                 ) : (
@@ -1514,6 +1558,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                     type="button"
                     variant="outline"
                     className="gap-1.5"
+                    tour={{ id: "programDetail.editRoutine", label: "Edit routine", help: "Turn on edit mode to add your first day.", order: 230, when: ["empty"] }}
                     onClick={() => {
                       setEditing(true);
                       toast.info("Edit mode on — add your first day");
@@ -1530,6 +1575,7 @@ function RoutineDetailInner({ routineId }: { routineId: string }) {
                 type="button"
                 data-row
                 className="flex h-12 w-full items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40"
+                {...tourAttrs({ id: "programDetail.addDay", label: "Add day", help: "Append another training day to the program.", order: 200, when: ["edit"] })}
                 onClick={() => void addDay()}
               >
                 <Plus className="h-4 w-4 flex-none" aria-hidden />

@@ -66,6 +66,7 @@ export function ArrangeBlocksView({
               className="h-10 w-10 flex-none p-0"
               disabled={blockIndex === 0}
               aria-label={`Move ${block.letter ? `group ${block.letter}` : "ungrouped block"} up`}
+              tour={{ id: "arrangeBlocks.blockUp", label: "Move group up", help: "Move the whole superset group earlier.", order: 110 }}
               onClick={() => {
                 hapticTap();
                 onMoveBlock(blockIndex, -1);
@@ -79,6 +80,7 @@ export function ArrangeBlocksView({
               className="h-10 w-10 flex-none p-0"
               disabled={blockIndex === blocks.length - 1}
               aria-label={`Move ${block.letter ? `group ${block.letter}` : "ungrouped block"} down`}
+              tour={{ id: "arrangeBlocks.blockDown", label: "Move group down", help: "Move the whole superset group later.", order: 120 }}
               onClick={() => {
                 hapticTap();
                 onMoveBlock(blockIndex, 1);
@@ -106,6 +108,7 @@ export function ArrangeBlocksView({
                 className="h-10 w-10 flex-none p-0"
                 disabled={memberIndex === 0}
                 aria-label={`Move ${member.name} up`}
+                tour={{ id: "arrangeBlocks.memberUp", label: "Move exercise up", help: "Move this exercise up inside its group.", order: 130 }}
                 onClick={() => {
                   hapticTap();
                   onMoveMember(block.key, memberIndex, -1);
@@ -119,6 +122,7 @@ export function ArrangeBlocksView({
                 className="h-10 w-10 flex-none p-0"
                 disabled={memberIndex === block.members.length - 1}
                 aria-label={`Move ${member.name} down`}
+                tour={{ id: "arrangeBlocks.memberDown", label: "Move exercise down", help: "Move this exercise down inside its group.", order: 140 }}
                 onClick={() => {
                   hapticTap();
                   onMoveMember(block.key, memberIndex, 1);

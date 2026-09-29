@@ -25,7 +25,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +40,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { tourAttrs } from "@/lib/tour/attrs";
+import type { TourDecl } from "@/lib/tour/types";
 import { Check, ChevronRight, CircleHelp, Loader2, LogOut, Minus, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { authApi, profileApi } from "@/lib/client/api";
@@ -139,7 +141,7 @@ export default function ProfileScreen() {
 
   if (!session || !settings) {
     return (
-      <Screen topBar={<TopBar title="Profile" />}>
+      <Screen topBar={<TopBar title="Profile" actions={<TopBarHelp />} />}>
         <ScrollBody contentClassName="flex flex-col gap-3" >
           <div className="flex flex-col items-center gap-3 py-8" aria-busy="true" aria-label="Loading profile">
             <Skeleton className="h-16 w-16 rounded-full" />
@@ -164,7 +166,7 @@ export default function ProfileScreen() {
       .join("") || "SF";
 
   return (
-    <Screen topBar={<TopBar title="Profile" />}>
+    <Screen topBar={<TopBar title="Profile" actions={<TopBarHelp />} />}>
       <ScrollBody contentClassName="flex flex-col gap-4">
         {/* hero — signed-in identity (NOT a card) */}
         <header className="flex flex-col items-center gap-2 py-4 text-center">
@@ -403,16 +405,19 @@ function NotificationsSection() {
             );
           }}
           aria-label="Daily reminder time"
+          {...tourAttrs({ id: "profile.reminder", label: "Reminder", help: "Set the daily reminder time (or clear it).", order: 20 })}
         />
       </div>
       <SwitchRow
         label="Haptic feedback"
         checked={settings.hapticsEnabled}
+        tour={{ id: "profile.haptics", label: "Haptics", help: "Vibrate on taps and set completions.", order: 30 }}
         onCheckedChange={(v) => void updateSettings({ hapticsEnabled: v })}
       />
       <SwitchRow
         label="Keep screen on during workouts"
         checked={settings.keepScreenOn}
+        tour={{ id: "profile.screenOn", label: "Keep screen", help: "Keep the display awake during workouts.", order: 40 }}
         onCheckedChange={(v) => void updateSettings({ keepScreenOn: v })}
       />
     </section>
@@ -445,14 +450,25 @@ function AccountSection() {
   return (
     <section aria-label="Account" className="flex flex-col gap-2">
       <SectionHeader title="Account" />
-      <LinkRow label="Settings" hash="#/settings" icon={Settings} />
-      <LinkRow label="Help & shortcuts" hash="#/help" icon={CircleHelp} />
+      <LinkRow
+        label="Settings"
+        hash="#/settings"
+        icon={Settings}
+        tour={{ id: "profile.settings", label: "Settings link", help: "Open the full settings screen.", order: 50 }}
+      />
+      <LinkRow
+        label="Help & shortcuts"
+        hash="#/help"
+        icon={CircleHelp}
+        tour={{ id: "profile.help", label: "Help link", help: "Open the help and shortcuts page.", order: 60 }}
+      />
 
       {/* sign out — confirm-destructive, exactly as the settings screen does it */}
       <button
         type="button"
         data-row
         aria-label="Sign out"
+        {...tourAttrs({ id: "profile.signOut", label: "Sign out", help: "End the session and clear local data.", order: 70 })}
         onClick={() => setSignOutOpen(true)}
         className={cn(
           "flex h-14 w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-lg border border-destructive/30 bg-card px-3 text-left transition-colors hover:bg-accent/40",
@@ -522,6 +538,7 @@ function ProfileRow({
       data-row
       aria-expanded={expanded}
       aria-label={value == null ? `${label} — not set, tap to edit` : `${label}: ${value}`}
+      {...tourAttrs({ id: "profile.row", label: "Profile row", help: "Tap to edit this body stat inline.", order: 10 })}
       onClick={() => {
         hapticTap();
         onToggle();
@@ -554,15 +571,18 @@ function SwitchRow({
   label,
   checked,
   onCheckedChange,
+  tour,
 }: {
   label: string;
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
+  /** Inline tour declaration — renders data-tour-id on the switch (Part 7). */
+  tour?: TourDecl;
 }) {
   return (
     <div data-row className="flex h-14 items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card px-3">
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} />
+      <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label={label} {...(tour ? tourAttrs(tour) : {})} />
     </div>
   );
 }
@@ -572,16 +592,20 @@ function LinkRow({
   label,
   hash,
   icon: Icon,
+  tour,
 }: {
   label: string;
   hash: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Inline tour declaration — renders data-tour-id on the row (Part 7). */
+  tour?: TourDecl;
 }) {
   return (
     <button
       type="button"
       data-row
       aria-label={label}
+      {...(tour ? tourAttrs(tour) : {})}
       onClick={() => {
         window.location.hash = hash;
       }}

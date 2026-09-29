@@ -15,7 +15,8 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronDown, ChevronLeft, Dumbbell, Moon } from "lucide-react";
@@ -89,12 +90,14 @@ export default function SchedulePickScreen() {
               size="icon"
               className="h-11 w-11 flex-none"
               aria-label="Back"
+              tour={{ id: "schedulePick.back", label: "Back", help: "Return to where you came from.", order: 10 }}
               onClick={back}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
           }
           title={dateKey ? `Schedule for ${formatDayLabel(dateKey)}` : "Schedule a workout"}
+          actions={<TopBarHelp />}
         />
       }
       subBar={
@@ -107,6 +110,11 @@ export default function SchedulePickScreen() {
                 role="tab"
                 aria-selected={tab === t}
                 onClick={() => setTab(t)}
+                {...tourAttrs(
+                  t === "routines"
+                    ? { id: "schedulePick.tabRoutines", label: "Routines tab", help: "Browse routines and pick one of their days.", order: 20 }
+                    : { id: "schedulePick.tabSessions", label: "Sessions tab", help: "Browse sessions to schedule whole.", order: 30 },
+                )}
                 className={cn(
                   "h-11 min-w-0 flex-1 rounded-lg border text-sm font-bold capitalize transition-colors",
                   tab === t
@@ -151,6 +159,7 @@ export default function SchedulePickScreen() {
                       type="button"
                       data-row
                       aria-expanded={open}
+                      {...tourAttrs({ id: "schedulePick.routineRow", label: "Routine row", help: "Expand to pick one of its days.", order: 40 })}
                       onClick={() => setOpenRoutineId(open ? null : routine.id)}
                       className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap px-3 text-left transition-colors hover:bg-accent/40"
                     >
@@ -181,6 +190,7 @@ export default function SchedulePickScreen() {
                                   ? `Day ${i + 1} ${day.name} — rest day`
                                   : `Schedule ${routine.name} · ${day.name} for ${dateKey ?? "the picked date"}`
                               }
+                              {...tourAttrs({ id: "schedulePick.dayRow", label: "Day row", help: "Schedule this day on the picked date.", order: 50 })}
                               onClick={() =>
                                 schedule({
                                   routineId: routine.id,
@@ -239,6 +249,7 @@ export default function SchedulePickScreen() {
                   data-row
                   disabled={!dateKey}
                   aria-label={`Schedule session ${session.name} for ${dateKey ?? "the picked date"}`}
+                  {...tourAttrs({ id: "schedulePick.sessionRow", label: "Session row", help: "Schedule this session on the picked date.", order: 60 })}
                   onClick={() =>
                     schedule({
                       routineId: session.id,

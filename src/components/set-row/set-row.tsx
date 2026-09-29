@@ -35,6 +35,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Check, ChevronDown, Copy, Minus, MoreHorizontal, Plus, RotateCcw, StickyNote, Timer, Trash2, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rowGrid } from "@/lib/ui/tokens";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { hapticTap } from "@/lib/client/haptics";
 import {
   fieldsForType,
@@ -150,6 +151,7 @@ function RpeEditor({ value, onChange }: { value: number | null; onChange: (v: nu
             type="button"
             variant={value === r ? "default" : "outline"}
             size="sm"
+            tour={{ skipTour: true, reason: "RPE value chips inside the RPE popover" }}
             className="h-8 rounded-lg px-0 text-xs font-bold tabular-nums"
             onClick={() => onChange(value === r ? null : r)}
           >
@@ -162,6 +164,7 @@ function RpeEditor({ value, onChange }: { value: number | null; onChange: (v: nu
           type="button"
           variant="ghost"
           size="sm"
+          tour={{ skipTour: true, reason: "Clear control inside the RPE popover" }}
           className="mt-2 w-full text-xs text-muted-foreground"
           onClick={() => onChange(null)}
         >
@@ -211,6 +214,7 @@ function TempoEditor({
             <button
               key={p}
               type="button"
+              {...tourAttrs({ skipTour: true, reason: "Tempo presets inside the tempo popover" })}
               aria-label={`Use tempo preset ${p}`}
               className={cn(
                 "flex h-8 flex-none items-center rounded-full border px-3 text-xs font-bold tabular-nums transition-colors",
@@ -233,6 +237,7 @@ function TempoEditor({
             </span>
             <input
               aria-label={`Tempo ${labels[i]} seconds`}
+              {...tourAttrs({ skipTour: true, reason: "Tempo segment inputs inside the popover" })}
               inputMode="numeric"
               value={p}
               onChange={(e) => {
@@ -250,6 +255,7 @@ function TempoEditor({
         <Button
           type="button"
           size="sm"
+          tour={{ skipTour: true, reason: "Save control inside the tempo popover" }}
           className="h-8 flex-1 rounded-lg text-xs font-bold"
           onClick={() => {
             const joined = parts.map((p) => p || "0").join("-");
@@ -264,6 +270,7 @@ function TempoEditor({
             type="button"
             variant="ghost"
             size="sm"
+            tour={{ skipTour: true, reason: "Clear control inside the tempo popover" }}
             className="h-8 rounded-lg text-xs text-muted-foreground"
             onClick={() => onChange(null)}
           >
@@ -291,6 +298,7 @@ function RestEditor({ value, onChange }: { value: number | null; onChange: (v: n
             type="button"
             variant={value === sec ? "default" : "outline"}
             size="sm"
+            tour={{ skipTour: true, reason: "Rest presets inside the rest popover" }}
             className="h-8 rounded-lg px-0 text-xs font-bold tabular-nums"
             onClick={() => onChange(sec)}
           >
@@ -301,6 +309,7 @@ function RestEditor({ value, onChange }: { value: number | null; onChange: (v: n
       <div className="mt-2 flex gap-1">
         <input
           aria-label="Custom rest duration"
+          {...tourAttrs({ skipTour: true, reason: "Custom rest field inside the rest popover" })}
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           onKeyDown={(e) => {
@@ -309,7 +318,14 @@ function RestEditor({ value, onChange }: { value: number | null; onChange: (v: n
           placeholder="m:ss"
           className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring/40"
         />
-        <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg text-xs font-bold" onClick={applyCustom}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          tour={{ skipTour: true, reason: "Apply control inside the rest popover" }}
+          className="h-8 rounded-lg text-xs font-bold"
+          onClick={applyCustom}
+        >
           Set
         </Button>
       </div>
@@ -318,6 +334,7 @@ function RestEditor({ value, onChange }: { value: number | null; onChange: (v: n
           type="button"
           variant="ghost"
           size="sm"
+          tour={{ skipTour: true, reason: "Clear control inside the rest popover" }}
           className="mt-2 w-full text-xs text-muted-foreground"
           onClick={() => onChange(null)}
         >
@@ -335,6 +352,7 @@ function IndexCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAc
     return (
       <Checkbox
         checked={!!set.selected}
+        {...tourAttrs({ skipTour: true, reason: "Preview-mode selection; the index cell is anchored" })}
         onCheckedChange={() => onAction({ type: "toggle-select", setId: set.id })}
         className="h-4 w-4"
         aria-label={`Select set ${set.index}`}
@@ -342,7 +360,11 @@ function IndexCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAc
     );
   }
   return (
-    <span className="w-full truncate text-center text-xs tabular-nums text-muted-foreground" title={`Set ${set.index}`}>
+    <span
+      {...tourAttrs({ id: "setRow.index", label: "Set number", help: "This set's position in the exercise.", order: 100 })}
+      className="w-full truncate text-center text-xs tabular-nums text-muted-foreground"
+      title={`Set ${set.index}`}
+    >
       {set.index}
     </span>
   );
@@ -406,6 +428,7 @@ function TypeCell({
       <PopoverTrigger asChild>
         <button
           type="button"
+          {...tourAttrs({ id: "setRow.type", label: "Set type", help: "Tap to cycle; hold to open the picker.", order: 110 })}
           aria-label={
             meta
               ? `Set type ${meta.label}. Tap to cycle, hold for picker`
@@ -462,6 +485,7 @@ function TypeCell({
             <button
               key={t}
               type="button"
+              {...tourAttrs({ skipTour: true, reason: "Set-type choices inside the type popover" })}
               onClick={() => {
                 onAction({ type: "update-set", setId: set.id, patch: { setType: t } });
                 setOpen(false);
@@ -550,6 +574,11 @@ function ValueCell({
       aria-label={dir < 0 ? `Decrease ${label}` : `Increase ${label}`}
       // Keep focus on the input so the steppers don't unmount before click.
       onMouseDown={(e) => e.preventDefault()}
+      {...tourAttrs(
+        dir === -1
+          ? { id: "setRow.stepper", label: "Stepper", help: "Tap −/+ to nudge the focused value.", order: 190, hint: true }
+          : { skipTour: true, reason: "The + half of the focused-cell stepper pair" },
+      )}
       onClick={() => stepBy(dir)}
       className="flex h-8 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
@@ -611,6 +640,7 @@ function ValueCell({
       {templateBlank && !focused ? (
         <button
           type="button"
+          {...tourAttrs({ skipTour: true, reason: "Copy-previous shortcut on blank template cells" })}
           aria-label={`Copy previous set ${label.toLowerCase()}`}
           title="Copy previous set"
           onClick={() => onAction({ type: "copy-last", setId: set.id })}
@@ -623,6 +653,7 @@ function ValueCell({
       {focused ? stepperButton(-1) : null}
       <input
         aria-label={label}
+        {...tourAttrs({ skipTour: true, reason: "Input covered by the setRow.field cell anchor" })}
         inputMode={field === "reps" ? "numeric" : "decimal"}
         value={display}
         onFocus={() => setFocused(true)}
@@ -660,6 +691,7 @@ function RpeCell({ set, editable, onAction }: { set: CardSet; editable: boolean;
       <PopoverTrigger asChild>
         <button
           type="button"
+          {...tourAttrs({ id: "setRow.rpe", label: "RPE", help: "Effort rating; tap to pick 1–10.", order: 140 })}
           aria-label={value != null ? `RPE ${formatRpe(value)}, tap to change` : "RPE not set, tap to choose"}
           className={cellButtonBase}
         >
@@ -710,6 +742,7 @@ function TempoCell({
       <PopoverTrigger asChild>
         <button
           type="button"
+          {...tourAttrs({ id: "setRow.tempo", label: "Tempo", help: "Lift tempo, e.g. 3-0-1-0; tap to edit.", order: 150 })}
           aria-label={value ? `Tempo ${value}, tap to change` : "Tempo not set, tap to edit"}
           className={cellButtonBase}
         >
@@ -755,6 +788,7 @@ function RestCell({ set, editable, onAction }: { set: CardSet; editable: boolean
       <PopoverTrigger asChild>
         <button
           type="button"
+          {...tourAttrs({ id: "setRow.rest", label: "Rest", help: "Planned rest after this set; tap to edit.", order: 160 })}
           aria-label={planned ? `Planned rest ${formatRestSec(planned)}, tap to change` : "Rest not set, tap to edit"}
           className={cellButtonBase}
         >
@@ -779,6 +813,7 @@ function DoneCell({ set, mode, onAction }: { set: CardSet; mode: CardMode; onAct
     return (
       <Checkbox
         checked={!!set.done}
+        {...tourAttrs({ id: "setRow.done", label: "Done", help: "Tick to complete the set and start rest.", order: 170 })}
         onCheckedChange={() => onAction({ type: "toggle-done", setId: set.id })}
         className="h-5 w-5"
         aria-label={`Mark set ${set.index} ${set.done ? "not done" : "done"}`}
@@ -859,6 +894,7 @@ function ApplyToAllSection({
       <button
         type="button"
         aria-expanded={open}
+        {...tourAttrs({ id: "setRow.applyAll", label: "Apply to all", help: "Copy this set's fields onto every set.", order: 200, hint: true })}
         aria-label="Apply to all sets"
         onClick={() => {
           hapticTap();
@@ -883,6 +919,7 @@ function ApplyToAllSection({
                   key={f.key}
                   type="button"
                   disabled={!f.enabled}
+                  {...tourAttrs({ skipTour: true, reason: "Field chips inside the apply-to-all section" })}
                   aria-pressed={on}
                   aria-disabled={!f.enabled}
                   aria-label={`Apply ${f.label}${f.enabled ? "" : " — no value on this set"}`}
@@ -904,6 +941,7 @@ function ApplyToAllSection({
           <Button
             type="button"
             size="sm"
+            tour={{ skipTour: true, reason: "Apply action inside the apply-to-all section" }}
             className="mt-2 h-8 w-full rounded-lg text-xs font-bold"
             disabled={selected.size === 0}
             onClick={apply}
@@ -965,6 +1003,7 @@ function MoreCell({
       <PopoverTrigger asChild>
         <button
           type="button"
+          {...tourAttrs({ id: "setRow.more", label: "More", help: "Note, copy last, rest timer and apply-to-all.", order: 180 })}
           aria-label={`More options for set ${set.index}`}
           className="flex h-10 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
@@ -996,6 +1035,7 @@ function MoreCell({
           <textarea
             aria-label="Set note"
             rows={2}
+            {...tourAttrs({ skipTour: true, reason: "Set note field inside the ⋯ popover" })}
             value={noteDraft ?? set.note ?? ""}
             onChange={(e) => setNoteDraft(e.target.value)}
             onBlur={commitNote}
@@ -1007,6 +1047,7 @@ function MoreCell({
               type="button"
               variant="outline"
               size="sm"
+              tour={{ skipTour: true, reason: "Copy-last action inside the ⋯ popover" }}
               className="h-8 flex-1 rounded-lg text-xs"
               onClick={() => onAction({ type: "copy-last", setId: set.id })}
             >
@@ -1016,6 +1057,7 @@ function MoreCell({
               type="button"
               variant="outline"
               size="sm"
+              tour={{ skipTour: true, reason: "Rest-timer action inside the ⋯ popover" }}
               className="h-8 flex-1 rounded-lg text-xs"
               onClick={() => {
                 onAction({ type: "rest-timer", setId: set.id });
@@ -1033,6 +1075,7 @@ function MoreCell({
               type="button"
               variant="ghost"
               size="sm"
+              tour={{ skipTour: true, reason: "Remove-set action inside the ⋯ popover" }}
               className="mt-2 h-8 w-full rounded-lg text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={() => {
                 onAction({ type: "remove-set", setId: set.id });
@@ -1151,7 +1194,18 @@ export function SetRow({
       style={{ gridTemplateColumns: grid.template }}
     >
       {grid.keys.map((key) => (
-        <div key={key} className={cn(CELL, key !== "f1" && key !== "f2" && "justify-center")}>
+        <div
+          key={key}
+          className={cn(CELL, key !== "f1" && key !== "f2" && "justify-center")}
+          // Part 7 — the two value cells are anchored at the CELL level (the
+          // editable input inside is a shared component across f1/f2, so the
+          // anchor lives here where the track identity is known).
+          {...(key === "f1"
+            ? tourAttrs({ id: "setRow.field1", label: "Main value", help: "Type the weight, time or primary value.", order: 120 })
+            : key === "f2"
+              ? tourAttrs({ id: "setRow.field2", label: "Second value", help: "Type reps, distance or the second value.", order: 130 })
+              : {})}
+        >
           {cells[key]}
         </div>
       ))}

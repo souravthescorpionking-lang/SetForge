@@ -14,7 +14,7 @@
 //   one-rm-tool.tsx · plate-tool.tsx · set-tool.tsx · interval-tool.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -58,18 +58,21 @@ export default function ToolsScreen() {
         <TopBar
           title="Tools"
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Tools options">
-                  <ChevronsDownUp className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onClick={() => replaceHash("#/tools")}>
-                  <ChevronsDownUp className="h-4 w-4" aria-hidden /> Collapse all
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Tools options" tour={{ id: "tools.menu", label: "Collapse all", help: "Close every open tool panel.", order: 10 }}>
+                    <ChevronsDownUp className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => replaceHash("#/tools")}>
+                    <ChevronsDownUp className="h-4 w-4" aria-hidden /> Collapse all
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }

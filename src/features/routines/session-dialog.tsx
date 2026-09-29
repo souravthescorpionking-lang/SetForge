@@ -14,6 +14,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 import { sessionsApi } from "@/lib/client/api";
@@ -93,6 +94,7 @@ export function useSessionFromWorkout(): {
           value={draft}
           aria-label="Session name"
           maxLength={80}
+          {...tourAttrs({ skipTour: true, reason: "Name field inside the save-as-session dialog" })}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -103,10 +105,23 @@ export function useSessionFromWorkout(): {
           className="h-11"
         />
         <DialogFooter className="gap-2 sm:justify-end">
-          <Button type="button" variant="outline" className="h-11" onClick={close} disabled={saving}>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11"
+            tour={{ skipTour: true, reason: "Cancel action inside the save-as-session dialog" }}
+            onClick={close}
+            disabled={saving}
+          >
             Cancel
           </Button>
-          <Button type="button" className="h-11 gap-1.5" onClick={() => void save()} disabled={saving}>
+          <Button
+            type="button"
+            className="h-11 gap-1.5"
+            tour={{ skipTour: true, reason: "Save action inside the save-as-session dialog" }}
+            onClick={() => void save()}
+            disabled={saving}
+          >
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             ) : (

@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { useHashSegment } from "./use-hash-segment";
+import type { TourDecl } from "@/lib/tour/types";
 
 interface NavDestination {
   /** Hash path segment this tab is active on. */
@@ -25,14 +26,31 @@ interface NavDestination {
   label: string;
   hash: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Shared tour declaration for this tab (LAW 3: declared once here). */
+  tour: TourDecl;
 }
 
 const DESTINATIONS: readonly NavDestination[] = [
-  { key: "home", label: "Home", hash: "#/home", icon: Flame },
-  { key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays },
-  { key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2 },
-  { key: "body", label: "Body", hash: "#/body", icon: Ruler },
-  { key: "more", label: "More", hash: "#/more", icon: MoreHorizontal },
+  {
+    key: "home", label: "Home", hash: "#/home", icon: Flame,
+    tour: { id: "nav.home", label: "Home tab", help: "Your dashboard: today's session, stats and recent logs.", order: 100 },
+  },
+  {
+    key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays,
+    tour: { id: "nav.calendar", label: "Calendar tab", help: "Month dots and day lists of everything you logged.", order: 110 },
+  },
+  {
+    key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2,
+    tour: { id: "nav.programs", label: "Programs tab", help: "Routines, sessions and the program builder.", order: 120 },
+  },
+  {
+    key: "body", label: "Body", hash: "#/body", icon: Ruler,
+    tour: { id: "nav.body", label: "Body tab", help: "Measurements, progress photos and compare view.", order: 130 },
+  },
+  {
+    key: "more", label: "More", hash: "#/more", icon: MoreHorizontal,
+    tour: { id: "nav.more", label: "More tab", help: "History, insights, tools, dictionary and settings.", order: 140 },
+  },
 ];
 
 export function NavBar() {
@@ -50,6 +68,7 @@ export function NavBar() {
             <button
               key={d.key}
               type="button"
+              data-tour-id={"skipTour" in d.tour ? undefined : d.tour.id}
               onClick={() => {
                 window.location.hash = d.hash;
               }}

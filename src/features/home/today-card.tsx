@@ -21,6 +21,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -160,7 +161,10 @@ export function TodayCard({ dashboard }: Props) {
   // ---------- state C: no program ----------
   if (today.kind === "NONE") {
     return (
-      <div className="flex h-[120px] flex-col justify-center gap-2 rounded-lg border bg-card p-3">
+      <div
+        {...tourAttrs({ id: "home.emptyCard", label: "No program", help: "No program yet — pick one and this card drives your day.", order: 10, when: ["empty"] })}
+        className="flex h-[120px] flex-col justify-center gap-2 rounded-lg border bg-card p-3"
+      >
         <p className="truncate text-base font-bold leading-none">No program</p>
         <p className="truncate text-xs leading-none text-muted-foreground">
           Follow a program or start a session
@@ -168,6 +172,7 @@ export function TodayCard({ dashboard }: Props) {
         <Button
           type="button"
           className="mt-1 h-12 w-full gap-2 whitespace-nowrap text-base font-bold"
+          tour={{ id: "home.chooseProgram", label: "Choose program", help: "Browse programs and sessions to follow.", order: 20, when: ["empty"] }}
           onClick={() => navigate("/programs")}
         >
           <Target className="h-5 w-5" aria-hidden />
@@ -180,7 +185,10 @@ export function TodayCard({ dashboard }: Props) {
   // ---------- state B: rest day ----------
   if (today.kind === "REST") {
     return (
-      <div className="flex h-[120px] flex-col justify-center gap-2 rounded-lg border bg-card p-3">
+      <div
+        {...tourAttrs({ id: "home.restCard", label: "Rest day", help: "Rest days advance automatically at local midnight.", order: 10 })}
+        className="flex h-[120px] flex-col justify-center gap-2 rounded-lg border bg-card p-3"
+      >
         <div className="flex min-w-0 items-center gap-2">
           <Moon className="h-4 w-4 flex-none text-primary" aria-hidden />
           <p className="truncate text-base font-bold leading-none">{today.day?.name ?? "Rest day"}</p>
@@ -194,6 +202,7 @@ export function TodayCard({ dashboard }: Props) {
             variant="outline"
             className="h-12 flex-1 gap-2 whitespace-nowrap text-sm font-semibold"
             disabled={busy}
+            tour={{ id: "home.markRest", label: "Mark rest", help: "Mark today's rest day complete and advance the cursor.", order: 20 }}
             onClick={() => void markRestDone()}
           >
             <Check className="h-4 w-4" aria-hidden />
@@ -203,6 +212,7 @@ export function TodayCard({ dashboard }: Props) {
             type="button"
             className="h-12 flex-1 gap-2 whitespace-nowrap text-sm font-bold"
             disabled={busy || !routineId || (!firstWorkoutDay && !today.day)}
+            tour={{ id: "home.trainAnyway", label: "Train anyway", help: "Start a workout even on a scheduled rest day.", order: 30 }}
             onClick={() => void startWorkout(isSession ? undefined : (today.day?.id ?? firstWorkoutDay?.id ?? undefined))}
           >
             Train anyway
@@ -223,7 +233,10 @@ export function TodayCard({ dashboard }: Props) {
         : (today.routine?.name ?? "Program");
 
   return (
-    <div className="flex h-[168px] overflow-hidden rounded-lg border bg-card">
+    <div
+      {...tourAttrs({ id: "home.todayCard", label: "Today card", help: "Today's session: exercises, set count and your primary action.", order: 10 })}
+      className="flex h-[168px] overflow-hidden rounded-lg border bg-card"
+    >
       {/* 4px source bar */}
       <div className="w-1 flex-none bg-primary" aria-hidden />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 p-2">
@@ -245,6 +258,7 @@ export function TodayCard({ dashboard }: Props) {
                 variant="ghost"
                 className="h-8 w-8 flex-none p-0"
                 aria-label="Program actions"
+                tour={{ id: "home.menu", label: "Program menu", help: "Skip day, jump to a day, schedule or unfollow.", order: 40 }}
               >
                 <MoreVertical className="h-5 w-5" aria-hidden />
               </Button>
@@ -310,6 +324,7 @@ export function TodayCard({ dashboard }: Props) {
                 type="button"
                 variant="outline"
                 className="h-12 min-w-0 flex-1 whitespace-nowrap text-sm font-semibold"
+                tour={{ id: "home.logAnother", label: "Log another", help: "Open your saved sessions to start another.", order: 20 }}
                 onClick={() => navigate("/programs?tab=sessions")}
               >
                 Log another session
@@ -319,6 +334,7 @@ export function TodayCard({ dashboard }: Props) {
             <Button
               type="button"
               className="h-12 w-full gap-2 whitespace-nowrap text-base font-bold"
+              tour={{ id: "home.continue", label: "Continue workout", help: "Jump back into the workout you started today.", order: 20 }}
               onClick={goToday}
             >
               <Check className="h-5 w-5" aria-hidden />
@@ -329,6 +345,7 @@ export function TodayCard({ dashboard }: Props) {
               type="button"
               className="h-12 w-full gap-2 whitespace-nowrap text-base font-bold"
               disabled={busy || !routineId}
+              tour={{ id: "home.start", label: "Start workout", help: "Begin today's session and jump to the logger.", order: 20 }}
               onClick={() => void startWorkout(isSession ? undefined : (today.day?.id ?? resolvedDay?.id ?? undefined))}
             >
               Start workout

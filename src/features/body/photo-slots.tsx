@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Camera, Loader2, X } from "lucide-react";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { ApiError, measurementsApi, mediaApi, photosApi } from "@/lib/client/api";
 import { hapticSuccess } from "@/lib/client/haptics";
 import { useInvalidate } from "@/lib/client/query";
@@ -197,6 +198,7 @@ export function PhotoSlots({ measurement: m, record, recordsLoading, value, date
                       type="button"
                       disabled={busy}
                       aria-label={photo ? `Replace ${label} photo` : `Add ${label} photo`}
+                      {...tourAttrs({ id: "body.photoSlot", label: "Photo slot", help: "Tap to attach a progress photo for this pose.", order: 80 })}
                       onClick={() => pick(slot)}
                       className={cn(
                         "flex h-full w-full items-center justify-center overflow-hidden rounded-lg transition-colors",
@@ -224,6 +226,7 @@ export function PhotoSlots({ measurement: m, record, recordsLoading, value, date
                         type="button"
                         aria-label={`Remove ${label} photo`}
                         disabled={busy}
+                        {...tourAttrs({ skipTour: true, reason: "Per-slot photo remove glyph on filled slots" })}
                         onClick={() => void remove(photo)}
                         className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition-colors hover:bg-destructive hover:text-destructive-foreground"
                       >

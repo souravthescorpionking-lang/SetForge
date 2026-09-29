@@ -17,6 +17,7 @@
 
 import { useMemo } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { useWorkoutByDate } from "@/lib/client/query";
 import { dayKeyOf, formatDayLabel } from "@/lib/client/format";
 import type { WorkoutSummaryDTO } from "@/lib/types";
@@ -105,6 +106,7 @@ function ListRow({ workout, onPick }: { workout: WorkoutSummaryDTO; onPick: (day
     <button
       type="button"
       data-row
+      {...tourAttrs({ id: "calendar.listRow", label: "Workout row", help: "Open that day in Month view with its panel below.", order: 70 })}
       onClick={() => onPick(dayKey)}
       aria-label={`${formatDayLabel(dayKey)} — ${workout.setCount} sets`}
       className="flex h-14 w-full items-center gap-3 overflow-hidden whitespace-nowrap px-3 text-left transition-colors hover:bg-accent/50 sm:px-4"

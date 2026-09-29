@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { ArrowDownUp, Check, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
@@ -116,6 +116,7 @@ function DayArrangeInner({ routineId, dayId }: { routineId: string; dayId: strin
               className="h-11 w-11 flex-none"
               onClick={() => navigate(`/programs/${routineId}`)}
               aria-label="Back to program"
+              tour={{ id: "dayArrange.back", label: "Back", help: "Return to the program detail.", order: 10 }}
             >
               <ChevronLeft className="h-5 w-5" aria-hidden />
             </Button>
@@ -129,16 +130,20 @@ function DayArrangeInner({ routineId, dayId }: { routineId: string; dayId: strin
             </span>
           }
           actions={
-            <Button
-              type="button"
-              className="h-11 flex-none gap-1.5 px-4 text-sm font-bold"
-              disabled={saving || !day || members.length < 2}
-              aria-label="Save the new exercise order"
-              onClick={() => void save()}
-            >
-              <Check className="h-4 w-4" aria-hidden />
-              {saving ? "Saving…" : "Done"}
-            </Button>
+            <>
+              <Button
+                type="button"
+                className="h-11 flex-none gap-1.5 px-4 text-sm font-bold"
+                disabled={saving || !day || members.length < 2}
+                aria-label="Save the new exercise order"
+                tour={{ id: "dayArrange.done", label: "Done", help: "Save the new exercise order.", order: 20 }}
+                onClick={() => void save()}
+              >
+                <Check className="h-4 w-4" aria-hidden />
+                {saving ? "Saving…" : "Done"}
+              </Button>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -147,7 +152,12 @@ function DayArrangeInner({ routineId, dayId }: { routineId: string; dayId: strin
         {error || (!isLoading && !day) ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <p className="text-sm font-semibold">Day not found</p>
-            <Button type="button" variant="outline" onClick={() => navigate(`/programs/${routineId}`)}>
+            <Button
+              type="button"
+              variant="outline"
+              tour={{ skipTour: true, reason: "Error-state back link for a missing day" }}
+              onClick={() => navigate(`/programs/${routineId}`)}
+            >
               Back to program
             </Button>
           </div>

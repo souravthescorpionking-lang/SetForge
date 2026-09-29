@@ -6,6 +6,7 @@
 // NOTHING else renders in the ScrollBody on empty days (no MetaRow/SummaryRow).
 
 import { Button } from "@/components/ui/button";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { Dumbbell, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ export function TodayEmpty({
     <div
       role="status"
       aria-label="No workout this day"
+      {...tourAttrs({ id: "today.empty", label: "Empty day", help: "Nothing logged yet — start fresh or copy a past session.", order: 30, when: ["empty"] })}
       className={cn(
         "flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center",
         className,
@@ -37,6 +39,7 @@ export function TodayEmpty({
         <Button
           type="button"
           data-row
+          tour={{ id: "today.startNew", label: "Start workout", help: "Begin an empty workout for this day.", order: 40, when: ["empty"] }}
           className="h-12 w-full gap-2 whitespace-nowrap text-sm font-bold"
           onClick={onStartNew}
           disabled={starting}
@@ -48,6 +51,7 @@ export function TodayEmpty({
           type="button"
           data-row
           variant="outline"
+          tour={{ id: "today.copyPrevious", label: "Copy previous", help: "Copy your most recent workout onto this day.", order: 50, when: ["empty"] }}
           className="h-12 w-full gap-2 whitespace-nowrap text-sm font-semibold"
           onClick={onCopyPrevious}
           disabled={!hasPrevious || starting}

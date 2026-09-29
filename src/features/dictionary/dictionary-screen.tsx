@@ -6,7 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
+import { tourAttrs } from "@/lib/tour/attrs";
 import { dictionaryApi } from "@/lib/client/api";
 import type { DictionaryTermDTO } from "@/lib/types";
 import { hapticTap } from "@/lib/client/haptics";
@@ -35,6 +36,7 @@ export default function DictionaryScreen() {
             <button
               type="button"
               aria-label="Go back"
+              {...tourAttrs({ id: "dictionary.back", label: "Back", help: "Return to the previous screen.", order: 10 })}
               className="flex h-11 w-11 items-center justify-center rounded-md hover:bg-accent/40"
               onClick={() => {
                 hapticTap();
@@ -47,6 +49,7 @@ export default function DictionaryScreen() {
             </button>
           }
           title="Dictionary"
+          actions={<TopBarHelp />}
         />
       }
       subBar={
@@ -57,6 +60,7 @@ export default function DictionaryScreen() {
             onChange={(e) => setSearch(e.target.value)}
               placeholder="Search terms"
             aria-label="Search dictionary terms"
+            {...tourAttrs({ id: "dictionary.search", label: "Search", help: "Filter terms by name or definition.", order: 20 })}
             className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
           />
         </SubBar>
@@ -79,6 +83,7 @@ export default function DictionaryScreen() {
                     type="button"
                     data-row
                     aria-expanded={open}
+                    {...tourAttrs({ id: "dictionary.term", label: "Term row", help: "Tap a term to expand its definition.", order: 30 })}
                     className="flex h-14 select-none items-center gap-2 overflow-hidden whitespace-nowrap pl-3 pr-2 text-left hover:bg-accent/40"
                     onClick={() => {
                       hapticTap();

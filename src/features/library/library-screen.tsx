@@ -27,10 +27,11 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Screen, TopBar, SubBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { tourAttrs } from "@/lib/tour/attrs";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -121,6 +122,7 @@ function ExerciseRow({
       role="button"
       tabIndex={0}
       aria-label={`${entry.name}${entry.adopted ? " — in my exercises" : ""}${entry.isFavorite ? ", favourite" : ""}`}
+      {...tourAttrs({ id: "library.row", label: "Exercise row", help: "Open this exercise's catalog detail page.", order: 90 })}
       className="flex h-14 cursor-pointer select-none items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border bg-card pl-4 pr-1 transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button, input, a, [role=menuitem]")) return;
@@ -156,6 +158,7 @@ function ExerciseRow({
         className="h-11 w-11 flex-none"
         aria-label={entry.adopted ? (entry.isFavorite ? `Unfavourite ${entry.name}` : `Favourite ${entry.name}`) : `Favourite and add ${entry.name} to my exercises`}
         aria-pressed={entry.isFavorite}
+        tour={{ id: "library.star", label: "Star", help: "Favourite it — adopting first if you haven't yet.", order: 100 }}
         onClick={(e) => {
           e.stopPropagation();
           hapticTap();
@@ -172,6 +175,7 @@ function ExerciseRow({
           className="h-11 w-11 flex-none"
           disabled
           aria-label={`${entry.name} is in my exercises`}
+          tour={{ skipTour: true, reason: "Disabled adopted-state check glyph on library rows" }}
         >
           <Check className="h-5 w-5 text-muted-foreground" aria-hidden />
         </Button>
@@ -182,6 +186,7 @@ function ExerciseRow({
           size="icon"
           className="h-11 w-11 flex-none"
           aria-label={`Add ${entry.name} to my exercises`}
+          tour={{ id: "library.add", label: "Add", help: "Adopt this exercise into my exercises.", order: 110 }}
           onClick={(e) => {
             e.stopPropagation();
             hapticTap();
@@ -284,6 +289,7 @@ export default function LibraryScreen() {
               variant="ghost"
               size="icon"
               className="h-11 w-11 flex-none"
+              tour={{ id: "library.back", label: "Back", help: "Return to the previous screen or More.", order: 10 }}
               onClick={goBack}
               aria-label="Go back"
             >
@@ -292,33 +298,37 @@ export default function LibraryScreen() {
           }
           title="Library"
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 flex-none"
-                  aria-label="Library options"
-                >
-                  <MoreVertical className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuCheckboxItem
-                  checked={showThumb}
-                  onCheckedChange={(v) => {
-                    hapticSelection();
-                    void updateSettings({ showThumbnails: !!v }).catch(() => undefined);
-                  }}
-                >
-                  Show thumbnails
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuItem onClick={() => void onAddAllFavourites()}>
-                  <Star className="h-4 w-4" aria-hidden /> Add all favourites…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-11 w-11 flex-none"
+                    aria-label="Library options"
+                    tour={{ id: "library.menu", label: "Menu", help: "Toggle thumbnails or adopt every favourite at once.", order: 20 }}
+                  >
+                    <MoreVertical className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuCheckboxItem
+                    checked={showThumb}
+                    onCheckedChange={(v) => {
+                      hapticSelection();
+                      void updateSettings({ showThumbnails: !!v }).catch(() => undefined);
+                    }}
+                  >
+                    Show thumbnails
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuItem onClick={() => void onAddAllFavourites()}>
+                    <Star className="h-4 w-4" aria-hidden /> Add all favourites…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TopBarHelp />
+            </>
           }
         />
       }
@@ -331,6 +341,7 @@ export default function LibraryScreen() {
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search exercises…"
             aria-label="Search the exercise library"
+            {...tourAttrs({ id: "library.search", label: "Search", help: "Search the catalog by exercise name.", order: 30 })}
             className="h-10 min-w-0 flex-1"
           />
         </SubBar>
@@ -345,6 +356,13 @@ export default function LibraryScreen() {
               type="button"
               aria-pressed={scope === s}
               className={chipClass(scope === s)}
+              {...tourAttrs(
+                s === "all"
+                  ? { id: "library.scopeAll", label: "All", help: "Show the whole catalog.", order: 40 }
+                  : s === "fav"
+                    ? { id: "library.scopeFav", label: "Favourites", help: "Show only starred exercises.", order: 50 }
+                    : { id: "library.scopeMine", label: "Mine", help: "Show only adopted exercises.", order: 60 },
+              )}
               onClick={() => {
                 hapticSelection();
                 setScope(s);
@@ -357,6 +375,7 @@ export default function LibraryScreen() {
             type="button"
             aria-pressed={muscleOpen || muscles.length > 0}
             className={chipClass(muscleOpen || muscles.length > 0)}
+            {...tourAttrs({ id: "library.muscles", label: "Muscles", help: "Reveal muscle filters to narrow the list.", order: 70 })}
             onClick={() => {
               hapticSelection();
               setMuscleOpen((v) => !v);
@@ -369,6 +388,7 @@ export default function LibraryScreen() {
             type="button"
             aria-pressed={equipOpen || equipment.length > 0}
             className={chipClass(equipOpen || equipment.length > 0)}
+            {...tourAttrs({ id: "library.equipment", label: "Equipment", help: "Reveal equipment filters to narrow the list.", order: 80 })}
             onClick={() => {
               hapticSelection();
               setEquipOpen((v) => !v);
@@ -390,6 +410,7 @@ export default function LibraryScreen() {
                   type="button"
                   aria-pressed={selected}
                   className={chipClass(selected)}
+                  {...tourAttrs({ skipTour: true, reason: "Data-driven muscle filter chips under the Muscles toggle" })}
                   onClick={() => {
                     hapticSelection();
                     setMuscles((list) => toggleIn(list, m));
@@ -419,6 +440,7 @@ export default function LibraryScreen() {
                   type="button"
                   aria-pressed={selected}
                   className={chipClass(selected)}
+                  {...tourAttrs({ skipTour: true, reason: "Data-driven equipment filter chips under the Equipment toggle" })}
                   onClick={() => {
                     hapticSelection();
                     setEquipment((list) => toggleIn(list, eq));
@@ -441,7 +463,7 @@ export default function LibraryScreen() {
         ) : listQuery.isError ? (
           <div className="flex h-[96px] flex-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center lg:col-span-2">
             <p className="text-sm font-semibold">Couldn&apos;t load the library</p>
-            <Button type="button" variant="secondary" className="h-9" onClick={() => void listQuery.refetch()}>
+            <Button type="button" variant="secondary" className="h-9" tour={{ skipTour: true, reason: "Error-state retry button for the library query" }} onClick={() => void listQuery.refetch()}>
               Retry
             </Button>
             <p className="sr-only">{errMessage(listQuery.error)}</p>

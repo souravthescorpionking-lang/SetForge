@@ -11,6 +11,7 @@
 
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
+import { tourAttrs } from "@/lib/tour/attrs";
 import type { DashboardUpcomingDayDTO } from "@/lib/types";
 import { parseDayKey } from "@/lib/client/format";
 
@@ -30,6 +31,7 @@ export function UpcomingStrip({ days }: { days: DashboardUpcomingDayDTO[] }) {
       data-row
       role="list"
       aria-label="Upcoming days"
+      {...tourAttrs({ id: "home.upcoming", label: "Upcoming days", help: "Tap a day to jump to it in the calendar.", order: 30 })}
       className="flex h-12 items-stretch gap-1 overflow-hidden whitespace-nowrap"
     >
       {days.slice(0, 7).map((day) => {

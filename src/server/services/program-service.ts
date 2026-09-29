@@ -1135,7 +1135,6 @@ export async function getDashboard(userId: string) {
     if (b.lastUsedAt) return 1;
     return a.name.localeCompare(b.name);
   });
-  const quickSessions = sessions.slice(0, 3);
 
   // ---- today's workout ----
   const todayWorkout = todayWorkoutRow
@@ -1161,7 +1160,6 @@ export async function getDashboard(userId: string) {
       weekWorkouts: weekWorkouts.filter((w) => w.exercises.some((e) => e.sets.length > 0)).length,
       weeklyWorkoutTarget: settings.weeklyWorkoutTarget,
     },
-    quickSessions,
     todayWorkout,
   };
 }

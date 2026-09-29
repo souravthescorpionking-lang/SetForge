@@ -14,7 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useTheme } from "next-themes";
-import { Screen, TopBar, ScrollBody } from "@/components/layout";
+import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Check, Monitor, Moon, Sun, SunMoon } from "lucide-react";
 import { useApp } from "@/lib/client/store";
 import { useWakeLock } from "./use-wake-lock";
-import { PreferencesSection, ProgramsSection, SessionSection, DisplaySection, AccountSection, DataSection, AppSection } from "./settings-sections";
+import { PreferencesSection, ProgramsSection, ToursSection, SessionSection, DisplaySection, AccountSection, DataSection, AppSection } from "./settings-sections";
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -53,22 +53,25 @@ export default function SettingsScreen() {
         <TopBar
           title="Settings"
           actions={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Quick settings">
-                  <SunMoon className="h-5 w-5" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                {THEME_OPTIONS.map((t) => (
-                  <DropdownMenuItem key={t.value} onClick={() => setThemeSetting(t.value)}>
-                    <t.icon className="h-4 w-4" aria-hidden />
-                    <span className="flex-1">{t.label}</span>
-                    {settings?.theme === t.value ? <Check className="h-4 w-4 text-primary" aria-hidden /> : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <TopBarHelp />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" className="h-11 w-11 px-0" aria-label="Quick settings">
+                    <SunMoon className="h-5 w-5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  {THEME_OPTIONS.map((t) => (
+                    <DropdownMenuItem key={t.value} onClick={() => setThemeSetting(t.value)}>
+                      <t.icon className="h-4 w-4" aria-hidden />
+                      <span className="flex-1">{t.label}</span>
+                      {settings?.theme === t.value ? <Check className="h-4 w-4 text-primary" aria-hidden /> : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
           }
         />
       }
@@ -78,6 +81,7 @@ export default function SettingsScreen() {
           <>
             <PreferencesSection />
             <ProgramsSection />
+            <ToursSection />
             <SessionSection />
             <DisplaySection />
             <AccountSection />

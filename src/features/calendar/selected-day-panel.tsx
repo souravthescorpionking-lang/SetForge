@@ -168,6 +168,7 @@ function ScheduleRow({ dayKey, entry }: { dayKey: string; entry?: ScheduleEntryD
           variant="outline"
           className="h-11 flex-none gap-1.5 px-3 text-xs font-bold"
           aria-label={`Schedule a workout for ${formatDayLabel(dayKey)}`}
+          tour={{ id: "calendar.schedule", label: "Schedule", help: "Pick a routine session for the selected day.", order: 90 }}
           onClick={() => navigate(`/schedule/pick?date=${dayKey}`)}
         >
           <CalendarClock className="h-4 w-4" aria-hidden />
@@ -205,6 +206,7 @@ function ScheduleRow({ dayKey, entry }: { dayKey: string; entry?: ScheduleEntryD
                 variant="ghost"
                 className="h-11 w-11 p-0"
                 aria-label={`Actions for scheduled ${label}`}
+                tour={{ id: "calendar.dayMenu", label: "Day menu", help: "Start, move, skip or remove the scheduled session.", order: 100 }}
               >
                 <MoreVertical className="h-5 w-5" aria-hidden />
               </Button>
@@ -298,6 +300,7 @@ function ScheduleRow({ dayKey, entry }: { dayKey: string; entry?: ScheduleEntryD
           variant="outline"
           className="h-11 flex-none gap-1 px-3 text-xs font-bold"
           aria-label={`Reopen ${label}`}
+          tour={{ id: "calendar.reopen", label: "Reopen", help: "Put a done, missed or skipped session back on the plan.", order: 100 }}
           onClick={() => void reopenEntry(entry)}
         >
           <RotateCcw className="h-3.5 w-3.5" aria-hidden />
