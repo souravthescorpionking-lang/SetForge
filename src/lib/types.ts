@@ -44,12 +44,18 @@ export type SettingsDTO = {
   showMaxWeightBar: boolean;
   calendarStyle: string; // GRID | SCROLL
   tempoPresets: string[];
-  showCaloriesCard: boolean;
   showThumbnails: boolean;
   // ---- Part 7: tour system ----
   showTours: boolean;
   showHints: boolean;
   replayToursOnUpdate: boolean;
+  // ---- Part 8 ----
+  preset: string; // SIMPLE | STANDARD | POWER
+  sessionMode: string; // AUTO | GUIDED | FREE
+  defaultTransitionRestSec: number;
+  notifScheduled: boolean;
+  notifMissedDay: boolean;
+  notifPr: boolean;
 };
 
 // ---- Part 7: tour system ----
@@ -111,6 +117,11 @@ export type ExerciseDTO = {
   setupNotes?: string | null;
   targetNotes?: string | null;
   catalogKey?: string | null;
+  // ---- Part 8 ----
+  showRpe: boolean;
+  showTempo: boolean;
+  showRest: boolean;
+  transitionRestSec: number | null;
 };
 
 // ---------- interval timer ----------
@@ -174,9 +185,9 @@ export type WorkoutDTO = {
   sourceDayId: string | null;
   scheduledStart: boolean;
   finishedAt: string | null;
-  // ---- Part 6: lifecycle ----
-  discardedAt: string | null;
-  deletedAt: string | null;
+  // ---- Part 8 §6.9: single remove semantics ----
+  removedAt: string | null;
+  removeReason: string | null;
   exercises: WorkoutExerciseDTO[];
   groups: WorkoutGroupDTO[];
 };
@@ -248,6 +259,9 @@ export type PredefinedSetDTO = {
   rpe?: number | null;
   tempo?: string | null;
   restPlannedSec?: number | null;
+  // ---- Part 8 §6.4: weight prescription ----
+  weightKind?: "FIXED" | "COPY_LAST" | "PERCENT_1RM" | null;
+  pct?: number | null;
 };
 
 export type RoutineExerciseDTO = {
@@ -258,6 +272,8 @@ export type RoutineExerciseDTO = {
   groupId: string | null;
   exercise: ExerciseDTO;
   sets: PredefinedSetDTO[];
+  // ---- Part 8 §6.2: warm-up scheme ----
+  warmupScheme?: "NONE" | "STANDARD" | "LIGHT" | "CUSTOM" | null;
 };
 
 export type RoutineDayDTO = {
@@ -427,7 +443,6 @@ export type BackupDTO = {
     age: number | null; heightCm: number | null; weightKg: number | null;
     level: string | null; goal: string | null; daysPerWeekTarget: number | null;
   } | null;
-  calories?: Array<{ date: string; kcal: number; note: string | null }>;
   photos?: Array<{ measurementName: string; recordDate: string; slot: string; mediaKey: string; width: number; height: number }>;
 };
 
@@ -520,7 +535,7 @@ export type DashboardDTO = {
   } | null;
 };
 
-// ---------- Part 6: library, profile, calories, dictionary, weight table ----------
+// ---------- Part 6: library, profile, dictionary, weight table ----------
 
 export type LibraryEntryDTO = {
   key: string;
@@ -548,12 +563,6 @@ export type UserProfileDTO = {
   goal: string | null;
   daysPerWeekTarget: number | null;
   onboardingCompletedAt: string | null;
-};
-
-export type CaloriesDTO = {
-  date: string; // YYYY-MM-DD
-  kcal: number | null;
-  note: string | null;
 };
 
 export type DictionaryTermDTO = {
@@ -600,12 +609,12 @@ export type WeightTableDTO = {
   hasMore: boolean;
 };
 
-export type HiddenWorkoutDTO = {
+export type RemovedWorkoutDTO = {
   id: string;
   date: string;
   comment: string | null;
-  discardedAt: string | null;
-  deletedAt: string | null;
+  removedAt: string | null;
+  removeReason: string | null;
   exerciseCount: number;
 };
 

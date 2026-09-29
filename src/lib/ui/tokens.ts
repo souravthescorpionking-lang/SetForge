@@ -35,9 +35,8 @@ export const BAR_HEIGHTS = {
 /** Global corner radius (rounded-lg). */
 export const RADIUS = 8;
 
-/** Content column: max width on mobile/tablet, and on desktop (lg two-pane). */
-export const CONTENT_MAX_WIDTH = 720;
-export const CONTENT_MAX_WIDTH_LG = 1100;
+/** Part 8 phone-only content column (Law 1: single column, max 480px, centered). */
+export const CONTENT_MAX_WIDTH = 480;
 
 // ── Shared class-name strings for the common row patterns ───────────────────
 // Every [data-row] in Part 3 must be single-line (no wrap, no vertical growth):
@@ -58,6 +57,5 @@ export const rowBar = "h-14 flex items-center whitespace-nowrap overflow-hidden"
 /** 72px row — hero rows: cards with two text lines + trailing control (h-18). */
 export const rowHero = "h-18 flex items-center whitespace-nowrap overflow-hidden";
 
-/** ScrollBody content column: centered, 720px → 1100px at lg. */
-export const contentColumn =
-  "mx-auto w-full max-w-[720px] px-4 py-4 flex flex-col gap-3 lg:max-w-[1100px] lg:px-6";
+/** ScrollBody content column: centered phone column, max 480px. */
+export const contentColumn = "mx-auto w-full max-w-[480px] px-4 py-4 flex flex-col gap-3";

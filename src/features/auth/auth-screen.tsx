@@ -108,7 +108,7 @@ export default function AuthScreen() {
   return (
     <Screen nav={false}>
       <ScrollBody
-        contentClassName="flex max-w-[360px] min-h-full justify-center gap-6 py-8 lg:max-w-[360px]"
+        contentClassName="flex max-w-[360px] min-h-full justify-center gap-6 py-8 "
       >
         {/* brand */}
         <div className="flex flex-none flex-col items-center gap-2 text-center">

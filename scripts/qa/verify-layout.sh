@@ -2,8 +2,8 @@
 # SetForge — Part 3 layout verification harness (QA tooling; adapts the spec's
 # Playwright harness to this platform's agent-browser CLI + single-page hash routing).
 #
-# Usage: bash scripts/qa/verify-layout.sh '#/today' [widths...]
-#   default widths: 320 360 390 768 1024 1440
+# Usage: bash scripts/qa/verify-layout.sh '#/workout' [widths...]
+#   default widths: 320 360 390 430 (Part 8 phone-only)
 #
 # Gates per width (spec §VERIFICATION HARNESS 1-3):
 #   overlap    — no two visible leaf elements intersect (fixed/sticky/absolute
@@ -12,13 +12,13 @@
 #   hscroll    — document.scrollingElement has no horizontal scroll
 #   nowrapFail — every [data-row] has scrollHeight <= clientHeight (single line)
 #   wsFail     — every [data-row] computed white-space === nowrap
-#   badHeights — every [data-row] height ∈ {40,48,56,72}
+#   badHeights — every [data-row] height ∈ {32,40,48,56,72}
 # Checks run at scroll-top AND scroll-bottom of the [data-scroll-body] container.
 set -uo pipefail
 
 ROUTE="${1:?usage: verify-layout.sh '#/today' [widths...]}"
 shift || true
-if [ "$#" -gt 0 ]; then WIDTHS=("$@"); else WIDTHS=(320 360 390 768 1024 1440); fi
+if [ "$#" -gt 0 ]; then WIDTHS=("$@"); else WIDTHS=(320 360 390 430); fi
 
 case "$ROUTE" in
   '#/'*) URL="http://localhost:3000/$ROUTE" ;;
@@ -71,8 +71,12 @@ CHECK_JS='(() => {
     const r = eff(item.el);
     if (r.right - r.left >= 1 && r.bottom - r.top >= 1) vis.push({ el: item.el, r });
   }
+  // Part 8: rightEdge is now CLIP-AWARE (same v2 logic as overlap) — children of
+  // intentional horizontal scrollers (data-chip-scroller / overflow-x-auto)
+  // are clipped by their scroller and cannot be "visible beyond the viewport".
+  // Genuine overflow (no clipping ancestor) still fails.
   let rightEdge = 0;
-  for (const item of raw) if (item.r.right > vw + 1) rightEdge++;
+  for (const item of vis) if (item.r.right > vw + 1) rightEdge++;
   const visSet = new Set(vis.map(v => v.el));
   const leaves = vis.filter(v => !Array.from(v.el.children).some(c => visSet.has(c)));
   let overlap = 0; const samples = [];
@@ -91,7 +95,7 @@ CHECK_JS='(() => {
   const rows = Array.from(document.querySelectorAll("[data-row]"));
   const nowrapFail = rows.filter(r => r.scrollHeight > r.clientHeight + 1).length;
   const wsFail = rows.filter(r => getComputedStyle(r).whiteSpace !== "nowrap").length;
-  const okH = [40, 48, 56, 72];
+  const okH = [32, 40, 48, 56, 72];
   const hBad = [];
   for (const r of rows) { const h = Math.round(r.getBoundingClientRect().height); if (!okH.includes(h)) hBad.push(h); }
   const scrollBodies = document.querySelectorAll("[data-scroll-body]").length;

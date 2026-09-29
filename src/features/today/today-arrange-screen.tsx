@@ -42,7 +42,7 @@ export default function TodayArrangeScreen() {
   const mutate = useMutate();
   const [saving, setSaving] = useState(false);
 
-  const routeDate = route.name === "today-arrange" ? route.query.get("date") : null;
+  const routeDate = route.name === "session-arrange" ? route.query.get("date") : null;
   const dateKey = routeDate && DATE_RE.test(routeDate) ? routeDate : todayKey();
 
   // ---------- data ----------

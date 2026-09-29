@@ -8,6 +8,8 @@ import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
 import { dayKey, toDayUtc } from "@/lib/dates";
 import { badRequest, conflict, notFound } from "../http";
+import { estOneRmByMethod, roundToStep } from "@/lib/formulas";
+import { generateWarmup, evaluateProgression, type WarmupScheme, type ProgressionRuleLike, type ProgressionStateLike } from "@/lib/grouping";
 import { mapRoutine, mapScheduleEntry, mapWorkout } from "../mappers";
 import type { Prisma, Routine, RoutineDay, ScheduleEntry, Workout } from "@prisma/client";
 import {
@@ -392,6 +394,28 @@ export async function appendDayToWorkout(
       tempo: string | null;
       restPlannedSec: number | null;
     };
+
+    // ---- Part 8 §6.4: %1RM resolution (falls back to copy-last without e1RM) ----
+    const prs = await tx.personalRecord.findMany({ where: { userId, exerciseId: re.exerciseId } });
+    const e1rmMethod = (await tx.userSettings.findUnique({ where: { userId } }))?.e1rmMethod ?? "BRZYCKI";
+    const e1rm =
+      prs.length > 0
+        ? Math.max(...prs.map((pr) => estOneRmByMethod(pr.weight, pr.reps, e1rmMethod)))
+        : null;
+    const plateStep = (await tx.exercise.findUnique({ where: { id: re.exerciseId } }))?.weightIncrement
+      ?? (await tx.userSettings.findUnique({ where: { userId } }))?.defaultWeightIncrement
+      ?? 2.5;
+    const resolveWeight = (s: { weightKind: string | null; pct: number | null; weight: number | null }): number | null => {
+      if (s.weightKind === "PERCENT_1RM") {
+        if (e1rm == null || !s.pct) return null; // fallback → copy-last path
+        return Math.max(0, roundToStep((e1rm * s.pct) / 100, plateStep));
+      }
+      return s.weight;
+    };
+
+    // ---- Part 8 §6.3: progression delta applied to copy-last presets ----
+    const progState = await tx.progressionState.findUnique({ where: { routineExerciseId: re.id } });
+    const nextDelta = progState?.nextWeightDelta ?? 0;
     const fromRow = (s: {
       weight: number | null;
       reps: number | null;
@@ -412,8 +436,8 @@ export async function appendDayToWorkout(
       restPlannedSec: s.restPlannedSec ?? null,
     });
 
-    const blank = (s: { weight: number | null; reps: number | null; distance: number | null; timeSec: number | null }) =>
-      s.weight == null && s.reps == null && s.distance == null && s.timeSec == null;
+    const blank = (s: { weight: number | null; reps: number | null; distance: number | null; timeSec: number | null; weightKind: string | null }) =>
+      s.weight == null && s.weightKind !== "PERCENT_1RM" && s.reps == null && s.distance == null && s.timeSec == null;
     const isBlank = predefined.length > 0 && predefined.every(blank);
     const anyBlank = predefined.some(blank);
 
@@ -441,6 +465,54 @@ export async function appendDayToWorkout(
         }
         return fromRow(s);
       });
+    }
+
+    // §6.4: resolve %1RM prescriptions now that copy-last has run
+    setsToAdd = setsToAdd.map((v, i) => {
+      const tpl = predefined[i];
+      if (!tpl) return v;
+      const resolved = resolveWeight(tpl);
+      if (tpl.weightKind === "PERCENT_1RM") {
+        // resolved == null (no e1RM) → fall back to copy-last value already in v
+        return resolved != null ? { ...v, weight: resolved } : v;
+      }
+      return v;
+    });
+
+    // §6.3: apply the progression delta to the first working weight when this
+    // session copies previous (copy-last semantics) — deload lowers, raise adds.
+    if (nextDelta !== 0 && setsToAdd.length > 0) {
+      const firstIdx = setsToAdd.findIndex((v) => v.setType !== "WARMUP" && v.weight != null);
+      if (firstIdx >= 0) {
+        const w = setsToAdd[firstIdx].weight!;
+        setsToAdd[firstIdx] = { ...setsToAdd[firstIdx], weight: Math.max(0, roundToStep(w + nextDelta, plateStep)) };
+      }
+    }
+
+    // §6.2: warm-up generation — from the first working weight, resolved AFTER
+    // copy-last/1RM/progression (spec ordering). Prepended as type W rows.
+    const scheme = (re.warmupScheme ?? "NONE") as WarmupScheme;
+    if (scheme !== "NONE") {
+      const firstWorking = setsToAdd.find((v) => v.setType !== "WARMUP" && v.weight != null)?.weight ?? null;
+      if (firstWorking != null) {
+        const custom = Array.isArray(re.warmupCustom)
+          ? (re.warmupCustom as Array<{ pct: number; reps: number }>)
+          : null;
+        const warmupSets = generateWarmup(firstWorking, scheme, custom, plateStep);
+        setsToAdd = [
+          ...warmupSets.map((w) => ({
+            weight: w.weight,
+            reps: w.reps,
+            distance: null,
+            timeSec: null,
+            setType: "WARMUP",
+            rpe: null,
+            tempo: null,
+            restPlannedSec: null,
+          })),
+          ...setsToAdd,
+        ];
+      }
     }
 
     let setOrder = await tx.trainingSet.count({ where: { workoutExerciseId: twe.id } });
@@ -508,11 +580,14 @@ export async function startProgramDay(
     !!planned && planned.routineId === r.id && (planned.dayId === day.id || kind === "SESSION");
 
   const workout = await db.$transaction(async (tx) => {
-    const w = await tx.workout.upsert({
-      where: { userId_date: { userId, date } },
-      update: {},
-      create: { id: uuid7(), userId, date },
-    });
+    // Part 8: several sessions per day are allowed — continue the ACTIVE one.
+    const active =
+      (await tx.workout.findFirst({
+        where: { userId, date, removedAt: null, finishedAt: null },
+        orderBy: { createdAt: "desc" },
+      })) ??
+      (await tx.workout.create({ data: { id: uuid7(), userId, date } }));
+    const w = active;
     await tx.workout.update({
       where: { id: w.id },
       data: {
@@ -607,9 +682,64 @@ export async function finishWorkout(userId: string, workoutId: string) {
     where: { id: w.id },
     data: { finishedAt, endAt: w.endAt ?? finishedAt },
   });
+  // Part 8 §6.3: evaluate progression rules for sessions sourced from a routine.
+  await evaluateWorkoutProgression(userId, w.id);
   const refreshed = await db.workout.findUnique({ where: { id: w.id } });
   const { advanced, nextDay } = await tryAdvanceForWorkout(userId, refreshed!, { forceFinishPath: true });
   return { workoutId: w.id, finishedAt: finishedAt.toISOString(), advanced, nextDay };
+}
+
+/**
+ * §6.3 — on Finish of a session sourced from that routine: evaluate each
+ * exercise's rule against its target reps, write ProgressionState. Undo via
+ * the finish-undo window reverts nothing here (state is idempotent by design;
+ * the next evaluation overwrites).
+ */
+async function evaluateWorkoutProgression(userId: string, workoutId: string) {
+  const w = await db.workout.findFirst({
+    where: { id: workoutId, userId },
+    include: {
+      exercises: { include: { sets: { orderBy: { sortOrder: "asc" } }, exercise: true } },
+      sourceDay: { include: { exercises: { include: { sets: true } } } },
+    },
+  });
+  if (!w?.sourceDay) return;
+  const settings = await db.userSettings.findUnique({ where: { userId } });
+  for (const we of w.exercises) {
+    const re = w.sourceDay!.exercises.find((r) => r.exerciseId === we.exerciseId);
+    if (!re) continue;
+    const rule = await db.progressionRule.findUnique({ where: { routineExerciseId: re.id } });
+    if (!rule || rule.type === "NONE") continue;
+    const prev = await db.progressionState.findUnique({ where: { routineExerciseId: re.id } });
+    const plateStep = we.exercise.weightIncrement ?? settings?.defaultWeightIncrement ?? 2.5;
+    const performed = we.sets
+      .filter((s) => s.setType !== "WARMUP")
+      .map((s) => ({
+        weight: s.weight,
+        reps: s.reps,
+        // target = the template reps at the same index (blank → performed reps)
+        targetReps: re.sets.find((tpl) => tpl.sortOrder === s.sortOrder)?.reps ?? null,
+        isComplete: s.isComplete,
+      }));
+    const ruleLike: ProgressionRuleLike = {
+      type: rule.type as "LINEAR" | "DOUBLE" | "NONE",
+      increment: rule.increment,
+      unit: rule.unit,
+      condition: rule.condition as "ALL_SETS_HIT" | "LAST_SET_HIT",
+      failStreakForDeload: rule.failStreakForDeload,
+      deloadPct: rule.deloadPct,
+    };
+    const prevLike: ProgressionStateLike = {
+      nextWeightDelta: prev?.nextWeightDelta ?? 0,
+      failStreak: prev?.failStreak ?? 0,
+    };
+    const next = evaluateProgression(ruleLike, performed, prevLike, plateStep);
+    await db.progressionState.upsert({
+      where: { routineExerciseId: re.id },
+      create: { id: uuid7(), userId, routineExerciseId: re.id, ...next },
+      update: next,
+    });
+  }
 }
 
 /** Undo within the 10s window: revert finishedAt and (best-effort) the cursor. */
@@ -1323,13 +1453,13 @@ export async function toggleDayFavourite(userId: string, routineId: string, dayI
 
 /**
  * GET /api/programs/:id/totals (§4.5 TotalsRow). From workouts with
- * sourceRoutineId = this program; discarded and deleted workouts excluded;
+ * sourceRoutineId = this program; removed workouts excluded;
  * warm-up sets excluded (acceptance: "totals excludes discarded/warmups").
  */
 export async function getProgramTotals(userId: string, routineId: string): Promise<ProgramTotalsDTO> {
   await loadOwnedRoutine(userId, routineId);
   const workouts = await db.workout.findMany({
-    where: { userId, sourceRoutineId: routineId, deletedAt: null, discardedAt: null },
+    where: { userId, sourceRoutineId: routineId, removedAt: null },
     include: { exercises: { include: { sets: true } } },
   });
   let setsLogged = 0;

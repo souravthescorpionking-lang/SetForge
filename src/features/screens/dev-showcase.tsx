@@ -2,7 +2,7 @@
 
 // Screen slot — #/dev
 // Part 3 component showcase (the spec's Storybook substitute): the single
-// source of truth SetRow + ExerciseCard across every mode, modality, state and
+// source of truth SetRow + GroupCard across every mode, modality, state and
 // viewport. STATIC demo data only (no API) — every interactive action
 // console.log's the CardAction so smoke tests can verify wiring.
 
@@ -10,18 +10,19 @@ import { useCallback, useState, type ReactNode } from "react";
 import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
-import { ExerciseCard, toCardSet } from "@/components/exercise-card/exercise-card";
-import type { CardAction, CardExercise, CardSet } from "@/components/exercise-card/exercise-card";
+import { SoloCard } from "@/components/group-card";
+import { toCardSet } from "@/components/group-card";
+import { CardAction, CardExercise, CardSet } from "@/components/group-card";
 import { useApp } from "@/lib/client/store";
 import { registerScreen } from "@/lib/tour/register";
 
 // Part 7 LAW 2 — the screen's tour/help contract (harvested by tour:gen).
-// This slot IS the screen (no feature re-export); the shared ExerciseCard and
+// This slot IS the screen (no feature re-export); the shared GroupCard and
 // SetRow components contribute their own exerciseCard.* / setRow.* steps.
 const SCREEN = registerScreen({
   id: "dev",
   title: "Dev showcase",
-  purpose: "Component showcase: ExerciseCard and SetRow in every mode and state.",
+  purpose: "Component showcase: GroupCard and SetRow in every mode and state.",
 });
 void SCREEN;
 
@@ -307,7 +308,7 @@ export default function DevShowcaseScreen() {
     >
       <ScrollBody>
         <SectionTitle>Edit mode — weighted · all set types · PR · note</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="edit"
           exercise={BENCH}
           sets={bench.sets}
@@ -317,7 +318,7 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Read mode — collapsed default (tap chevron)</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="read"
           exercise={SQUAT}
           sets={squat.sets}
@@ -327,7 +328,7 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Preview mode — copy / log-day (select sets)</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="preview"
           exercise={DEADLIFT}
           sets={deadlift.sets}
@@ -337,7 +338,7 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Template mode — routine editor (blank = ↺ copy-last)</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="template"
           exercise={INCLINE_DB}
           sets={incline.sets}
@@ -347,7 +348,7 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Grouped — superset (group colour + chip)</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="edit"
           exercise={BENCH}
           sets={groupBench.sets}
@@ -357,7 +358,7 @@ export default function DevShowcaseScreen() {
           groupName="Superset"
           onAction={groupBench.onAction}
         />
-        <ExerciseCard
+        <SoloCard
           mode="edit"
           exercise={BARBELL_ROW}
           sets={groupRow.sets}
@@ -369,7 +370,7 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Modalities — distance/time · time-only · reps-only</SectionTitle>
-        <ExerciseCard
+        <SoloCard
           mode="edit"
           exercise={RUNNING}
           sets={run.sets}
@@ -377,7 +378,7 @@ export default function DevShowcaseScreen() {
           visibleColumns={ALL_COLS}
           onAction={run.onAction}
         />
-        <ExerciseCard
+        <SoloCard
           mode="edit"
           exercise={PLANK}
           sets={plank.sets}
@@ -385,7 +386,7 @@ export default function DevShowcaseScreen() {
           visibleColumns={ALL_COLS}
           onAction={plank.onAction}
         />
-        <ExerciseCard
+        <SoloCard
           mode="read"
           exercise={CURLS}
           sets={curls.sets}
@@ -394,10 +395,10 @@ export default function DevShowcaseScreen() {
         />
 
         <SectionTitle>Summary mode — dense lists (desktop grid)</SectionTitle>
-        <div className="grid gap-3 lg:grid-cols-3">
-          <ExerciseCard mode="summary" exercise={BENCH} sets={summaryBench} onAction={summaryAction} />
-          <ExerciseCard mode="summary" exercise={RUNNING} sets={summaryRun} onAction={summaryAction} />
-          <ExerciseCard mode="summary" exercise={PLANK} sets={summaryPlank} onAction={summaryAction} />
+        <div className="grid gap-3 grid-cols-1">
+          <SoloCard mode="summary" exercise={BENCH} sets={summaryBench} onAction={summaryAction} />
+          <SoloCard mode="summary" exercise={RUNNING} sets={summaryRun} onAction={summaryAction} />
+          <SoloCard mode="summary" exercise={PLANK} sets={summaryPlank} onAction={summaryAction} />
         </div>
       </ScrollBody>
     </Screen>

@@ -6,16 +6,34 @@ body measurements and routines — with strict per-account data isolation.
 **Stack**: Next.js 16 (App Router) · TypeScript strict · Prisma (SQLite or Postgres) ·
 Tailwind CSS 4 + shadcn/ui · TanStack Query · Zod 4 · custom credentials auth.
 
-**Feature map**: today-session with guided mode (round-robin superset pointer, rest ring,
-video panel) · program hub (routines & sessions, difficulty/phase metadata, follow +
-cursor, program builder with phases/weekly templates) · exercise picker + 407-entry
-library catalog (filters, favourites, adopt) · training dictionary (25 terms) ·
-calendar + schedule (time-of-day, missed-day derivation) · history with weight tables ·
-body metrics (track/history/graph) with progress photos (4 slots per record) and an
-A/B photo compare screen · insights/records/stats/goals · tools (1RM, plates, interval
-timer) · profile hub + 6-step onboarding · **self-generating tour system: welcome
-tour, per-screen guided tours, contextual hints, generated Help page and
-shortcuts (`bun run tour:gen` harvests inline `tourAttrs`/`tour` declarations —
+**Part 8 — phone-only redesign**: the app is now a **single 480px centered column**
+(no desktop two-pane). 3 tabs — **Workout · Dashboard · More** — plus a
+date/calendar entry (📅) on the listed screens and a gated Logging screen
+(`#/session`, reachable only via Start/Continue). One **GroupCard** renders every
+exercise everywhere (groups get letter codes A1/A2…, Superset/Triset/Giant-set
+labels, 12px intra-group gaps, 16px+1px-divider between groups); one **SetRow**
+with per-exercise column visibility. Feature upgrades: auto session mode
+(guided vs free), warm-up generator (Standard/Light/custom % ramps), progression
+rules (linear/double/deload evaluated on Finish), %1RM prescriptions with
+copy-last fallback, transition rest between groups, 7-day body-weight average,
+photo timeline scrub, single remove semantics (`removedAt`/`removeReason` +
+Removed items UI), inline `<Term>` dictionary popovers, onboarding-driven
+template matrix (auto-follow with Undo), scheduled backups (local target),
+mode presets (Simple/Standard/Power).
+
+**Feature map**: workout tab (program card: none/following/rest/in-progress) ·
+dashboard (today card, upcoming, week dots, body trend, records) · workout logs
+(month sections, search, multi-session days, repeat/delete-with-undo) ·
+programs (view-only list + day-accordion detail with GroupCards) · on-demand
+sessions · workout library (407-entry catalog, filters, favourites, adopt) ·
+builder hub + program/session editors + sets editor (weight kinds, warm-up,
+progression) · calendar + schedule (time-of-day, missed-day derivation) ·
+session logging with guided pointer (round-robin), rest bar/ring, transition
+rest · body metrics (track/timeline/history/graph) with progress photos and
+A/B compare · insights/records/stats/goals · tools (1RM, plates, interval
+timer) · profile · **self-generating tour system: welcome tour, per-screen
+guided tours, contextual hints, generated Help page and shortcuts
+(`bun run tour:gen` harvests inline `tourAttrs`/`tour` declarations —
 see CONTRIBUTING.md "UI = Tour")** · offline outbox sync, PWA install,
 notifications, haptics, light/dark themes.
 

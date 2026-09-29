@@ -6,8 +6,7 @@
 //
 // The scrolling element carries data-scroll-body (used by the QA harness,
 // scripts/qa/verify-layout.sh, to check scroll-top and scroll-bottom states).
-// The inner wrapper centers a content column: max 720px on mobile/tablet,
-// 1100px + wider gutters on desktop (lg).
+// The inner wrapper centers the Part 8 phone column: max 480px at every width.
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -28,7 +27,7 @@ export function ScrollBody({ children, className, contentClassName }: ScrollBody
     >
       <div
         className={cn(
-          "mx-auto w-full max-w-[720px] flex-col gap-3 px-4 py-4 lg:max-w-[1100px] lg:px-6",
+          "mx-auto w-full max-w-[480px] flex-col gap-3 px-4 py-4",
           contentClassName,
         )}
       >

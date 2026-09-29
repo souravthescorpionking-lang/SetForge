@@ -146,7 +146,7 @@ export function BodyGraphTab({ measurements }: { measurements: MeasurementDTO[] 
     return (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-12 w-full rounded-lg" />
-        <Skeleton className="h-[240px] w-full rounded-lg lg:h-[360px]" />
+        <Skeleton className="h-[240px] w-full rounded-lg" />
         <Skeleton className="h-18 w-full rounded-lg" />
       </div>
     );
@@ -209,7 +209,7 @@ export function BodyGraphTab({ measurements }: { measurements: MeasurementDTO[] 
       </div>
 
       {/* Chart box — fixed height; charts may scale internally (allowed exemption) */}
-      <div className="flex h-[240px] flex-none items-center justify-center overflow-hidden rounded-lg border bg-card p-2 lg:h-[360px]">
+      <div className="flex h-[240px] flex-none items-center justify-center overflow-hidden rounded-lg border bg-card p-2">
         {points.length === 0 ? (
           <p className="px-4 text-center text-sm text-muted-foreground">
             No data to chart for {measurement.name} yet

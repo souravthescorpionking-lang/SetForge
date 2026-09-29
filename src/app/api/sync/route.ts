@@ -17,9 +17,9 @@ export const GET = handler(async (req: NextRequest) => {
   // converge the program cursor before pulling (REST catch-up, midnight rules)
   await applyProgramRules(user.id);
 
-  const [workouts, measurementRecords, exercises, scheduleEntries, activeRoutine, userProfile, dailyCalories] = await Promise.all([
+  const [workouts, measurementRecords, exercises, scheduleEntries, activeRoutine, userProfile] = await Promise.all([
     db.workout.findMany({
-      where: { userId: user.id, updatedAt: { gt: since }, deletedAt: null },
+      where: { userId: user.id, updatedAt: { gt: since }, removedAt: null },
       include: workoutInclude,
       orderBy: { updatedAt: "asc" },
     }),
@@ -38,10 +38,6 @@ export const GET = handler(async (req: NextRequest) => {
     }),
     db.activeRoutine.findUnique({ where: { userId: user.id }, include: { routine: true } }),
     db.userProfile.findUnique({ where: { userId: user.id } }),
-    db.dailyCalories.findMany({
-      where: { userId: user.id, updatedAt: { gt: since } },
-      orderBy: { updatedAt: "asc" },
-    }),
   ]);
 
   return {
@@ -79,10 +75,5 @@ export const GET = handler(async (req: NextRequest) => {
           onboardingCompletedAt: userProfile.onboardingCompletedAt?.toISOString() ?? null,
         }
       : null,
-    dailyCalories: dailyCalories.map((c) => ({
-      date: c.date.toISOString().slice(0, 10),
-      kcal: c.kcal,
-      note: c.note ?? null,
-    })),
   };
 });

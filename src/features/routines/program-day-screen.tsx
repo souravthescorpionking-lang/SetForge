@@ -7,7 +7,7 @@
 //                  ⋮ (Open in program · Schedule…)
 //   ScrollBody   : DayHeaderBlock 96 (DurationRing 56 "~45m" · muscle chips ·
 //                  `6 exercises · 18 sets`) → DayActionRow 48 (shared §4.5
-//                  component) → ExerciseCard×N mode="template" (groupCode
+//                  component) → GroupCard×N mode="template" (groupCode
 //                  chips; set edits persist immediately — the same renderer
 //                  the program detail day body uses) → dashed
 //                  "Add exercise to day" 40px row.
@@ -54,8 +54,8 @@ import {
 import { todayKey, addDaysKey } from "@/lib/client/format";
 import { computeGroupCodes } from "@/lib/group-codes";
 import { DatePickerDialog, useScheduleCreate } from "@/features/schedule/schedule-shared";
-import type { CardAction, CardSet, CardVisibleColumns } from "@/components/exercise-card/exercise-card";
-import { ExerciseCard } from "@/components/exercise-card/exercise-card";
+import { CardAction, CardSet, CardVisibleColumns } from "@/components/group-card";
+import { SoloCard } from "@/components/group-card";
 import type { RoutineDayDTO, RoutineExerciseDTO } from "@/lib/types";
 import {
   DragGlyph,
@@ -543,7 +543,7 @@ function ProgramDayInner({ routineId, dayId }: { routineId: string; dayId: strin
               const openNotes = notesReId === re.id;
               return (
                 <div key={re.id} className="relative flex-none">
-                  <ExerciseCard
+                  <SoloCard
                     mode="template"
                     exercise={toCardExercise(re, settings)}
                     sets={cardSetsOf(re)}

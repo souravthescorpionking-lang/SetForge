@@ -1199,12 +1199,6 @@ export function DisplaySection() {
         checked={settings.showThumbnails}
         onCheckedChange={(v) => patch({ showThumbnails: v })}
       />
-      <SwitchRow
-        label="Calories card"
-        hint="Home · manual kcal logging"
-        checked={settings.showCaloriesCard}
-        onCheckedChange={(v) => patch({ showCaloriesCard: v })}
-      />
     </>
   );
 }
@@ -1338,4 +1332,249 @@ export function ToursSection() {
       </AlertDialog>
     </section>
   );
+}
+
+// ── Part 8 §5: Mode presets ──────────────────────────────────────────────────
+
+const PRESETS = [
+  { value: "SIMPLE", label: "Simple", hint: "Weight · reps · done. Rest bar, no RPE/tempo." },
+  { value: "STANDARD", label: "Standard", hint: "Adds the rest column, tempo rows and hints." },
+  { value: "POWER", label: "Power", hint: "RPE, set types, guided pointer, progression prompts." },
+] as const;
+
+/** §5 Mode section: preset segmented row (48px) + description. A preset write
+ *  fans out into the individual switches (settings-service) — users can still
+ *  change anything under Advanced. */
+export function ModeSection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  if (!settings) return null;
+  const active = (settings.preset ?? "STANDARD") as string;
+  const current = PRESETS.find((p) => p.value === active) ?? PRESETS[1];
+  return (
+    <section aria-label="Mode" className="flex flex-col">
+      <SectionHeader title="Mode" />
+      <div
+        data-row
+        className="flex h-12 items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card p-1"
+        role="radiogroup"
+        aria-label="Mode preset"
+      >
+        {PRESETS.map((p) => {
+          const selected = p.value === active;
+          return (
+            <button
+              key={p.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              {...(p.value === "SIMPLE"
+                ? { "data-tour-id": "settings.presetSimple" }
+                : p.value === "STANDARD"
+                  ? { "data-tour-id": "settings.presetStandard" }
+                  : { "data-tour-id": "settings.presetPower" })}
+              onClick={() => {
+                void updateSettings({ preset: p.value }).catch(() => undefined);
+              }}
+              className={cn(
+                "h-10 flex-1 rounded-md text-sm font-semibold transition-colors",
+                selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="px-1 pt-2 text-xs leading-relaxed text-muted-foreground">{current.hint} Individual switches live under Advanced.</p>
+    </section>
+  );
+}
+
+// ── Part 8 §6.12: Reminders / notifications section ──────────────────────────
+
+export function NotificationsSection() {
+  const settings = useApp((s) => s.settings);
+  const updateSettings = useApp((s) => s.updateSettings);
+  if (!settings) return null;
+  const patch = (p: Partial<SettingsDTO>) => {
+    void updateSettings(p).catch(() => undefined);
+  };
+  return (
+    <section aria-label="Reminders" className="flex flex-col">
+      <SectionHeader title="Reminders" />
+      <SwitchRow
+        label="Scheduled sessions"
+        hint="Notify at a scheduled session's time"
+        checked={settings.notifScheduled ?? false}
+        onCheckedChange={(v) => patch({ notifScheduled: v })}
+      />
+      <SwitchRow
+        label="Missed-day nudge"
+        hint="Next-morning nudge, max once a week"
+        checked={settings.notifMissedDay ?? false}
+        onCheckedChange={(v) => patch({ notifMissedDay: v })}
+      />
+      <SwitchRow
+        label="PR celebration"
+        hint="In-app toast (and OS notification when allowed)"
+        checked={settings.notifPr ?? true}
+        onCheckedChange={(v) => patch({ notifPr: v })}
+      />
+    </section>
+  );
+}
+
+// ── Part 8 §6.9: Removed items (single remove semantics) ─────────────────────
+
+/** Backup & data → Removed items: every removed workout with Restore /
+ *  Delete permanently (30-day auto-purge is server-side policy). */
+export function RemovedItemsSection() {
+  const invalidate = useInvalidate();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [purgeId, setPurgeId] = useState<string | null>(null);
+  const { data, isLoading } = useRemovedWorkouts();
+  const rows = data?.workouts ?? [];
+
+  const restore = async (id: string) => {
+    setBusy(id);
+    try {
+      await workoutLifecycleApi.restore(id);
+      toast.success("Session restored");
+      invalidate.all();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const purge = async (id: string) => {
+    setBusy(id);
+    try {
+      await workoutLifecycleApi.purge(id);
+      toast.success("Deleted permanently");
+      invalidate.all();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setBusy(null);
+      setPurgeId(null);
+    }
+  };
+
+  return (
+    <section aria-label="Removed items" className="flex flex-col">
+      <SectionHeader title={`Removed items${rows.length > 0 ? ` · ${rows.length}` : ""}`} />
+      {isLoading ? (
+        <Skeleton className="h-14 w-full rounded-lg" />
+      ) : rows.length === 0 ? (
+        <ValueRow label="Nothing removed" value="—" />
+      ) : (
+        rows.map((w) => (
+          <Row
+            key={w.id}
+            label={new Date(w.date).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+            hint={`${w.exerciseCount} exercises · ${w.removeReason === "DISCARDED_SESSION" ? "Discarded" : "Deleted"}`}
+            control={
+              <span className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 px-3 text-sm"
+                  disabled={busy === w.id}
+                  onClick={() => void restore(w.id)}
+                >
+                  {busy === w.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : "Restore"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 px-3 text-sm text-destructive"
+                  disabled={busy === w.id}
+                  onClick={() => setPurgeId(w.id)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </span>
+            }
+          />
+        ))
+      )}
+      <AlertDialog open={purgeId != null} onOpenChange={(o) => !o && setPurgeId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the session and its sets for good. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => purgeId && void purge(purgeId)}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </section>
+  );
+}
+
+// ── Part 8 §6.8: backup runs ─────────────────────────────────────────────────
+
+/** Last run + Run now (local target). Scheduled cadence is server-side. */
+export function BackupRunsSection() {
+  const invalidate = useInvalidate();
+  const [running, setRunning] = useState(false);
+  const { data } = useBackupRuns();
+  const last = data?.runs?.[0] ?? null;
+
+  const runNow = async () => {
+    setRunning(true);
+    try {
+      const res = await backupApi.runNow();
+      toast.success(`Backup complete — ${(res.run.bytes ?? 0).toLocaleString()} bytes`);
+      invalidate.all();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Backup failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <section aria-label="Scheduled backup" className="flex flex-col">
+      <SectionHeader title="Scheduled backup" />
+      <ValueRow
+        label="Last run"
+        value={
+          last
+            ? `${new Date(last.at).toLocaleString()} · ${last.status}${last.bytes != null ? ` · ${(last.bytes / 1024).toFixed(1)} kB` : ""}`
+            : "Never"
+        }
+        valueClassName="max-w-[220px] truncate"
+      />
+      <ActionRow
+        label="Run backup now"
+        hint="Exports your JSON backup"
+        disabled={running}
+        onClick={() => void runNow()}
+        trailing={running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
+      />
+    </section>
+  );
+}
+
+// local hooks (kept private to this module)
+import { useQuery } from "@tanstack/react-query";
+import { workoutLifecycleApi, backupApi } from "@/lib/client/api";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { RemovedWorkoutDTO } from "@/lib/types";
+import type { BackupRunDTO } from "@/lib/client/api";
+
+function useRemovedWorkouts() {
+  return useQuery({ queryKey: ["workouts", "removed"], queryFn: () => workoutLifecycleApi.hidden() });
+}
+
+function useBackupRuns() {
+  return useQuery({ queryKey: ["backup", "runs"], queryFn: () => backupApi.runs() });
 }

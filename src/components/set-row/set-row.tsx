@@ -62,7 +62,7 @@ import {
   type CardMode,
   type CardSet,
   type CardVisibleColumns,
-} from "../exercise-card/card-types";
+} from "../group-card/group-types";
 
 // ---------- grid engine ----------
 
@@ -115,7 +115,7 @@ function buildGrid(
 
   // `done` never applies to routine templates → track removed.
   if (mode !== "template") push("done", `${TRACK.done}px`);
-  if (mode === "edit" || mode === "template") push("more", `${TRACK.more}px`);
+  if (mode === "log" || mode === "edit" || mode === "template") push("more", `${TRACK.more}px`);
   else if (moreTrack) push("more", `${TRACK.more}px`);
 
   return { keys, template: parts.join(" ") };
@@ -1100,7 +1100,7 @@ export interface SetRowProps {
   set: CardSet;
   visibleColumns: CardVisibleColumns;
   /**
-   * read/preview: whether the card shows the more track (ExerciseCard computes
+   * read/preview: whether the card shows the more track (GroupCard computes
    * "any set has a PR/note"). Standalone default: this set has a PR/note.
    */
   moreTrack?: boolean;
@@ -1108,6 +1108,8 @@ export interface SetRowProps {
   onAction?: (action: CardAction) => void;
   /** §4.10e tempo presets ("2-0-2-0"…) shown as chips in the tempo editors. */
   tempoPresets?: string[];
+  /** Part 8 §2.4: guided pointer — 3px accent bar inside the row, left. */
+  current?: boolean;
   className?: string;
 }
 
@@ -1119,11 +1121,12 @@ export function SetRow({
   moreTrack,
   onAction,
   tempoPresets,
+  current = false,
   className,
 }: SetRowProps) {
   const vw = useViewportWidth();
   const fields = useMemo(() => fieldsForType(exercise.modality), [exercise.modality]);
-  const editable = onAction != null && (mode === "edit" || mode === "template" || mode === "preview");
+  const editable = onAction != null && (mode === "log" || mode === "edit" || mode === "template" || mode === "preview");
   const effectiveMoreTrack =
     moreTrack ?? (mode === "read" || mode === "preview" ? !!(set.isNewPr || set.note) : true);
   const grid = useMemo(
@@ -1134,8 +1137,8 @@ export function SetRow({
   // rpe/tempo editors move into the more ⋯ popover below the wide threshold
   const rpeDropped = visibleColumns.rpe && vw < WIDE_VIEWPORT;
   const tempoDropped = visibleColumns.tempo && vw < WIDE_VIEWPORT;
-  const typeEditable = editable && (mode === "edit" || mode === "template");
-  const moreEditable = editable && (mode === "edit" || mode === "template");
+  const typeEditable = editable && (mode === "log" || mode === "edit" || mode === "template");
+  const moreEditable = editable && (mode === "log" || mode === "edit" || mode === "template");
 
   const cells: Record<TrackKey, ReactNode> = {
     index: <IndexCell set={set} mode={mode} onAction={editable ? onAction : undefined} />,
@@ -1185,13 +1188,20 @@ export function SetRow({
     ),
   };
 
+  const tall = mode === "log" || mode === "read";
   return (
     <div
       data-row
       role="group"
       aria-label={`Set ${set.index}`}
-      className={cn(rowGrid, rowTint(set), className)}
-      style={{ gridTemplateColumns: grid.template }}
+      aria-current={current ? "true" : undefined}
+      className={cn(rowGrid, tall && "h-12", rowTint(set), current && "relative", className)}
+      style={{
+        gridTemplateColumns: grid.template,
+        ...(current
+          ? { boxShadow: "inset 3px 0 0 0 var(--primary)" }
+          : undefined),
+      }}
     >
       {grid.keys.map((key) => (
         <div

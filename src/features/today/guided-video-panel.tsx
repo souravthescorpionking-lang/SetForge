@@ -2,7 +2,7 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GuidedVideoPanel — §4.11 item 7: while guided mode is on and the CURRENT
-// exercise has a videoUrl, its ExerciseCard renders this block in the
+// exercise has a videoUrl, its GroupCard renders this block in the
 // underHeader flow slot — a 40px toggle row + <MediaBlock videoUrl height={180}>
 // (MediaBlock itself collapses to 0px when videoUrl is null, and the whole
 // panel is only mounted when settings.showVideoPanel is on — both gates live

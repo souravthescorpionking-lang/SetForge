@@ -1,8 +1,8 @@
-// Part 3 layout primitives — barrel export.
+// Part 8 layout primitives — barrel export (phone-only).
 // Laws: bars are plain flex siblings (never fixed/absolute); the ScrollBody is
 // the only vertical scroll container on any screen; heights are fixed
-// (TopBar/SubBar/BottomBar/NavBar = 56/48/56/64px); content column is centered
-// (720px → 1100px at lg). See src/lib/ui/tokens.ts for the value contract.
+// (TopBar/SubBar/BottomBar/NavBar = 56/48/56/64px); the content column is a
+// centered max-width 480px phone column. See src/lib/ui/tokens.ts.
 
 export { Screen } from "./screen";
 export type { ScreenProps } from "./screen";
@@ -20,9 +20,6 @@ export { BottomBar } from "./bottom-bar";
 export type { BottomBarProps } from "./bottom-bar";
 
 export { NavBar } from "./nav-bar";
-
-export { NavPane } from "./nav-pane";
-export type { NavPaneProps } from "./nav-pane";
 
 export { TopBarHelp, TOURHELP_DECL } from "./top-bar-help";
 

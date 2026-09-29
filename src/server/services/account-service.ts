@@ -12,7 +12,7 @@ import type { BackupDTO } from "@/lib/types";
 // ---------- export ----------
 
 export async function exportBackup(userId: string): Promise<BackupDTO> {
-  const [user, settings, categories, exercises, workouts, routines, measurements, plates, goals, profile, calories, photos] = await Promise.all([
+  const [user, settings, categories, exercises, workouts, routines, measurements, plates, goals, profile, photos] = await Promise.all([
     db.user.findUnique({ where: { id: userId } }),
     db.userSettings.findUnique({ where: { userId } }),
     db.category.findMany({ where: { userId }, orderBy: { sortOrder: "asc" } }),
@@ -47,7 +47,6 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
     db.goal.findMany({ where: { userId }, include: { exercise: true } }),
     // ---- Part 6 ----
     db.userProfile.findUnique({ where: { userId } }),
-    db.dailyCalories.findMany({ where: { userId }, orderBy: { date: "asc" } }),
     db.progressPhoto.findMany({
       where: { userId },
       orderBy: { createdAt: "asc" },
@@ -100,8 +99,14 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       showMaxWeightBar: settings.showMaxWeightBar,
       calendarStyle: settings.calendarStyle,
       tempoPresets: jsonStringArray(settings.tempoPresets).length > 0 ? jsonStringArray(settings.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],
-      showCaloriesCard: settings.showCaloriesCard,
       showThumbnails: settings.showThumbnails,
+      // ---- Part 8 ----
+      preset: settings.preset,
+      sessionMode: settings.sessionMode,
+      defaultTransitionRestSec: settings.defaultTransitionRestSec,
+      notifScheduled: settings.notifScheduled,
+      notifMissedDay: settings.notifMissedDay,
+      notifPr: settings.notifPr,
       // ---- Part 7: tour system ----
       showTours: settings.showTours,
       showHints: settings.showHints,
@@ -125,6 +130,11 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       defaultSetType: e.defaultSetType ?? null,
       defaultRpeTarget: e.defaultRpeTarget ?? null,
       defaultTempo: e.defaultTempo ?? null,
+      // ---- Part 8 ----
+      showRpe: e.showRpe,
+      showTempo: e.showTempo,
+      showRest: e.showRest,
+      transitionRestSec: e.transitionRestSec ?? null,
     })),
     workouts: workouts.map((w) => {
       const groupById = new Map(w.groups.map((g) => [g.id, g.name]));
@@ -227,11 +237,6 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
           daysPerWeekTarget: profile.daysPerWeekTarget ?? null,
         }
       : null,
-    calories: calories.map((c) => ({
-      date: c.date.toISOString().slice(0, 10),
-      kcal: c.kcal,
-      note: c.note ?? null,
-    })),
     photos: photos.map((p) => ({
       measurementName: p.measurementRecord.measurement.name,
       recordDate: p.measurementRecord.recordedAt.toISOString(),
@@ -335,7 +340,6 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
       await tx.goal.deleteMany({ where: { userId } });
       // ---- Part 6 ----
       await tx.progressPhoto.deleteMany({ where: { userId } });
-      await tx.dailyCalories.deleteMany({ where: { userId } });
     });
   }
 
@@ -344,7 +348,7 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
 
   for (const w of backup.workouts) {
     const date = toDayUtc(w.date);
-    const exists = await db.workout.findUnique({ where: { userId_date: { userId, date } } });
+    const exists = await db.workout.findFirst({ where: { userId, date }, orderBy: { createdAt: "desc" } });
     if (exists && mode === "merge") continue; // keep existing day, skip duplicates
     if (exists && mode === "replace") continue; // replaced above; skip
 
@@ -446,7 +450,7 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
     for (const exerciseId of touchedExercises) await recomputePRs(tx, userId, exerciseId);
   });
 
-  // ---- Part 6: profile + calories (photos export as a keys list only; not re-importable) ----
+  // ---- Part 6: profile (photos export as a keys list only; not re-importable) ----
   if (backup.profile) {
     await db.userProfile.upsert({
       where: { userId },
@@ -470,16 +474,9 @@ export async function importBackup(userId: string, mode: "replace" | "merge", da
       },
     });
   }
-  if (backup.calories && backup.calories.length > 0) {
-    for (const c of backup.calories.slice(0, 2000)) {
-      const date = toDayUtc(c.date);
-      await db.dailyCalories.upsert({
-        where: { userId_date: { userId, date } },
-        create: { id: uuid7(), userId, date, kcal: c.kcal, note: c.note ?? null },
-        update: mode === "replace" ? { kcal: c.kcal, note: c.note ?? null } : {},
-      });
-    }
-  }
+  // Part 8 §4: DailyCalories was dropped. Old backups still carry a `calories`
+  // array — accepted by the schema for compatibility but no longer imported
+  // (calorie data was exported at migration time; see scripts/migrate-part8.ts).
 
   return { ok: true, importedWorkouts: createdWorkouts.length };
 }

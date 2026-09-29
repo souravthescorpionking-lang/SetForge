@@ -1,0 +1,1379 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// ProgramsScreen — #/programs (Part 5 list + Part 6 §4.4/§4.8 catalog).
+     5→//
+     6→//   TopBar (56)  : "Programs" · `+` DropdownMenu → New routine · New session ·
+     7→//                  Program builder (§6 stub route) · Session from today's
+     8→//                  workout · `⋮ Dictionary` (Sessions tab only, §4.8) ·
+     9→//                  `Select`⇄`Done` (Routines tab, §4.4 multi-delete)
+    10→//   SubBar (48)  : ROUTINES tab → tabs `Routines | Sessions` (?tab= deep link)
+    11→//                  SESSIONS tab → search input + 44px "Routines" back chip
+    12→//                  (§4.8: the SubBar becomes the search row while browsing
+    13→//                  the sessions catalog)
+    14→//   ScrollBody   : ROUTINES — ChipRow 40 (All · Beginner · Intermediate ·
+    15→//                  Advanced · Favourites · Labels ▾ [+ multi-select row]) ·
+    16→//                  section headers 32 per difficulty (All view; uncategorised
+    17→//                  last) · 72px RoutineRows (name / §4.4 meta line |
+    18→//                  Follow 96px · favourite star 44px · ⋮) · desktop 2-col grid
+    19→//                  SESSIONS — ChipRow 40 (All · Favourites · Mine · ≤20/40/60m
+    20→//                  · Muscle ▾ · Equipment ▾ · Labels ▾) · 72px SessionRows
+    21→//                  (name / `~30 min · 5 exercises · Chest, Triceps` + dots |
+    22→//                  Start 72px · star · ⋮ Schedule/History/Mark off/Edit/Copy/
+    23→//                  Delete)
+    24→//   BottomBar    : Select mode only — destructive `Delete {n}` (AlertDialog
+    25→//                  confirm; Esc or `Done` exits select mode)
+    26→//
+    27→// All Part 5 behaviours (create/copy/delete, follow + replace confirm,
+    28→// session start, schedule picker, session-from-workout dialog) are intact.
+    29→// Metadata (difficulty/phases/daysPerWeek/estMinutes/highlights/isFavorite/
+    30→// labels) is joined from routinesApi.list() — null-safe: agent 6-c0 seeds it
+    31→// in parallel and the UI degrades to the used-ago line without it.
+    32→// ─────────────────────────────────────────────────────────────────────────────
+    33→
+    34→import { useEffect, useMemo, useState, Fragment } from "react";
+    35→import { useQuery, useQueryClient } from "@tanstack/react-query";
+    36→import { Screen, TopBar, SubBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+    37→import { tourAttrs } from "@/lib/tour/attrs";
+    38→import { Button } from "@/components/ui/button";
+    39→import { Checkbox } from "@/components/ui/checkbox";
+    40→import { Input } from "@/components/ui/input";
+    41→import {
+    42→  DropdownMenu,
+    43→  DropdownMenuContent,
+    44→  DropdownMenuItem,
+    45→  DropdownMenuTrigger,
+    46→} from "@/components/ui/dropdown-menu";
+    47→import {
+    48→  AlertDialog,
+    49→  AlertDialogAction,
+    50→  AlertDialogCancel,
+    51→  AlertDialogContent,
+    52→  AlertDialogDescription,
+    53→  AlertDialogFooter,
+    54→  AlertDialogHeader,
+    55→  AlertDialogTitle,
+    56→} from "@/components/ui/alert-dialog";
+    57→import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+    58→import {
+    59→  BookOpen,
+    60→  CalendarClock,
+    61→  Check,
+    62→  CheckCircle2,
+    63→  ChevronDown,
+    64→  ChevronLeft,
+    65→  Copy,
+    66→  Dumbbell,
+    67→  Hammer,
+    68→  History,
+    69→  Layers,
+    70→  ListChecks,
+    71→  MoreVertical,
+    72→  Pencil,
+    73→  Play,
+    74→  Plus,
+    75→  Search,
+    76→  Star,
+    77→  Trash2,
+    78→} from "lucide-react";
+    79→import { toast } from "sonner";
+    80→import { cn } from "@/lib/utils";
+    81→import { useApp } from "@/lib/client/store";
+    82→import { programsApi, programsMetaApi, routinesApi } from "@/lib/client/api";
+    83→import { qk, useDashboard, useInvalidate, useOnline, usePrograms, useWorkoutByDate } from "@/lib/client/query";
+    84→import { queueMutation } from "@/lib/client/offline";
+    85→import type { ProgramSummaryDTO, RoutineDTO, RoutineDayDTO } from "@/lib/types";
+    86→import { MUSCLE_LABELS, DIFFICULTIES, type Muscle } from "@/lib/constants";
+    87→import { todayKey } from "@/lib/client/format";
+    88→import { MuscleDots } from "@/components/shared/muscle-dots";
+    89→import { useHashRoute } from "@/features/shell/router";
+    90→import { DatePickerDialog, useScheduleCreate } from "@/features/schedule/schedule-shared";
+    91→import { InlineInput, errorMessage, usedAgoFromDayKey, useProgramRun, useRoutineRun } from "./screen-helpers";
+    92→import { useSessionFromWorkout } from "./session-dialog";
+    93→import { DifficultyPill, difficultyLabel, formatProgramMeta, useProgramExtras, unmarkDayOffFull } from "./program-meta";
+    94→
+    95→type Tab = "routines" | "sessions";
+    96→
+    97→/** §4.4 primary chip values (routines tab). */
+    98→type RoutineChip = "ALL" | (typeof DIFFICULTIES)[number];
+    99→/** §4.8 primary chip values (sessions tab). */
+   100→type SessionChip = "ALL" | "FAVOURITES" | "MINE" | "M20" | "M40" | "M60";
+   101→/** §4.8 secondary dropdown rows. */
+   102→type SessionFacet = "muscle" | "equipment" | "labels" | null;
+   103→
+   104→const ROW_CLS =
+   105→  "flex h-18 cursor-pointer select-none items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card pl-2 pr-1 transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+   106→
+   107→const chipClass = (active: boolean) =>
+   108→  cn(
+   109→    "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors",
+   110→    active
+   111→      ? "border-primary/60 bg-primary/10 text-primary"
+   112→      : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   113→  );
+   114→
+   115→const CHIP_ROW_CLS =
+   116→  "no-scrollbar flex h-10 w-full flex-none items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap";
+   117→
+   118→const sessionMuscleLabel = (m: string) => MUSCLE_LABELS[m as Muscle] ?? m;
+   119→
+   120→function SectionHeader({ label, span }: { label: string; span?: boolean }) {
+   121→  return (
+   122→    <p
+   123→      className={cn(
+   124→        "flex h-8 flex-none items-center overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground",
+   125→        span && "",
+   126→      )}
+   127→    >
+   128→      <span className="truncate">{label}</span>
+   129→    </p>
+   130→  );
+   131→}
+   132→
+   133→/** §4.4/§4.8 multi-select chip row (labels · muscles · equipment). */
+   134→function FacetChipRow({
+   135→  options,
+   136→  selected,
+   137→  labelOf,
+   138→  onToggle,
+   139→  span,
+   140→  ariaLabel,
+   141→}: {
+   142→  options: string[];
+   143→  selected: Set<string>;
+   144→  labelOf: (v: string) => string;
+   145→  onToggle: (v: string) => void;
+   146→  span?: boolean;
+   147→  ariaLabel: string;
+   148→}) {
+   149→  if (options.length === 0) return null;
+   150→  return (
+   151→    <div
+   152→      data-row
+   153→      data-chip-scroller
+   154→      role="group"
+   155→      aria-label={ariaLabel}
+   156→      className={cn(CHIP_ROW_CLS, span && "")}
+   157→    >
+   158→      {options.map((v) => {
+   159→        const active = selected.has(v);
+   160→        return (
+   161→          <button
+   162→            key={v}
+   163→            type="button"
+   164→            aria-pressed={active}
+   165→            className={chipClass(active)}
+   166→            {...tourAttrs({ skipTour: true, reason: "Data-driven facet chips for labels, muscles, equipment" })}
+   167→            onClick={() => onToggle(v)}
+   168→          >
+   169→            {active ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+   170→            {labelOf(v)}
+   171→          </button>
+   172→        );
+   173→      })}
+   174→    </div>
+   175→  );
+   176→}
+   177→
+   178→export default function RoutinesScreen() {
+   179→  const navigate = useApp((s) => s.navigate);
+   180→  const settings = useApp((s) => s.settings);
+   181→  const route = useHashRoute();
+   182→  const online = useOnline();
+   183→  const invalidate = useInvalidate();
+   184→  const qc = useQueryClient();
+   185→  const { run } = useRoutineRun();
+   186→  const { run: programRun } = useProgramRun();
+   187→  const sessionFromWorkout = useSessionFromWorkout();
+   188→  const scheduleCreate = useScheduleCreate();
+   189→  const invalidateExtras = useProgramExtras();
+   190→
+   191→  // ---------- tab state (?tab= deep link from Home's "Log another session") ----------
+   192→  const tabParam = route.name === "programs" ? route.query.get("tab") : null;
+   193→  const [tab, setTab] = useState<Tab>(tabParam === "sessions" ? "sessions" : "routines");
+   194→  // adjust tab during render when the deep-link param changes (no effect → no cascading renders)
+   195→  const [prevParam, setPrevParam] = useState(tabParam);
+   196→  if (tabParam !== prevParam) {
+   197→    setPrevParam(tabParam);
+   198→    setTab(tabParam === "sessions" ? "sessions" : "routines");
+   199→  }
+   200→
+   201→  // ---------- data ----------
+   202→  const kind = tab === "sessions" ? "SESSION" : "ROUTINE";
+   203→  const programsQuery = usePrograms(kind);
+   204→  const programs = useMemo(
+   205→    () => [...(programsQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+   206→    [programsQuery.data],
+   207→  );
+   208→
+   209→  // full routine payloads — session set-count join + §4.4/§4.8 metadata
+   210→  const routinesQuery = useQuery({ queryKey: qk.routines, queryFn: () => routinesApi.list() });
+   211→  const routinesById = useMemo(() => {
+   212→    const m = new Map<string, RoutineDTO>();
+   213→    for (const r of routinesQuery.data?.routines ?? []) m.set(r.id, r);
+   214→    return m;
+   215→  }, [routinesQuery.data]);
+   216→
+   217→  const dashboard = useDashboard();
+   218→  const followed = dashboard.data?.active ?? null;
+   219→
+   220→  const todayDateKey = dashboard.data?.today.date ?? todayKey();
+   221→  const todayWorkoutQuery = useWorkoutByDate(todayDateKey);
+   222→  const todayWorkout = todayWorkoutQuery.data?.workout ?? null;
+   223→
+   224→  // ---------- ui state ----------
+   225→  const [creating, setCreating] = useState<"ROUTINE" | "SESSION" | null>(null);
+   226→  const [deleteTarget, setDeleteTarget] = useState<ProgramSummaryDTO | null>(null);
+   227→  const [followTarget, setFollowTarget] = useState<ProgramSummaryDTO | null>(null);
+   228→  const [scheduleTarget, setScheduleTarget] = useState<ProgramSummaryDTO | null>(null);
+   229→
+   230→  // §4.4 — routines filters + select mode
+   231→  const [routineChip, setRoutineChip] = useState<RoutineChip>("ALL");
+   232→  const [favOnly, setFavOnly] = useState(false);
+   233→  const [labelsOpen, setLabelsOpen] = useState(false);
+   234→  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+   235→  const [selectMode, setSelectMode] = useState(false);
+   236→  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+   237→  const [deleteManyOpen, setDeleteManyOpen] = useState(false);
+   238→
+   239→  // §4.8 — sessions search + filters
+   240→  const [searchInput, setSearchInput] = useState("");
+   241→  const [sessionChip, setSessionChip] = useState<SessionChip>("ALL");
+   242→  const [sessionFacet, setSessionFacet] = useState<SessionFacet>(null);
+   243→  const [selectedMuscles, setSelectedMuscles] = useState<Set<string>>(new Set());
+   244→  const [selectedEquipment, setSelectedEquipment] = useState<Set<string>>(new Set());
+   245→  const [selectedSessionLabels, setSelectedSessionLabels] = useState<Set<string>>(new Set());
+   246→  const [sessionScheduleTarget, setSessionScheduleTarget] = useState<ProgramSummaryDTO | null>(null);
+   247→
+   248→  // Esc exits select mode (§4.4)
+   249→  useEffect(() => {
+   250→    if (!selectMode) return;
+   251→    const onKey = (e: KeyboardEvent) => {
+   252→      if (e.key === "Escape") {
+   253→        setSelectMode(false);
+   254→        setSelectedIds(new Set());
+   255→      }
+   256→    };
+   257→    window.addEventListener("keydown", onKey);
+   258→    return () => window.removeEventListener("keydown", onKey);
+   259→  }, [selectMode]);
+   260→
+   261→  const switchTab = (t: Tab) => {
+   262→    if (t !== "routines") {
+   263→      setSelectMode(false);
+   264→      setSelectedIds(new Set());
+   265→    }
+   266→    setTab(t);
+   267→  };
+   268→
+   269→  // ---------- mutations ----------
+   270→  const createProgram = async (name: string, programKind: "ROUTINE" | "SESSION") => {
+   271→    if (!name) return;
+   272→    const ok = await run(() => routinesApi.create({ name, kind: programKind }), {
+   273→      path: "/api/routines",
+   274→      method: "POST",
+   275→      body: { name, kind: programKind },
+   276→      label: `Created ${name}`,
+   277→    });
+   278→    if (ok) {
+   279→      invalidate.programs();
+   280→      toast.success(
+   281→        programKind === "SESSION" ? `Session “${name}” created` : `Routine “${name}” created`,
+   282→      );
+   283→    }
+   284→  };
+   285→
+   286→  const copyProgram = async (program: ProgramSummaryDTO) => {
+   287→    const ok = await run(() => routinesApi.copy(program.id), {
+   288→      path: `/api/routines/${program.id}/copy`,
+   289→      method: "POST",
+   290→      label: "Duplicate program",
+   291→    });
+   292→    if (ok) {
+   293→      invalidate.programs();
+   294→      toast.success(`Duplicated “${program.name}”`);
+   295→    }
+   296→  };
+   297→
+   298→  const deleteProgram = async (program: ProgramSummaryDTO) => {
+   299→    const ok = await run(() => routinesApi.remove(program.id), {
+   300→      path: `/api/routines/${program.id}`,
+   301→      method: "DELETE",
+   302→      label: `Deleted ${program.name}`,
+   303→    });
+   304→    if (ok) {
+   305→      invalidate.programs();
+   306→      toast.success(`Deleted “${program.name}”`);
+   307→    }
+   308→  };
+   309→
+   310→  const followProgram = async (program: ProgramSummaryDTO) => {
+   311→    const res = await programRun(
+   312→      () => programsApi.follow(program.id),
+   313→      {
+   314→        path: `/api/programs/${program.id}/follow`,
+   315→        method: "POST",
+   316→        body: {},
+   317→        label: `Following ${program.name}`,
+   318→      },
+   319→    );
+   320→    if (res) toast.success(`Following ${program.name} · Day ${res.dayIndex + 1}`);
+   321→  };
+   322→
+   323→  const onFollowClick = (program: ProgramSummaryDTO) => {
+   324→    if (followed && followed.routineId !== program.id) {
+   325→      setFollowTarget(program); // destructive: replaces the current follow
+   326→      return;
+   327→    }
+   328→    void followProgram(program);
+   329→  };
+   330→
+   331→  const startSession = async (program: ProgramSummaryDTO) => {
+   332→    if (!online) {
+   333→      toast.info("Starting a session needs a connection");
+   334→      return;
+   335→    }
+   336→    try {
+   337→      await programsApi.startDay(program.id);
+   338→      invalidate.workout();
+   339→      invalidate.dashboard();
+   340→      invalidate.schedule();
+   341→      toast.success(`Started ${program.name}`);
+   342→      navigate("/today");
+   343→    } catch (e) {
+   344→      toast.error(errorMessage(e));
+   345→    }
+   346→  };
+   347→
+   348→  // §4.4 — routine favourite star: optimistic patch of the routines cache
+   349→  const toggleRoutineFavourite = async (program: ProgramSummaryDTO) => {
+   350→    const current = routinesById.get(program.id)?.isFavorite ?? false;
+   351→    const next = !current;
+   352→    qc.setQueryData<{ routines: RoutineDTO[] }>(qk.routines, (old) =>
+   353→      old
+   354→        ? { ...old, routines: old.routines.map((r) => (r.id === program.id ? { ...r, isFavorite: next } : r)) }
+   355→        : old,
+   356→    );
+   357→    const path = `/api/programs/${program.id}/meta`;
+   358→    const body = { isFavorite: next };
+   359→    if (!online) {
+   360→      queueMutation(path, "PUT", body, next ? "Added to favourites" : "Removed from favourites");
+   361→      toast.info(`${next ? "Added to favourites" : "Removed from favourites"} — saved offline, will sync when reconnected`);
+   362→      return;
+   363→    }
+   364→    try {
+   365→      await programsMetaApi.update(program.id, body);
+   366→      invalidate.routines();
+   367→      toast.success(next ? `“${program.name}” added to favourites` : `“${program.name}” removed from favourites`);
+   368→    } catch (e) {
+   369→      invalidate.routines();
+   370→      toast.error(errorMessage(e));
+   371→    }
+   372→  };
+   373→
+   374→  // §4.4 — select mode bulk delete (destructive confirm)
+   375→  const deleteSelected = async () => {
+   376→    const ids = [...selectedIds];
+   377→    let ok = 0;
+   378→    for (const id of ids) {
+   379→      const done = await run(() => routinesApi.remove(id), {
+   380→        path: `/api/routines/${id}`,
+   381→        method: "DELETE",
+   382→        label: "Routine deleted",
+   383→      });
+   384→      if (done) ok += 1;
+   385→    }
+   386→    if (ok > 0) {
+   387→      invalidate.programs();
+   388→      invalidateExtras();
+   389→      toast.success(`Deleted ${ok} ${ok === 1 ? "routine" : "routines"}`);
+   390→    }
+   391→    setSelectedIds(new Set());
+   392→    setSelectMode(false);
+   393→  };
+   394→
+   395→  // §4.8 — session ⋮ "Mark off" on the session's single workout day
+   396→  const sessionWorkoutDay = (program: ProgramSummaryDTO): RoutineDayDTO | null => {
+   397→    const r = routinesById.get(program.id);
+   398→    if (!r) return null;
+   399→    return r.days.find((d) => (d.dayType ?? "WORKOUT") === "WORKOUT") ?? null;
+   400→  };
+   401→
+   402→  const markSessionOff = async (program: ProgramSummaryDTO) => {
+   403→    const day = sessionWorkoutDay(program);
+   404→    if (!day) {
+   405→      toast.info("This session has no workout day to mark off");
+   406→      return;
+   407→    }
+   408→    if (!online) {
+   409→      toast.info("Marking a session off needs a connection");
+   410→      return;
+   411→    }
+   412→    try {
+   413→      const res = await programsMetaApi.markOff(program.id, day.id);
+   414→      invalidateExtras(program.id);
+   415→      toast.success(`Session marked off${res.advanced ? " · program advanced" : ""}`, {
+   416→        action: {
+   417→          label: "Undo",
+   418→          onClick: () => {
+   419→            void (async () => {
+   420→              try {
+   421→                await unmarkDayOffFull(program.id, day.id);
+   422→                invalidateExtras(program.id);
+   423→                toast.success("Session unmarked");
+   424→              } catch (e) {
+   425→                toast.error(errorMessage(e));
+   426→              }
+   427→            })();
+   428→          },
+   429→        },
+   430→      });
+   431→    } catch (e) {
+   432→      toast.error(errorMessage(e));
+   433→    }
+   434→  };
+   435→
+   436→  // ---------- §4.4 filtering + grouping ----------
+   437→  const allLabels = useMemo(() => {
+   438→    const s = new Set<string>();
+   439→    for (const r of routinesQuery.data?.routines ?? []) {
+   440→      if ((r.kind ?? "ROUTINE") !== "ROUTINE") continue;
+   441→      for (const l of r.labels ?? []) s.add(l);
+   442→    }
+   443→    return [...s].sort((a, b) => a.localeCompare(b));
+   444→  }, [routinesQuery.data]);
+   445→
+   446→  const visibleRoutines = useMemo(() => {
+   447→    return programs.filter((p) => {
+   448→      const meta = routinesById.get(p.id);
+   449→      if (routineChip !== "ALL" && (meta?.difficulty ?? null) !== routineChip) return false;
+   450→      if (favOnly && !(meta?.isFavorite ?? false)) return false;
+   451→      if (selectedLabels.size > 0) {
+   452→        const labels = meta?.labels ?? [];
+   453→        if (![...selectedLabels].some((l) => labels.includes(l))) return false;
+   454→      }
+   455→      return true;
+   456→    });
+   457→  }, [programs, routinesById, routineChip, favOnly, selectedLabels]);
+   458→
+   459→  /** grouped sections (only in the All view; uncategorised last) */
+   460→  const routineSections = useMemo<
+   461→    Array<{ key: string; label: string | null; items: ProgramSummaryDTO[] }>
+   462→  >(() => {
+   463→    if (routineChip !== "ALL") {
+   464→      return [{ key: routineChip, label: null, items: visibleRoutines }];
+   465→    }
+   466→    const sections: Array<{ key: string; label: string | null; items: ProgramSummaryDTO[] }> =
+   467→      DIFFICULTIES.map((d) => ({
+   468→        key: d,
+   469→        label: difficultyLabel(d),
+   470→        items: visibleRoutines.filter((p) => (routinesById.get(p.id)?.difficulty ?? null) === d),
+   471→      })).filter((s) => s.items.length > 0);
+   472→    const uncategorised = visibleRoutines.filter(
+   473→      (p) => !(routinesById.get(p.id)?.difficulty ?? null),
+   474→    );
+   475→    if (uncategorised.length > 0) {
+   476→      sections.push({ key: "UNCATEGORISED", label: "Uncategorised", items: uncategorised });
+   477→    }
+   478→    return sections;
+   479→  }, [routineChip, visibleRoutines, routinesById]);
+   480→
+   481→  // ---------- §4.8 sessions catalog filtering ----------
+   482→
+   483→  const sessionsMeta = useMemo(() => {
+   484→    // per-session derived: estMinutes · single-day muscles · equipment · labels
+   485→    const m = new Map<string, { est: number | null; muscles: string[]; equipment: string[]; labels: string[] }>();
+   486→    for (const p of programs) {
+   487→      const r = routinesById.get(p.id);
+   488→      const day = r?.days.find((d) => (d.dayType ?? "WORKOUT") === "WORKOUT") ?? null;
+   489→      const est = r?.estMinutes ?? day?.estMinutes ?? null;
+   490→      const muscles = (day?.primaryMuscles ?? []).filter((x) => x);
+   491→      const equipment = [...new Set((day?.exercises ?? []).flatMap((re) => re.exercise.equipment ?? []))];
+   492→      m.set(p.id, { est, muscles, equipment, labels: r?.labels ?? [] });
+   493→    }
+   494→    return m;
+   495→  }, [programs, routinesById]);
+   496→
+   497→  const sessionMuscleOptions = useMemo(() => {
+   498→    const s = new Set<string>();
+   499→    for (const v of sessionsMeta.values()) for (const m of v.muscles) s.add(m);
+   500→    return [...s].sort((a, b) => sessionMuscleLabel(a).localeCompare(sessionMuscleLabel(b)));
+   501→  }, [sessionsMeta]);
+   502→
+   503→  const sessionEquipmentOptions = useMemo(() => {
+   504→    const s = new Set<string>();
+   505→    for (const v of sessionsMeta.values()) for (const e of v.equipment) s.add(e);
+   506→    return [...s].sort((a, b) => a.localeCompare(b));
+   507→  }, [sessionsMeta]);
+   508→
+   509→  const sessionLabelOptions = useMemo(() => {
+   510→    const s = new Set<string>();
+   511→    for (const v of sessionsMeta.values()) for (const l of v.labels) s.add(l);
+   512→    return [...s].sort((a, b) => a.localeCompare(b));
+   513→  }, [sessionsMeta]);
+   514→
+   515→  const visibleSessions = useMemo(() => {
+   516→    const q = searchInput.trim().toLowerCase();
+   517→    return programs.filter((p) => {
+   518→      if (q && !p.name.toLowerCase().includes(q) && !(p.notes ?? "").toLowerCase().includes(q)) return false;
+   519→      const meta = sessionsMeta.get(p.id);
+   520→      if (sessionChip === "FAVOURITES" && !(routinesById.get(p.id)?.isFavorite ?? false)) return false;
+   521→      if (sessionChip === "M20" && (meta?.est == null || meta.est > 20)) return false;
+   522→      if (sessionChip === "M40" && (meta?.est == null || meta.est > 40)) return false;
+   523→      if (sessionChip === "M60" && (meta?.est == null || meta.est > 60)) return false;
+   524→      if (selectedMuscles.size > 0) {
+   525→        const ms = meta?.muscles ?? [];
+   526→        if (![...selectedMuscles].some((m) => ms.includes(m))) return false;
+   527→      }
+   528→      if (selectedEquipment.size > 0) {
+   529→        const es = meta?.equipment ?? [];
+   530→        if (![...selectedEquipment].some((e) => es.includes(e))) return false;
+   531→      }
+   532→      if (selectedSessionLabels.size > 0) {
+   533→        const ls = meta?.labels ?? [];
+   534→        if (![...selectedSessionLabels].some((l) => ls.includes(l))) return false;
+   535→      }
+   536→      return true; // "Mine" and "All" — sessions are per-user (§4.8)
+   537→    });
+   538→  }, [programs, searchInput, sessionChip, sessionsMeta, routinesById, selectedMuscles, selectedEquipment, selectedSessionLabels]);
+   539→
+   540→  const sessionFacetOptions: Record<Exclude<SessionFacet, null>, string[]> = {
+   541→    muscle: sessionMuscleOptions,
+   542→    equipment: sessionEquipmentOptions,
+   543→    labels: sessionLabelOptions,
+   544→  };
+   545→
+   546→  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (v: string) => {
+   547→    setter((prev) => {
+   548→      const next = new Set(prev);
+   549→      if (next.has(v)) next.delete(v);
+   550→      else next.add(v);
+   551→      return next;
+   552→    });
+   553→  };
+   554→
+   555→  const clearSessionFilters = () => {
+   556→    setSearchInput("");
+   557→    setSessionChip("ALL");
+   558→    setSessionFacet(null);
+   559→    setSelectedMuscles(new Set());
+   560→    setSelectedEquipment(new Set());
+   561→    setSelectedSessionLabels(new Set());
+   562→  };
+   563→
+   564→  // ---------- rows ----------
+   565→  const renderStar = (program: ProgramSummaryDTO, isFav: boolean) => (
+   566→    <Button
+   567→      type="button"
+   568→      variant="ghost"
+   569→      className={cn("h-11 w-11 flex-none p-0", isFav && "text-amber-500 hover:text-amber-500")}
+   570→      aria-pressed={isFav}
+   571→      aria-label={isFav ? `Unfavourite ${program.name}` : `Favourite ${program.name}`}
+   572→      tour={{ id: "programs.favourite", label: "Favourite", help: "Star the program to find it faster.", order: 120 }}
+   573→      onClick={(e) => {
+   574→        e.stopPropagation();
+   575→        void toggleRoutineFavourite(program);
+   576→      }}
+   577→    >
+   578→      <Star className="h-5 w-5" aria-hidden fill={isFav ? "currentColor" : "none"} />
+   579→    </Button>
+   580→  );
+   581→
+   582→  const renderOverflowMenu = (program: ProgramSummaryDTO, isSession: boolean) => (
+   583→    <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
+   584→      <DropdownMenu>
+   585→        <DropdownMenuTrigger asChild>
+   586→          <Button
+   587→            type="button"
+   588→            variant="ghost"
+   589→            className="h-11 w-11 p-0"
+   590→            aria-label={`Actions for ${program.name}`}
+   591→            tour={{ id: "programs.rowMenu", label: "Row menu", help: "Edit, schedule, copy, mark off or delete.", order: 130 }}
+   592→          >
+   593→            <MoreVertical className="h-5 w-5" aria-hidden />
+   594→          </Button>
+   595→        </DropdownMenuTrigger>
+   596→        <DropdownMenuContent align="end" className="w-44">
+   597→          {isSession ? (
+   598→            <>
+   599→              <DropdownMenuItem onClick={() => setSessionScheduleTarget(program)}>
+   600→                <CalendarClock className="h-4 w-4" aria-hidden /> Schedule…
+   601→              </DropdownMenuItem>
+   602→              <DropdownMenuItem onClick={() => navigate(`/history?routineId=${program.id}`)}>
+   603→                <History className="h-4 w-4" aria-hidden /> History
+   604→              </DropdownMenuItem>
+   605→              <DropdownMenuItem onClick={() => void markSessionOff(program)}>
+   606→                <CheckCircle2 className="h-4 w-4" aria-hidden /> Mark off
+   607→              </DropdownMenuItem>
+   608→              <DropdownMenuItem onClick={() => navigate(`/programs/${program.id}`)}>
+   609→                <Pencil className="h-4 w-4" aria-hidden /> Edit
+   610→              </DropdownMenuItem>
+   611→            </>
+   612→          ) : (
+   613→            <>
+   614→              <DropdownMenuItem onClick={() => navigate(`/programs/${program.id}`)}>
+   615→                <Pencil className="h-4 w-4" aria-hidden /> Edit
+   616→              </DropdownMenuItem>
+   617→              <DropdownMenuItem onClick={() => setScheduleTarget(program)}>
+   618→                <CalendarClock className="h-4 w-4" aria-hidden /> Schedule…
+   619→              </DropdownMenuItem>
+   620→            </>
+   621→          )}
+   622→          <DropdownMenuItem onClick={() => void copyProgram(program)}>
+   623→            <Copy className="h-4 w-4" aria-hidden /> Copy
+   624→          </DropdownMenuItem>
+   625→          <DropdownMenuItem
+   626→            className="text-destructive focus:text-destructive"
+   627→            onClick={() => setDeleteTarget(program)}
+   628→          >
+   629→            <Trash2 className="h-4 w-4" aria-hidden /> Delete
+   630→          </DropdownMenuItem>
+   631→        </DropdownMenuContent>
+   632→      </DropdownMenu>
+   633→    </span>
+   634→  );
+   635→
+   636→  const renderRoutineRow = (program: ProgramSummaryDTO) => {
+   637→    const isFollowed = !!program.isFollowed;
+   638→    const hasWorkoutDay = program.dayCount - program.restCount > 0;
+   639→    const cursor = program.cursor ?? null;
+   640→    const meta = routinesById.get(program.id);
+   641→    const isFav = meta?.isFavorite ?? false;
+   642→    const metaLine = formatProgramMeta({
+   643→      difficulty: meta?.difficulty ?? null,
+   644→      daysPerWeek: meta?.daysPerWeek ?? null,
+   645→      phaseCount: meta?.phases?.length ?? null,
+   646→      estMinutes: meta?.estMinutes ?? null,
+   647→      usedAgo: usedAgoFromDayKey(program.lastUsedAt),
+   648→    });
+   649→    const selected = selectedIds.has(program.id);
+   650→
+   651→    return (
+   652→      <div
+   653→        key={program.id}
+   654→        data-row
+   655→        role="button"
+   656→        tabIndex={0}
+   657→        aria-label={`${program.name} — ${program.dayCount} days, ${program.exerciseCount} exercises, ${usedAgoFromDayKey(program.lastUsedAt)}`}
+   658→        aria-pressed={selectMode ? selected : undefined}
+   659→        {...tourAttrs({ id: "programs.row", label: "Routine row", help: "Open the routine to see and edit its days.", order: 80 })}
+   660→        className={cn(ROW_CLS, selectMode && selected && "border-primary/60 bg-primary/5")}
+   661→        onClick={() => {
+   662→          if (selectMode) {
+   663→            setSelectedIds((prev) => {
+   664→              const next = new Set(prev);
+   665→              if (next.has(program.id)) next.delete(program.id);
+   666→              else next.add(program.id);
+   667→              return next;
+   668→            });
+   669→            return;
+   670→          }
+   671→          navigate(`/programs/${program.id}`);
+   672→        }}
+   673→        onKeyDown={(e) => {
+   674→          if (e.target !== e.currentTarget) return;
+   675→          if (e.key === "Enter" || e.key === " ") {
+   676→            e.preventDefault();
+   677→            if (selectMode) {
+   678→              setSelectedIds((prev) => {
+   679→                const next = new Set(prev);
+   680→                if (next.has(program.id)) next.delete(program.id);
+   681→                else next.add(program.id);
+   682→                return next;
+   683→              });
+   684→            } else {
+   685→              navigate(`/programs/${program.id}`);
+   686→            }
+   687→          }
+   688→        }}
+   689→      >
+   690→        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+   691→          <span className="truncate text-sm font-semibold leading-none">{program.name}</span>
+   692→          <span className="truncate text-xs leading-none text-muted-foreground">{metaLine}</span>
+   693→        </div>
+   694→        {selectMode ? (
+   695→          <span
+   696→            className="flex h-11 w-[96px] flex-none items-center justify-center"
+   697→            onClick={(e) => e.stopPropagation()}
+   698→          >
+   699→            <Checkbox
+   700→              checked={selected}
+   701→              aria-label={`Select ${program.name}`}
+   702→              className="h-6 w-6"
+   703→              {...tourAttrs({ skipTour: true, reason: "Row checkbox inside bulk-select mode rows" })}
+   704→              onCheckedChange={() => {
+   705→                setSelectedIds((prev) => {
+   706→                  const next = new Set(prev);
+   707→                  if (next.has(program.id)) next.delete(program.id);
+   708→                  else next.add(program.id);
+   709→                  return next;
+   710→                });
+   711→              }}
+   712→            />
+   713→          </span>
+   714→        ) : (
+   715→          <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
+   716→            {hasWorkoutDay ? (
+   717→              <Button
+   718→                type="button"
+   719→                variant={isFollowed ? "default" : "outline"}
+   720→                className={cn(
+   721→                  "h-11 w-[96px] flex-none gap-1 whitespace-nowrap px-1.5 font-bold",
+   722→                  cursor ? "text-[10px]" : "text-xs",
+   723→                )}
+   724→                aria-pressed={isFollowed}
+   725→                aria-label={
+   726→                  isFollowed
+   727→                    ? `Following ${program.name}${cursor ? ` · Day ${cursor.dayIndex + 1} of ${cursor.dayCount}` : ""}`
+   728→                    : `Follow ${program.name}`
+   729→                }
+   730→                tour={{ id: "programs.follow", label: "Follow", help: "Make this routine drive your daily workouts.", order: 100 }}
+   731→                onClick={() => onFollowClick(program)}
+   732→              >
+   733→                {isFollowed ? (
+   734→                  cursor ? (
+   735→                    `Following · ${cursor.dayIndex + 1}/${cursor.dayCount}`
+   736→                  ) : (
+   737→                    <>
+   738→                      <Check className="h-4 w-4" aria-hidden />
+   739→                      Following
+   740→                    </>
+   741→                  )
+   742→                ) : (
+   743→                  "Follow"
+   744→                )}
+   745→              </Button>
+   746→            ) : (
+   747→              <Tooltip>
+   748→                <TooltipTrigger asChild>
+   749→                  <Button
+   750→                    type="button"
+   751→                    variant="outline"
+   752→                    disabled
+   753→                    className="h-11 w-[96px] flex-none whitespace-nowrap px-2 text-xs font-bold"
+   754→                    aria-label="Follow disabled — needs a workout day"
+   755→                    tour={{ skipTour: true, reason: "Disabled follow; routine has no workout day" }}
+   756→                  >
+   757→                    Follow
+   758→                  </Button>
+   759→                </TooltipTrigger>
+   760→                <TooltipContent>Needs at least one workout day</TooltipContent>
+   761→              </Tooltip>
+   762→            )}
+   763→          </span>
+   764→        )}
+   765→        {selectMode ? null : renderStar(program, isFav)}
+   766→        {renderOverflowMenu(program, false)}
+   767→      </div>
+   768→    );
+   769→  };
+   770→
+   771→  const renderSessionRow = (program: ProgramSummaryDTO) => {
+   772→    const routine = routinesById.get(program.id);
+   773→    const meta = sessionsMeta.get(program.id);
+   774→    const isFav = routine?.isFavorite ?? false;
+   775→    const parts: string[] = [];
+   776→    if (meta?.est != null && meta.est > 0) parts.push(`~${meta.est} min`);
+   777→    parts.push(`${program.exerciseCount} ${program.exerciseCount === 1 ? "exercise" : "exercises"}`);
+   778→    const muscles = meta?.muscles ?? [];
+   779→    if (muscles.length > 0) {
+   780→      parts.push(muscles.map((m) => sessionMuscleLabel(m)).join(", "));
+   781→    }
+   782→
+   783→    return (
+   784→      <div
+   785→        key={program.id}
+   786→        data-row
+   787→        role="button"
+   788→        tabIndex={0}
+   789→        aria-label={`${program.name} — ${program.exerciseCount} exercises, ${usedAgoFromDayKey(program.lastUsedAt)}`}
+   790→        {...tourAttrs({ id: "programs.sessionRow", label: "Session row", help: "Open the session to see its exercises.", order: 90 })}
+   791→        className={ROW_CLS}
+   792→        onClick={(e) => {
+   793→          if ((e.target as HTMLElement).closest("button, input, a, [role=menuitem]")) return;
+   794→          navigate(`/programs/${program.id}`);
+   795→        }}
+   796→        onKeyDown={(e) => {
+   797→          if (e.target !== e.currentTarget) return;
+   798→          if (e.key === "Enter" || e.key === " ") {
+   799→            e.preventDefault();
+   800→            navigate(`/programs/${program.id}`);
+   801→          }
+   802→        }}
+   803→      >
+   804→        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+   805→          <span className="truncate text-sm font-semibold leading-none">{program.name}</span>
+   806→          <span className="flex min-w-0 items-center gap-1.5 text-xs leading-none text-muted-foreground">
+   807→            <span className="min-w-0 flex-1 truncate">{parts.join(" · ")}</span>
+   808→            <MuscleDots
+   809→              muscles={muscles}
+   810→              max={3}
+   811→              show={settings?.showMuscleChips ?? true}
+   812→            />
+   813→          </span>
+   814→        </div>
+   815→        <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
+   816→          <Button
+   817→            type="button"
+   818→            className="h-11 w-[72px] flex-none gap-1 whitespace-nowrap px-2 text-xs font-bold"
+   819→            aria-label={`Start session ${program.name}`}
+   820→            tour={{ id: "programs.start", label: "Start session", help: "Start this session now and jump to Today.", order: 110 }}
+   821→            onClick={() => void startSession(program)}
+   822→          >
+   823→            <Play className="h-4 w-4" aria-hidden />
+   824→            Start
+   825→          </Button>
+   826→        </span>
+   827→        {renderStar(program, isFav)}
+   828→        {renderOverflowMenu(program, true)}
+   829→      </div>
+   830→    );
+   831→  };
+   832→
+   833→  const canSessionFromWorkout = (todayWorkout?.exercises.length ?? 0) > 0;
+   834→  const empty = !programsQuery.isLoading && programs.length === 0;
+   835→  const filteredEmpty =
+   836→    !programsQuery.isLoading && programs.length > 0 &&
+   837→    (tab === "routines" ? visibleRoutines.length === 0 : visibleSessions.length === 0);
+   838→
+   839→  // ---------- render ----------
+   840→  return (
+   841→    <Screen
+   842→      topBar={
+   843→        <TopBar
+   844→          title="Programs"
+   845→          actions={
+   846→            <>
+   847→              {tab === "sessions" ? (
+   848→                <DropdownMenu>
+   849→                  <DropdownMenuTrigger asChild>
+   850→                    <Button
+   851→                      type="button"
+   852→                      variant="ghost"
+   853→                      size="icon"
+   854→                      className="h-11 w-11 flex-none"
+   855→                      aria-label="Sessions catalogue actions"
+   856→                      tour={{ id: "programs.dictionary", label: "Catalogue menu", help: "Open the built-in sessions dictionary.", order: 180 }}
+   857→                    >
+   858→                      <MoreVertical className="h-5 w-5" aria-hidden />
+   859→                    </Button>
+   860→                  </DropdownMenuTrigger>
+   861→                  <DropdownMenuContent align="end" className="w-44">
+   862→                    <DropdownMenuItem onClick={() => navigate("/dictionary")}>
+   863→                      <BookOpen className="h-4 w-4" aria-hidden /> Dictionary
+   864→                    </DropdownMenuItem>
+   865→                  </DropdownMenuContent>
+   866→                </DropdownMenu>
+   867→              ) : null}
+   868→              {tab === "routines" ? (
+   869→                <Button
+   870→                  type="button"
+   871→                  variant={selectMode ? "default" : "outline"}
+   872→                  className="h-11 flex-none gap-1.5 px-3 text-xs font-bold"
+   873→                  aria-pressed={selectMode}
+   874→                  tour={{ id: "programs.select", label: "Select routines", help: "Multi-select routines to delete in bulk.", order: 140 }}
+   875→                  onClick={() => {
+   876→                    setSelectedIds(new Set());
+   877→                    setSelectMode((m) => !m);
+   878→                  }}
+   879→                >
+   880→                  <ListChecks className="h-4 w-4" aria-hidden />
+   881→                  {selectMode ? "Done" : "Select"}
+   882→                </Button>
+   883→              ) : null}
+   884→              <DropdownMenu>
+   885→                <DropdownMenuTrigger asChild>
+   886→                  <Button
+   887→                    type="button"
+   888→                    variant="ghost"
+   889→                    size="icon"
+   890→                    className="h-11 w-11 flex-none"
+   891→                    aria-label="New program"
+   892→                    tour={{ id: "programs.new", label: "New program", help: "Create a routine, session or builder program.", order: 10 }}
+   893→                  >
+   894→                    <Plus className="h-5 w-5" aria-hidden />
+   895→                  </Button>
+   896→                </DropdownMenuTrigger>
+   897→                <DropdownMenuContent align="end" className="w-56">
+   898→                  <DropdownMenuItem onClick={() => setCreating("ROUTINE")}>
+   899→                    <Layers className="h-4 w-4" aria-hidden /> New routine
+   900→                  </DropdownMenuItem>
+   901→                  <DropdownMenuItem onClick={() => setCreating("SESSION")}>
+   902→                    <Play className="h-4 w-4" aria-hidden /> New session
+   903→                  </DropdownMenuItem>
+   904→                  <DropdownMenuItem onClick={() => navigate("/programs/new/builder")}>
+   905→                    <Hammer className="h-4 w-4" aria-hidden /> Program builder
+   906→                  </DropdownMenuItem>
+   907→                  <DropdownMenuItem
+   908→                    disabled={!canSessionFromWorkout}
+   909→                    onClick={() => {
+   910→                      if (todayWorkout) sessionFromWorkout.openFor(todayWorkout.id, todayDateKey);
+   911→                    }}
+   912→                  >
+   913→                    <Dumbbell className="h-4 w-4" aria-hidden /> Session from today&apos;s workout
+   914→                  </DropdownMenuItem>
+   915→                </DropdownMenuContent>
+   916→              </DropdownMenu>
+   917→              <TopBarHelp />
+   918→            </>
+   919→          }
+   920→        />
+   921→      }
+   922→      subBar={
+   923→        tab === "sessions" ? (
+   924→          // §4.8 — the SubBar becomes the sessions search row (back chip returns)
+   925→          <SubBar>
+   926→            <div className="flex h-11 w-full min-w-0 items-center gap-2">
+   927→              <Button
+   928→                type="button"
+   929→                variant="outline"
+   930→                className="h-11 flex-none gap-1 px-2 text-xs font-bold"
+   931→                aria-label="Back to routines"
+   932→                tour={{ id: "programs.backToRoutines", label: "Back to routines", help: "Leave the sessions search and return.", order: 40 }}
+   933→                onClick={() => switchTab("routines")}
+   934→              >
+   935→                <ChevronLeft className="h-4 w-4" aria-hidden />
+   936→                Routines
+   937→              </Button>
+   938→              <div className="flex h-11 min-w-0 flex-1 items-center rounded-lg border border-input bg-transparent pl-3 shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px] dark:bg-input/30">
+   939→                <Search className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+   940→                <Input
+   941→                  value={searchInput}
+   942→                  onChange={(e) => setSearchInput(e.target.value)}
+   943→                  placeholder="Search sessions…"
+   944→                  aria-label="Search sessions"
+   945→                  {...tourAttrs({ id: "programs.search", label: "Search sessions", help: "Filter the sessions list by name.", order: 50 })}
+   946→                  className="h-full w-full min-w-0 flex-1 rounded-none border-0 bg-transparent pl-2 pr-3 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+   947→                />
+   948→              </div>
+   949→            </div>
+   950→          </SubBar>
+   951→        ) : (
+   952→          <SubBar>
+   953→            <div role="tablist" aria-label="Program kind" className="flex h-11 w-full items-center gap-2">
+   954→              {(["routines", "sessions"] as const).map((t) => (
+   955→                <button
+   956→                  key={t}
+   957→                  type="button"
+   958→                  role="tab"
+   959→                  aria-selected={tab === t}
+   960→                  onClick={() => switchTab(t)}
+   961→                  {...tourAttrs(
+   962→                    t === "routines"
+   963→                      ? { id: "programs.tabRoutines", label: "Routines tab", help: "Browse multi-week routines to follow.", order: 20 }
+   964→                      : { id: "programs.tabSessions", label: "Sessions tab", help: "Browse saved one-off sessions to start.", order: 30 },
+   965→                  )}
+   966→                  className={cn(
+   967→                    "h-11 min-w-0 flex-1 rounded-lg border text-sm font-bold capitalize transition-colors",
+   968→                    tab === t
+   969→                      ? "border-primary/50 bg-primary/10 text-primary"
+   970→                      : "border-border bg-card text-muted-foreground hover:bg-accent/40",
+   971→                  )}
+   972→                >
+   973→                  {t}
+   974→                </button>
+   975→              ))}
+   976→            </div>
+   977→          </SubBar>
+   978→        )
+   979→      }
+   980→      bottomBar={
+   981→        selectMode ? (
+   982→          <BottomBar>
+   983→            <Button
+   984→              type="button"
+   985→              className="h-11 w-full gap-2 bg-destructive text-white font-bold hover:bg-destructive/90"
+   986→              disabled={selectedIds.size === 0}
+   987→              tour={{ id: "programs.deleteSelected", label: "Delete selected", help: "Remove every checked routine after confirm.", order: 150, when: ["select"] }}
+   988→              onClick={() => setDeleteManyOpen(true)}
+   989→            >
+   990→              <Trash2 className="h-5 w-5" aria-hidden />
+   991→              Delete {selectedIds.size}
+   992→            </Button>
+   993→          </BottomBar>
+   994→        ) : undefined
+   995→      }
+   996→    >
+   997→      <ScrollBody contentClassName="">
+   998→        {tab === "routines" ? (
+   999→          <>
+  1000→            {/* §4.4 filter chips */}
+  1001→            <div data-row data-chip-scroller role="group" aria-label="Routine filters" className={cn(CHIP_ROW_CLS, "")}>
+  1002→              <button
+  1003→                type="button"
+  1004→                aria-pressed={routineChip === "ALL" && !favOnly}
+  1005→                className={chipClass(routineChip === "ALL" && !favOnly)}
+  1006→                {...tourAttrs({ id: "programs.filterAll", label: "All filter", help: "Clear difficulty and favourite filters.", order: 60 })}
+  1007→                onClick={() => {
+  1008→                  setRoutineChip("ALL");
+  1009→                  setFavOnly(false);
+  1010→                }}
+  1011→              >
+  1012→                All
+  1013→              </button>
+  1014→              {DIFFICULTIES.map((d) => (
+  1015→                <button
+  1016→                  key={d}
+  1017→                  type="button"
+  1018→                  aria-pressed={routineChip === d}
+  1019→                  className={chipClass(routineChip === d)}
+  1020→                  {...tourAttrs({ skipTour: true, reason: "Data-driven difficulty filter chips" })}
+  1021→                  onClick={() => setRoutineChip(d)}
+  1022→                >
+  1023→                  <DifficultyPill difficulty={d} className="h-6 min-w-0 px-1.5 text-[10px]" />
+  1024→                </button>
+  1025→              ))}
+  1026→              <button
+  1027→                type="button"
+  1028→                aria-pressed={favOnly}
+  1029→                className={chipClass(favOnly)}
+  1030→                {...tourAttrs({ id: "programs.filterFavourites", label: "Favourites filter", help: "Show only the programs you starred.", order: 70 })}
+  1031→                onClick={() => setFavOnly((f) => !f)}
+  1032→              >
+  1033→                <Star className="h-3.5 w-3.5" aria-hidden fill={favOnly ? "currentColor" : "none"} />
+  1034→                Favourites
+  1035→              </button>
+  1036→              <button
+  1037→                type="button"
+  1038→                aria-pressed={labelsOpen}
+  1039→                className={chipClass(labelsOpen)}
+  1040→                {...tourAttrs({ skipTour: true, reason: "Labels filter expander for the facet chip row" })}
+  1041→                onClick={() => setLabelsOpen((o) => !o)}
+  1042→              >
+  1043→                Labels
+  1044→                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", labelsOpen ? "" : "-rotate-90")} aria-hidden />
+  1045→              </button>
+  1046→            </div>
+  1047→            {labelsOpen ? (
+  1048→              <FacetChipRow
+  1049→                options={allLabels}
+  1050→                selected={selectedLabels}
+  1051→                labelOf={(l) => l}
+  1052→                onToggle={toggleSet(setSelectedLabels)}
+  1053→                span
+  1054→                ariaLabel="Label filters"
+  1055→              />
+  1056→            ) : null}
+  1057→          </>
+  1058→        ) : (
+  1059→          <>
+  1060→            {/* §4.8 sessions catalog chips */}
+  1061→            <div data-row data-chip-scroller role="group" aria-label="Session filters" className={cn(CHIP_ROW_CLS, "")}>
+  1062→              <button
+  1063→                type="button"
+  1064→                aria-pressed={sessionChip === "ALL"}
+  1065→                className={chipClass(sessionChip === "ALL")}
+  1066→                {...tourAttrs({ skipTour: true, reason: "Sessions tab All filter chip" })}
+  1067→                onClick={() => setSessionChip("ALL")}
+  1068→              >
+  1069→                All
+  1070→              </button>
+  1071→              <button
+  1072→                type="button"
+  1073→                aria-pressed={sessionChip === "FAVOURITES"}
+  1074→                className={chipClass(sessionChip === "FAVOURITES")}
+  1075→                {...tourAttrs({ skipTour: true, reason: "Sessions tab favourites filter chip" })}
+  1076→                onClick={() => setSessionChip("FAVOURITES")}
+  1077→              >
+  1078→                Favourites
+  1079→              </button>
+  1080→              <button
+  1081→                type="button"
+  1082→                aria-pressed={sessionChip === "MINE"}
+  1083→                className={chipClass(sessionChip === "MINE")}
+  1084→                {...tourAttrs({ skipTour: true, reason: "Sessions tab mine filter chip" })}
+  1085→                onClick={() => setSessionChip("MINE")}
+  1086→              >
+  1087→                Mine
+  1088→              </button>
+  1089→              {([20, 40, 60] as const).map((m) => {
+  1090→                const key = `M${m}` as const;
+  1091→                return (
+  1092→                  <button
+  1093→                    key={key}
+  1094→                    type="button"
+  1095→                    aria-pressed={sessionChip === key}
+  1096→                    className={chipClass(sessionChip === key)}
+  1097→                    {...tourAttrs({ skipTour: true, reason: "Sessions tab duration filter chips" })}
+  1098→                    onClick={() => setSessionChip(key)}
+  1099→                  >
+  1100→                    ≤{m}m
+  1101→                  </button>
+  1102→                );
+  1103→              })}
+  1104→              <button
+  1105→                type="button"
+  1106→                aria-pressed={sessionFacet === "muscle"}
+  1107→                className={chipClass(sessionFacet === "muscle")}
+  1108→                {...tourAttrs({ skipTour: true, reason: "Muscle facet expander for session filters" })}
+  1109→                onClick={() => setSessionFacet((f) => (f === "muscle" ? null : "muscle"))}
+  1110→              >
+  1111→                Muscle
+  1112→                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", sessionFacet === "muscle" ? "" : "-rotate-90")} aria-hidden />
+  1113→              </button>
+  1114→              <button
+  1115→                type="button"
+  1116→                aria-pressed={sessionFacet === "equipment"}
+  1117→                className={chipClass(sessionFacet === "equipment")}
+  1118→                {...tourAttrs({ skipTour: true, reason: "Equipment facet expander for session filters" })}
+  1119→                onClick={() => setSessionFacet((f) => (f === "equipment" ? null : "equipment"))}
+  1120→              >
+  1121→                Equipment
+  1122→                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", sessionFacet === "equipment" ? "" : "-rotate-90")} aria-hidden />
+  1123→              </button>
+  1124→              <button
+  1125→                type="button"
+  1126→                aria-pressed={sessionFacet === "labels"}
+  1127→                className={chipClass(sessionFacet === "labels")}
+  1128→                {...tourAttrs({ skipTour: true, reason: "Labels facet expander for session filters" })}
+  1129→                onClick={() => setSessionFacet((f) => (f === "labels" ? null : "labels"))}
+  1130→              >
+  1131→                Labels
+  1132→                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", sessionFacet === "labels" ? "" : "-rotate-90")} aria-hidden />
+  1133→              </button>
+  1134→            </div>
+  1135→            {sessionFacet === "muscle" ? (
+  1136→              <FacetChipRow
+  1137→                options={sessionFacetOptions.muscle}
+  1138→                selected={selectedMuscles}
+  1139→                labelOf={sessionMuscleLabel}
+  1140→                onToggle={toggleSet(setSelectedMuscles)}
+  1141→                span
+  1142→                ariaLabel="Muscle filters"
+  1143→              />
+  1144→            ) : null}
+  1145→            {sessionFacet === "equipment" ? (
+  1146→              <FacetChipRow
+  1147→                options={sessionFacetOptions.equipment}
+  1148→                selected={selectedEquipment}
+  1149→                labelOf={(e) => e.replace(/_/g, " ").toLowerCase()}
+  1150→                onToggle={toggleSet(setSelectedEquipment)}
+  1151→                span
+  1152→                ariaLabel="Equipment filters"
+  1153→              />
+  1154→            ) : null}
+  1155→            {sessionFacet === "labels" ? (
+  1156→              <FacetChipRow
+  1157→                options={sessionFacetOptions.labels}
+  1158→                selected={selectedSessionLabels}
+  1159→                labelOf={(l) => l}
+  1160→                onToggle={toggleSet(setSelectedSessionLabels)}
+  1161→                span
+  1162→                ariaLabel="Session label filters"
+  1163→              />
+  1164→            ) : null}
+  1165→          </>
+  1166→        )}
+  1167→
+  1168→        {creating ? (
+  1169→          <div
+  1170→            data-row
+  1171→            className="flex h-18 items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-primary/40 bg-primary/5 pl-2 pr-1"
+  1172→          >
+  1173→            <span className="flex h-6 w-6 flex-none items-center justify-center text-muted-foreground/60">
+  1174→              {creating === "SESSION" ? (
+  1175→                <Play className="h-4 w-4" aria-hidden />
+  1176→              ) : (
+  1177→                <Layers className="h-4 w-4" aria-hidden />
+  1178→              )}
+  1179→            </span>
+  1180→            <InlineInput
+  1181→              value=""
+  1182→              placeholder={creating === "SESSION" ? "New session name…" : "New routine name…"}
+  1183→              ariaLabel={creating === "SESSION" ? "New session name" : "New routine name"}
+  1184→              onCommit={(name) => {
+  1185→                const kind2 = creating;
+  1186→                setCreating(null);
+  1187→                void createProgram(name, kind2);
+  1188→              }}
+  1189→              onCancel={() => setCreating(null)}
+  1190→              className="h-11 min-w-0 flex-1"
+  1191→            />
+  1192→          </div>
+  1193→        ) : null}
+  1194→
+  1195→        {programsQuery.isLoading ? (
+  1196→          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading programs">
+  1197→            {Array.from({ length: 3 }, (_, i) => (
+  1198→              <div key={i} className="h-18 animate-pulse rounded-lg bg-muted/40" />
+  1199→            ))}
+  1200→          </div>
+  1201→        ) : empty ? (
+  1202→          <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+  1203→            {tab === "sessions" ? (
+  1204→              <Play className="h-6 w-6 text-muted-foreground" aria-hidden />
+  1205→            ) : (
+  1206→              <Layers className="h-6 w-6 text-muted-foreground" aria-hidden />
+  1207→            )}
+  1208→            <p className="text-sm font-semibold">
+  1209→              {tab === "sessions" ? "No sessions yet" : "Create your first routine"}
+  1210→            </p>
+  1211→            <p className="max-w-[280px] text-center text-xs text-muted-foreground">
+  1212→              {tab === "sessions"
+  1213→                ? "Save a finished workout as a session to reuse it in one tap."
+  1214→                : "Split your training into days, then follow the program from Home."}
+  1215→            </p>
+  1216→            <Button
+  1217→              type="button"
+  1218→              className="gap-1.5"
+  1219→              tour={{ id: "programs.createFirst", label: "Create first", help: "Add your first routine or session here.", order: 160, when: ["empty"] }}
+  1220→              onClick={() => setCreating(tab === "sessions" ? "SESSION" : "ROUTINE")}
+  1221→            >
+  1222→              <Plus className="h-4 w-4" aria-hidden />
+  1223→              {tab === "sessions" ? "New session" : "New routine"}
+  1224→            </Button>
+  1225→          </div>
+  1226→        ) : filteredEmpty ? (
+  1227→          <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+  1228→            <Search className="h-6 w-6 text-muted-foreground" aria-hidden />
+  1229→            <p className="text-sm font-semibold">Nothing matches these filters</p>
+  1230→            <Button
+  1231→              type="button"
+  1232→              variant="outline"
+  1233→              className="gap-1.5"
+  1234→              tour={{ id: "programs.clearFilters", label: "Clear filters", help: "Reset the filters when nothing matches.", order: 170 }}
+  1235→              onClick={tab === "routines" ? () => {
+  1236→              setRoutineChip("ALL");
+  1237→              setFavOnly(false);
+  1238→              setLabelsOpen(false);
+  1239→              setSelectedLabels(new Set());
+  1240→            } : clearSessionFilters}>
+  1241→              Clear filters
+  1242→            </Button>
+  1243→          </div>
+  1244→        ) : tab === "routines" ? (
+  1245→          routineSections.map((section) => (
+  1246→            <Fragment key={section.key}>
+  1247→              {section.label ? <SectionHeader label={section.label} span /> : null}
+  1248→              {section.items.map((program) => renderRoutineRow(program))}
+  1249→            </Fragment>
+  1250→          ))
+  1251→        ) : (
+  1252→          visibleSessions.map((program) => renderSessionRow(program))
+  1253→        )}
+  1254→
+  1255→        {/* destructive confirm: program delete */}
+  1256→        <AlertDialog open={deleteTarget != null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+  1257→          <AlertDialogContent>
+  1258→            <AlertDialogHeader>
+  1259→              <AlertDialogTitle>Delete {tab === "sessions" ? "session" : "routine"}?</AlertDialogTitle>
+  1260→              <AlertDialogDescription>
+  1261→                “{deleteTarget?.name}” and its {deleteTarget?.dayCount ?? 0} day
+  1262→                {(deleteTarget?.dayCount ?? 0) === 1 ? "" : "s"} will be removed. Logged workouts stay
+  1263→                untouched. This cannot be undone.
+  1264→              </AlertDialogDescription>
+  1265→            </AlertDialogHeader>
+  1266→            <AlertDialogFooter>
+  1267→              <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1268→              <AlertDialogAction
+  1269→                className="bg-destructive text-white hover:bg-destructive/90"
+  1270→                onClick={(e) => {
+  1271→                  e.preventDefault();
+  1272→                  const target = deleteTarget;
+  1273→                  setDeleteTarget(null);
+  1274→                  if (target) void deleteProgram(target);
+  1275→                }}
+  1276→              >
+  1277→                Delete
+  1278→              </AlertDialogAction>
+  1279→            </AlertDialogFooter>
+  1280→          </AlertDialogContent>
+  1281→        </AlertDialog>
+  1282→
+  1283→        {/* §4.4 destructive confirm: bulk delete in select mode */}
+  1284→        <AlertDialog open={deleteManyOpen} onOpenChange={(o) => !o && setDeleteManyOpen(false)}>
+  1285→          <AlertDialogContent>
+  1286→            <AlertDialogHeader>
+  1287→              <AlertDialogTitle>Delete {selectedIds.size} routine{selectedIds.size === 1 ? "" : "s"}?</AlertDialogTitle>
+  1288→              <AlertDialogDescription>
+  1289→                The selected routine{selectedIds.size === 1 ? "" : "s"} and{" "}
+  1290→                {selectedIds.size === 1 ? "its" : "their"} days will be removed. Logged workouts stay
+  1291→                untouched. This cannot be undone.
+  1292→              </AlertDialogDescription>
+  1293→            </AlertDialogHeader>
+  1294→            <AlertDialogFooter>
+  1295→              <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1296→              <AlertDialogAction
+  1297→                className="bg-destructive text-white hover:bg-destructive/90"
+  1298→                onClick={(e) => {
+  1299→                  e.preventDefault();
+  1300→                  setDeleteManyOpen(false);
+  1301→                  void deleteSelected();
+  1302→                }}
+  1303→              >
+  1304→                Delete {selectedIds.size}
+  1305→              </AlertDialogAction>
+  1306→            </AlertDialogFooter>
+  1307→          </AlertDialogContent>
+  1308→        </AlertDialog>
+  1309→
+  1310→        {/* destructive confirm: replace the followed routine */}
+  1311→        <AlertDialog open={followTarget != null} onOpenChange={(o) => !o && setFollowTarget(null)}>
+  1312→          <AlertDialogContent>
+  1313→            <AlertDialogHeader>
+  1314→              <AlertDialogTitle>
+  1315→                Unfollow {followed?.routineName ?? "your program"} and start {followTarget?.name} from
+  1316→                Day 1?
+  1317→              </AlertDialogTitle>
+  1318→              <AlertDialogDescription>
+  1319→                Only one program can drive your Home dashboard and day rollover at a time. Your logged
+  1320→                workouts are never touched.
+  1321→              </AlertDialogDescription>
+  1322→            </AlertDialogHeader>
+  1323→            <AlertDialogFooter>
+  1324→              <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1325→              <AlertDialogAction
+  1326→                onClick={(e) => {
+  1327→                  e.preventDefault();
+  1328→                  const target = followTarget;
+  1329→                  setFollowTarget(null);
+  1330→                  if (target) void followProgram(target);
+  1331→                }}
+  1332→              >
+  1333→                Start from Day 1
+  1334→              </AlertDialogAction>
+  1335→            </AlertDialogFooter>
+  1336→          </AlertDialogContent>
+  1337→        </AlertDialog>
+  1338→
+  1339→        {/* date picker → schedule picker for the chosen program */}
+  1340→        <DatePickerDialog
+  1341→          open={scheduleTarget != null}
+  1342→          onOpenChange={(o) => !o && setScheduleTarget(null)}
+  1343→          initialKey={todayDateKey}
+  1344→          title={`Schedule ${scheduleTarget?.name ?? ""}`}
+  1345→          description="Pick the date — then choose the day to schedule."
+  1346→          onSelect={(dayKey) => {
+  1347→            setScheduleTarget(null);
+  1348→            navigate(`/schedule/pick?date=${dayKey}`);
+  1349→          }}
+  1350→        />
+  1351→
+  1352→        {/* §4.8 session row ⋮ Schedule → direct create (with Replace handling) */}
+  1353→        <DatePickerDialog
+  1354→          open={sessionScheduleTarget != null}
+  1355→          onOpenChange={(o) => !o && setSessionScheduleTarget(null)}
+  1356→          initialKey={todayDateKey}
+  1357→          title={`Schedule ${sessionScheduleTarget?.name ?? ""}`}
+  1358→          description="Pick the date for this session."
+  1359→          onSelect={(dayKey) => {
+  1360→            const target = sessionScheduleTarget;
+  1361→            setSessionScheduleTarget(null);
+  1362→            if (!target) return;
+  1363→            const day = sessionWorkoutDay(target);
+  1364→            void scheduleCreate.create({
+  1365→              date: dayKey,
+  1366→              routineId: target.id,
+  1367→              ...(day ? { dayId: day.id } : {}),
+  1368→              toastLabel: `Scheduled ${target.name} for ${dayKey}`,
+  1369→            });
+  1370→          }}
+  1371→        />
+  1372→        {scheduleCreate.conflictDialog}
+  1373→
+  1374→        {sessionFromWorkout.dialog}
+  1375→      </ScrollBody>
+  1376→    </Screen>
+  1377→  );
+  1378→}
+  1379→

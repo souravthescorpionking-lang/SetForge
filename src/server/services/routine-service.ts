@@ -48,7 +48,7 @@ export async function createRoutine(userId: string, input: { name: string; notes
 export async function updateRoutine(
   userId: string,
   id: string,
-  patch: { name?: string; notes?: string | null; sortOrder?: number; kind?: string },
+  patch: { name?: string; notes?: string | null; sortOrder?: number; kind?: string; difficulty?: string },
 ) {
   const r = await db.routine.findFirst({ where: { id, userId }, include: routineInclude });
   if (!r) throw notFound("Routine not found");
@@ -76,6 +76,8 @@ export async function updateRoutine(
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
       ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+      // ---- Part 8 §3.8 builder Level row (additive) ----
+      ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {}),
     },
     include: routineInclude,
   });
@@ -263,6 +265,8 @@ export async function addPredefinedSet(
     rpe?: number | null;
     tempo?: string | null;
     restPlannedSec?: number | null;
+    weightKind?: string | null;
+    pct?: number | null;
   },
 ) {
   const re = await db.routineExercise.findFirst({ where: { id: reId, userId, dayId } });
@@ -280,6 +284,8 @@ export async function addPredefinedSet(
       rpe: input.rpe ?? null,
       tempo: input.tempo ?? null,
       restPlannedSec: input.restPlannedSec ?? null,
+      weightKind: input.weightKind ?? null,
+      pct: input.pct ?? null,
       sortOrder: count,
     },
   });
@@ -301,6 +307,8 @@ export async function updatePredefinedSet(
     rpe?: number | null;
     tempo?: string | null;
     restPlannedSec?: number | null;
+    weightKind?: string | null;
+    pct?: number | null;
   },
 ) {
   const s = await db.predefinedSet.findFirst({ where: { id: setId, routineExerciseId: reId } });
@@ -316,6 +324,8 @@ export async function updatePredefinedSet(
       ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
       ...(input.tempo !== undefined ? { tempo: input.tempo } : {}),
       ...(input.restPlannedSec !== undefined ? { restPlannedSec: input.restPlannedSec } : {}),
+      ...(input.weightKind !== undefined ? { weightKind: input.weightKind } : {}),
+      ...(input.pct !== undefined ? { pct: input.pct } : {}),
     },
   });
   return getRoutine(userId, routineId);
@@ -326,6 +336,39 @@ export async function removePredefinedSet(userId: string, routineId: string, day
   if (!s) throw notFound("Set not found");
   await db.predefinedSet.delete({ where: { id: setId } });
   return getRoutine(userId, routineId);
+}
+
+// ---------- routine groups (Part 8 §3.8 builder + Group; additive) ----------
+
+export async function createRoutineGroup(
+  userId: string,
+  routineId: string,
+  input: { name?: string; assignReId?: string },
+) {
+  const r = await db.routine.findFirst({ where: { id: routineId, userId } });
+  if (!r) throw notFound("Routine not found");
+  const count = await db.routineGroup.count({ where: { routineId } });
+  const name = input.name?.trim() || `Group ${count + 1}`;
+  const group = await db.routineGroup.create({
+    data: { id: uuid7(), userId, routineId, name, colour: "#f97316" },
+  });
+  if (input.assignReId) {
+    const re = await db.routineExercise.findFirst({
+      where: { id: input.assignReId, userId, day: { routineId } },
+    });
+    if (re) {
+      await db.routineExercise.update({ where: { id: re.id }, data: { groupId: group.id } });
+    }
+  }
+  return { groupId: group.id };
+}
+
+export async function deleteRoutineGroup(userId: string, routineId: string, groupId: string) {
+  const g = await db.routineGroup.findFirst({ where: { id: groupId, userId, routineId } });
+  if (!g) throw notFound("Group not found");
+  // FK onDelete: SetNull — members fall back to ungrouped.
+  await db.routineGroup.delete({ where: { id: groupId } });
+  return { ok: true };
 }
 
 // ---------- log routine day → workout ----------
@@ -351,11 +394,14 @@ export async function logRoutineDay(userId: string, routineId: string, input: { 
     !!planned && planned.routineId === routine.id && planned.dayId === day.id;
 
   const workout = await db.$transaction(async (tx) => {
-    const w = await tx.workout.upsert({
-      where: { userId_date: { userId, date } },
-      update: {},
-      create: { id: uuid7(), userId, date },
-    });
+    // Part 8: several sessions per day are allowed — continue the ACTIVE one.
+    const active =
+      (await tx.workout.findFirst({
+        where: { userId, date, removedAt: null, finishedAt: null },
+        orderBy: { createdAt: "desc" },
+      })) ??
+      (await tx.workout.create({ data: { id: uuid7(), userId, date } }));
+    const w = active;
     await tx.workout.update({
       where: { id: w.id },
       data: {

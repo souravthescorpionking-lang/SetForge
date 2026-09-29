@@ -48,11 +48,12 @@ import type { MeasurementDTO } from "@/lib/types";
 import { BodyTrackTab } from "./body-track-tab";
 import { BodyHistoryTab } from "./body-history-tab";
 import { BodyGraphTab } from "./body-graph-tab";
+import { BodyTimelineTab } from "./body-timeline-tab";
 import { useBodyAction } from "./body-util";
 
-const TABS = ["track", "history", "graph"] as const;
+const TABS = ["track", "timeline", "history", "graph"] as const;
 type TabKey = (typeof TABS)[number];
-const TAB_LABELS: Record<TabKey, string> = { track: "Track", history: "History", graph: "Graph" };
+const TAB_LABELS: Record<TabKey, string> = { track: "Track", timeline: "Timeline", history: "History", graph: "Graph" };
 
 const GOAL_LABELS: Record<string, string> = {
   INCREASE: "Increase",
@@ -66,7 +67,7 @@ export default function BodyScreen() {
 
   // ---------- URL-derived state (?tab= — deep-linkable) ----------
   const tabParam = route.name === "body" ? route.query.get("tab") : null;
-  const tab: TabKey = tabParam === "history" || tabParam === "graph" ? tabParam : "track";
+  const tab: TabKey = tabParam === "history" || tabParam === "graph" || tabParam === "timeline" ? tabParam : "track";
 
   const { data, isLoading } = useMeasurements();
   const measurements = useMemo(
@@ -126,7 +127,7 @@ export default function BodyScreen() {
         />
       }
       subBar={
-        <div className="grid h-12 w-full grid-cols-3" role="tablist" aria-label="Body tabs">
+        <div className="grid h-12 w-full grid-cols-4" role="tablist" aria-label="Body tabs">
           {TABS.map((t) => (
             <button
               key={t}
@@ -137,9 +138,11 @@ export default function BodyScreen() {
               {...tourAttrs(
                 t === "track"
                   ? { id: "body.tabTrack", label: "Track tab", help: "Log new entries and photos for each metric.", order: 20 }
-                  : t === "history"
-                    ? { id: "body.tabHistory", label: "History tab", help: "Browse every past entry in one table.", order: 30 }
-                    : { id: "body.tabGraph", label: "Graph tab", help: "Chart a metric's trend over time.", order: 40 },
+                  : t === "timeline"
+                    ? { id: "body.tabTimeline", label: "Timeline tab", help: "Scrub your progress photos day by day.", order: 30 }
+                    : t === "history"
+                      ? { id: "body.tabHistory", label: "History tab", help: "Browse every past entry in one table.", order: 40 }
+                      : { id: "body.tabGraph", label: "Graph tab", help: "Chart a metric's trend over time.", order: 50 },
               )}
               className={cn(
                 "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap text-sm font-semibold transition-colors",
@@ -168,6 +171,8 @@ export default function BodyScreen() {
             expandedId={expandedId}
             onExpandedChange={setExpandedId}
           />
+        ) : tab === "timeline" ? (
+          <BodyTimelineTab />
         ) : tab === "history" ? (
           <BodyHistoryTab measurements={measurements} loading={isLoading} />
         ) : (

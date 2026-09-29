@@ -6,7 +6,7 @@
 //
 //   TopBar (56)  : back → #/routines/{id} | exercise name | `Save`
 //   ScrollBody   : legend row 32px (`↺ = copy from last workout`) + ONE
-//                  ExerciseCard in `template` mode, expanded, header hidden.
+//                  GroupCard in `template` mode, expanded, header hidden.
 //   BottomBar(56): `Skip (log freestyle)` — adds the bare exercise to TODAY's
 //                  workout (no predefined values) and navigates to #/today.
 //
@@ -26,8 +26,8 @@ import { useApp } from "@/lib/client/store";
 import { routinesApi, workoutsApi } from "@/lib/client/api";
 import { qk, useInvalidate, useOnline } from "@/lib/client/query";
 import { todayKey } from "@/lib/client/format";
-import type { CardAction, CardSet, CardVisibleColumns } from "@/components/exercise-card/exercise-card";
-import { ExerciseCard } from "@/components/exercise-card/exercise-card";
+import { CardAction, CardSet, CardVisibleColumns } from "@/components/group-card";
+import { SoloCard } from "@/components/group-card";
 import type { RoutineExerciseDTO } from "@/lib/types";
 import {
   cardPatchToPredefinedInput,
@@ -277,7 +277,7 @@ export default function PredefinedEditorScreen({ routineId, reId }: { routineId:
                 · blank sets copy your previous session when the day is logged
               </span>
             </p>
-            <ExerciseCard
+            <SoloCard
               mode="template"
               exercise={toCardExercise(re, settings)}
               sets={cardSetsOf(re)}

@@ -54,7 +54,7 @@ export class ScreenErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children;
     return (
       <div className="flex h-full w-full items-center justify-center p-4" role="alert">
-        <div className="flex w-full max-w-[720px] flex-col items-center gap-4 rounded-lg border bg-card px-6 py-10 text-center lg:max-w-[1100px]">
+        <div className="flex w-full max-w-[480px] flex-col items-center gap-4 rounded-lg border bg-card px-6 py-10 text-center ">
           <AlertTriangle className="h-10 w-10 text-destructive" aria-hidden />
           <div className="text-base font-semibold">Something went wrong</div>
           <div className="text-xs tabular-nums text-muted-foreground">Error {this.state.errorId} · {this.props.route}</div>

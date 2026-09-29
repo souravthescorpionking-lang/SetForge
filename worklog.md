@@ -1033,3 +1033,116 @@ Stage Summary:
 - Known deviations (documented): localStorage mirror instead of IndexedDB-outbox for tour state; `tour/required` stays WARN (56 remaining undeclared controls = tracked backlog, mostly dialog internals + data-driven chips); no Storybook/Playwright infra in this environment — placement/behaviour verified via agent-browser at 320/390/1280 + programmatic rect audits instead.
 - Demo accounts: demo@setforge.app/password123 (leg acy data); p7golden@setforge.app/testpass123 (fresh golden-path user, welcome+home COMPLETED).
 - Screenshots: download/qa-p7-*.png (welcome tour, generated help, mobile 320/390, placement steps, final today tour, final home 320).
+
+---
+Task ID: 8-core
+Agent: lead (Z.ai Code)
+Task: PART 8 core infrastructure — schema migration, phone-only navigation, GroupCard
+
+Work Log:
+- §0 discovery: full codebase map (33 screens, hash router, ExerciseCard/SetRow system, tour infra from Part 7, settings 8 sections, ~90 API routes).
+- §7 schema (additive): +ProgressionRule/ProgressionState (+SyncConflict, +BackupRun), PredefinedSet.weightKind/pct, RoutineExercise.warmupScheme/warmupCustom, Exercise.showRpe/showTempo/showRest/transitionRestSec, UserSettings.preset/sessionMode/defaultTransitionRestSec/notif*, Workout.removedAt/removeReason (replaces discardedAt/deletedAt; migrated via scripts/migrate-part8.ts), WorkoutGroup/RoutineGroup.code/size cache, DROPPED DailyCalories (exported first → download/calories-export-*.json), REMOVED Workout @@unique(userId,date) → multi-session days.
+- Server code updated for remove semantics + multi-session: workout-service (getActiveSession added, createOrGetWorkout continues ACTIVE session, move/copy/startDay log paths findFirst-based), program-service, routine-service, exercise-service, account-service (calories removed from export/import; old backups still import, calories ignored), sync route, mappers, settings-service (preset fan-out into individual switches).
+- §1 navigation: router.ts rewritten — routes workout/dashboard/more/session(+exercise/arrange)/logs(+detail)/programs(+detail/day/arrange)/on-demand(+detail)/library(+entry)/builder(+new/program/session/exercise=sets-editor)/calendar(+filters)/schedule-pick/exercises/exercise-overview/body(+compare)/insights/tools/dictionary/onboarding/profile/settings/help/auth/dev. Legacy rewrites: #/home→#/workout, #/today…→#/session…, #/history→#/logs, #/programs/new/builder→#/builder/new, #/programs/{id}/log/{d}→#/programs/{id}, #/programs/{id}/exercise/{re}→#/builder/program/{id}/exercise/{re}, #/routines→#/programs. Default #/workout.
+- NavBar: 3 tabs (Workout·Dashboard·More) max-w-480 centered; NavPane DELETED; app-shell phone-only frame (single column 480px); ScrollBody/tokens → max-w-[480px]; ALL lg: branches stripped from app code (Law 1).
+- §2 GroupCard: src/components/group-card/{group-card.tsx,group-types.ts,index.ts} — THE one card (Law 3): group border + 4px colour bar, 32px code row (A1·label), 40px name row, view/edit bodies (Reps row with ∞/↺/85% markers, Tempo row, ⏱ rest row expandable "3× · Rest sec: 90 90 90", 💡 tip expand), read body (SetRow read), log body (Tempo + SetRow log + add-set + collapsed 0/3), … popover (detail/history/graph/records/notes/mode-specific), GroupCardStack renders 16px gap + 1px 30% divider BETWEEN groups only, SoloCard = singleton-group shorthand (migration bridge accepting legacy props).
+- src/lib/grouping.ts: deriveGroups (ungrouped = own group of 1; letters A,B,C; labels Superset/Triset/Giant set), generateWarmup (STANDARD 40/60/80×5/3/2, LIGHT 50/70×5/3, custom; plate-rounded), evaluateProgression (LINEAR/DOUBLE/deload), resolvePrescribedWeight (%1RM fallback copy-last), movingAverage7.
+- SetRow: mode "log" added (editable, done+more tracks), log/read rows 48px, `current` prop → 3px accent inset bar (guided pointer), imports moved to group-types.
+- ALL 13 ExerciseCard consumers mechanically migrated → SoloCard; exercise-card folder DELETED; zero ExerciseCard references.
+- Deleted: home feature (hub tiles), log-day-screen, calories API/service/client/settings-toggle, screens slots for home/today/history/log-day/predefined-editor/program-builder/today-arrange/training (replaced by new slots).
+- tsc clean, lint 0 errors (58 tour/required warnings = pre-existing backlog), dev server 200 on /.
+
+Stage Summary:
+- App skeleton now PART 8: 3 tabs, phone-only 480px, GroupCard exists, DB migrated (multi-session days + remove semantics + progression/warmup/preset columns).
+- Interim stubs live at features/{workout,dashboard,session,logs,on-demand,builder} — agents must replace them with full §3 builds.
+- Shared APIs to reuse: useDashboard, workoutsApi, routinesApi, programsApi, scheduleApi, useWorkoutByDate(dateKey)→{workout}, SoloCard/GroupCard/GroupCardStack, deriveGroups, BackButton.
+---
+Task ID: 8-4c
+Agent: full-stack-developer
+Task: PART 8 §3.3 — rewrite the More tab (src/features/more/more-screen.tsx) as the spec'd index: TopBar "More"+help, 56px profile header row, 7 destination rows.
+
+Work Log:
+- Read worklog 8-core (Part 8 phone-only/3-tab conventions), old more-screen.tsx (9 rows + tour pattern), router.ts (#/body|#/insights|#/tools|#/dictionary|#/settings|#/help|#/profile all valid), tokens.rowBar, tour attrs/types, profile-screen level labels (PROFILE_LEVELS uppercase → Beginner/Intermediate/Advanced), query/api (["profile"] key, profileApi.get → UserProfileDTO.weightKg/level; name lives on session.user).
+- Verified settings-screen/settings-sections read NO route query (?tab= unsupported) → Backup & data navigates plain #/settings per task instruction (settings screen untouched).
+- Rewrote more-screen.tsx: <Screen topBar><ScrollBody> frame, TopBar "More" + TopBarHelp only (no calendar — that's Dashboard's), nav of 8 rows all rowBar (56px single-line, border rounded-lg, 44px icon tile, chevron right):
+  1. Profile header: "{name} · {weight} kg · {level}" (name from session, weightKg via round1, level via local LEVEL_LABELS map) → #/profile; Skeleton row (aria-busy) while ["profile"] isPending; fallback "Your profile · Set details" while weight/level missing.
+  2. Body & photos → #/body (Ruler) · Records & stats → #/insights (Trophy) · Tools → #/tools (Wrench) · Dictionary → #/dictionary (BookOpen) · Settings → #/settings (Settings) · Backup & data → #/settings (DatabaseBackup) · Help & tours → #/help (CircleHelp).
+- Tour: 8 static inline `{...tourAttrs({ id: "more.profile|body|records|tools|dictionary|settings|backup|help", … })}` literals, orders 10–80, help ≤ 58 chars, unique ids (kept old good ids: profile/tools/dictionary/settings/help).
+- Layout fix found via measurement: profile string was 1px-truncated at 320px (fallback) / 8px at 390px (populated) with gap-3 → switched rows to gap-2 (8px, tip-row precedent, SPACING-legal); fallback now fits at 320 (186=186), populated "Demo User · 82.4 kg · Intermediate" fits at 390 (256=256). Longer names degrade to graceful ellipsis (single-line law).
+- Browser QA (agent-browser, login demo@setforge.app): a11y snapshot shows TopBar help + "Your profile · Set details" + 7 rows + NavBar(Workout/Dashboard/More); clicked Profile/Body/Records/Backup/Help rows → #/profile, #/body, #/insights, #/settings, #/help all correct; seeded weightKg=82.4/level=INTERMEDIATE temporarily → row rendered "Demo User · 82.4 kg · Intermediate" (VLM-verified bold name + muted tail), then reverted DB to NULL/NULL; no console/page errors; screenshots download/qa-more-390.png, qa-more-320.png, qa-more-390-full.png.
+
+Stage Summary:
+- Files: src/features/more/more-screen.tsx (only file touched; 286 lines). Screens slot more.tsx re-exports it unchanged.
+- Verification: tsc --noEmit → 0 errors in src/features/more (whole-project run currently shows 1 error in src/features/dashboard/today-card.tsx from the PARALLEL 8-4b agent's in-flight file — not mine, untouched); bun run lint → 0 errors / 57 warnings (all pre-existing tour-required backlog, none in features/more); bash scripts/qa/verify-layout.sh '#/more' → GATE: PASS at 320/360/390/430 (rows:8, all 56px, nowrap OK, no overlap/rightEdge/hscroll), checked while logged in (harness does not log in itself — first run had verified the auth screen).
+- Gaps found: (1) src/generated/tour-registry.json is now stale (old more.* helps; new more.backup id missing) — needs a `bun run tour:gen` pass by the registry owner; (2) settings has no ?tab= support so Backup & data lands on settings top (spec wanted ?tab=data); (3) parallel dashboard agent's today-card.tsx tsc error (TS18047 'day' possibly null) breaks the global clean-tsc gate until 8-4b fixes it; (4) demo profile has no weight/level so reviewers see the fallback row by design.
+
+---
+Task ID: 8-wave1
+Agent: lead (Z.ai Code)
+Task: Wave 1 tabs — Workout (8-4a), Dashboard (8-4b), More (8-4c) + shared server upgrades
+
+Work Log:
+- Server: appendDayToWorkout now resolves %1RM prescriptions (estOneRmByMethod from PRs, plate-rounded), applies progression delta to copy-last first working weight, generates warm-up rows (STANDARD/LIGHT/CUSTOM, type W) after resolution; finishWorkout evaluates ProgressionRule per exercise vs template targets and upserts ProgressionState (§6.2/6.3/6.4 wired end-to-end).
+- New routes: GET /api/workouts/active; GET/PUT /api/routines/{id}/exercise/{reId}/meta (warmup+progression editor); GET /api/backup/runs; POST /api/backup/run-now; POST /api/workouts/{id}/purge. Client: workoutsApi.active, workoutLifecycleApi.purge, exerciseMetaApi, backupApi. ExerciseDTO/mappers carry showRpe/showTempo/showRest/transitionRestSec; PredefinedSetDTO carries weightKind/pct; RoutineExerciseDTO carries warmupScheme.
+- Prisma Exercise columns fixed (initial edit had silently failed) + db:push + generate.
+- 8-4a Workout tab (features/workout/{workout-screen,program-card}.tsx): program card 4 states (none/following/rest/in-progress) fixed 128px + scheduled-today override, 5 nav rows with counts, start-day flow → #/session. Layout fix: card rows flex-none (border-box shrink was producing 47/39px rows).
+- 8-4b Dashboard tab (features/dashboard/*): Today card + Upcoming ×4 + This week stats + week dots (done/today/planned/missed) + Body row (7-day avg primary, raw muted) + Records this month + BottomBar Start today's session.
+- 8-4c More tab: profile header row + 7 destination rows (Body & photos/Records & stats/Tools/Dictionary/Settings/Backup & data/Help & tours), static tour decls.
+- verify-layout.sh default widths now 320/360/390/430; okH includes 32.
+- Verification: tsc clean; lint 0 errors; verify-layout #/workout #/dashboard #/more ALL PASS at 4 widths; agent-browser snapshots show correct rendering with demo data (Continue 0/13, week stats, records).
+
+Stage Summary:
+- 3 tabs fully live and verified. Groups/GroupCard infra proven working via agents' screens.
+- Next: Wave 2 (Logs 8-4d, Programs 8-4e, On Demand 8-4f), Wave 3 (Builder 8-4g, Session logging 8-4i, Settings presets 8-5).
+
+---
+Task ID: 8-wave2
+Agent: lead (Z.ai Code)
+Task: Wave 2 — Workout Logs (8-4d), Programs (8-4e), On Demand (8-4f)
+
+Work Log:
+- 8-4d Logs: features/logs/{logs-screen,log-detail-screen}.tsx — month sections + multi-session day cards (4px source-coloured bar), search SubBar, long-press destructive delete + Undo restore; detail: GroupCard read mode via deriveGroups + GroupCardStack, meta row, ⋮ (Save as session/Move date/Share/Delete), BottomBar Repeat this session (workoutsApi.copy).
+- 8-4e Programs: routines-screen.tsx evolved — view-only list (Following row first, My programs + Templates sections, creation moved to Builder), routine-detail-screen.tsx — day accordion (one open), GroupCard view mode per day with deriveGroups codes, ✓/Today status chips, BottomBar Start Day/Follow, ⋮ Edit in Builder/Schedule/Skip/Jump/Unfollow/Copy/Delete.
+- 8-4f On Demand: features/on-demand/{on-demand-screen,on-demand-detail-screen}.tsx — search + chip filters (★/≤20m/≤40m/muscles), 72px session rows with favourite; detail GroupCard view + Start now/Schedule.
+- Harness evolution: rightEdge check now clip-aware (children of intentional overflow-x-auto chip scrollers are clipped — matches v2 overlap logic; genuine overflow still fails).
+- Verification: tsc clean; lint 0 errors; verify-layout PASS at 320/360/390/430 for #/logs, #/logs/{id}, #/programs, #/programs/{id}, #/on-demand, #/on-demand/{id}, and re-PASS for #/workout #/dashboard #/more. Browser: multi-session days visible (TUE 29 ×3 cards), log detail GroupCard "A1" + read SetRows "110 kg · 8", program detail Superset A card (A1 Dumbbell Bench + A2 Arnold Press) + solo "B" Barbell Bench, Reps rows weight·reps.
+
+Stage Summary:
+- 6 of 10 §3 screens live+verified. Remaining: Builder hub+editors+sets editor (8-4g), Logging session screen (8-4i), Settings presets (8-5), plus §6 residuals (Term component, photo timeline, notifications UI, Removed items UI), tour:gen regen, architecture AST checks, docs.
+
+---
+Task ID: 8-wave3
+Agent: lead (Z.ai Code)
+Task: Wave 3 — Logging session (8-4i) + Builder (8-4g)
+
+Work Log:
+- 8-4i Session screen (features/session/*): evolved today-screen machinery into the Part 8 logger — ✕ Close menu (Finish/Discard/Keep going), elapsed title, 32px sets-progress SubBar, GroupCards log mode with deriveGroups + guided pointer currentSetIndex (3px accent rows), BottomBar swaps (RestBar with -15/+15/Skip; Log set ✓ primary + Add exercise secondary), §6.1 auto mode (AUTO=guided when ROUTINE_DAY/SESSION source, free when FREESTYLE), §6.5 transition rest on group boundary, session gate redirect #/workout.
+- 8-4g Builder (features/builder/*): hub (Create: New program/session/from-log; Edit: all routines+sessions), program editor (name/level rows, day accordion with ⋮ + drag, GroupCard edit mode, + Exercise/+ Group, + Day), session editor (single day), sets editor (header row, weight prescription segmented Fixed/Copy-last/%1RM §6.4, warm-up scheme §6.2, progression rule §6.3 via exerciseMetaApi, apply-to-all, add set).
+- Fixed: session progress row missing whitespace-nowrap (harness wsFail); stale dev-server HMR required restart.
+- Verification: tsc clean, lint 0 errors; verify-layout PASS at 320/360/390/430 for #/session, #/builder, #/builder/program/{id}, #/builder/session/{id}, #/builder/program/{id}/exercise/{reId}. Functional (agent-browser): Continue → session renders GroupCards (A1 Barbell Squat, trainer tip, editable SetRows); "Log set ✓" → progress 1/13→2/13 + rest ring 3:29 + Skip; sets editor shows prescription button, warm-up toggle, progression popover (Linear/Double/increment/deload).
+
+Stage Summary:
+- ALL §3 screens now live: Workout/Dashboard/More/Logs(+detail)/Programs(+detail)/On Demand(+detail)/Library/Builder(+editors)/Calendar/Session.
+- Remaining: §5 settings presets restructure, §6.9 Removed items UI, §6.10 Term component, §6.12 notification rows, tour:gen regen, AST/unit checks, README/Help docs.
+
+---
+Task ID: 8-final
+Agent: lead (Z.ai Code)
+Task: PART 8 completion — §5 settings, §6 residuals, §8 test suite, docs, final QA
+
+Work Log:
+- §5 Settings: ModeSection (Simple/Standard/Power preset segmented row — server fans out into individual switches; verified live: Power → showRpe/guidedMode true), quick rows (Units/Theme/Rest timer), NotificationsSection (§6.12 switches), Advanced/Backup & data/Account inline expanders; BackButton to #/more.
+- §6.9 RemovedItemsSection (list removed workouts, Restore + Delete permanently w/ AlertDialog purge); §6.8 BackupRunsSection (last run + Run now via /api/backup/run-now → download/backups/).
+- §6.10 Term component (src/components/shared/term.tsx): dotted-underline inline dictionary popover + "Open dictionary" → #/dictionary?term= deep link (dictionary screen expands the term); wired into GroupCard group labels (Superset/Triset/Giant set) + Tempo row.
+- §6.11 onboarding template matrix (src/server/services/onboarding-template.ts): 3/4/5-day splits (Full Body/Upper-Lower/PPL) × level factor; adopt-or-reuse catalog exercises (name OR catalogKey match — fresh accounts pre-adopt by name); copy-last predefined sets; auto-follow on onboarding complete; client toast with Undo → unfollow; skip path unwraps new {profile, startedTemplate} shape.
+- §6.7 BodyTimelineTab: 4×160px slot view (FRONT/BACK/LEFT/RIGHT) + 56px thumb scrub strip (one per photo date) + Compare link; body tab bar → grid-cols-4 (fixed 320px overlap).
+- §8 test suite: scripts/qa/verify-architecture.ts (bun run verify:arch) — one GroupCard, one SetRow, zero ExerciseCard refs, zero lg: breakpoints, 14 router legacy-rewrite cases, sets-editor/session route parse, grouping units (codes A1/A2/B1/C1-C3, reorder recompute, labels by size, warm-up STANDARD 40/60/80×5/3/2 + plate rounding + custom, progression hit/fail/deload (fixed deload semantics: -pct% of session's first working weight)/double/last-set-condition, %1RM resolve+fallback+rounding, 7-day average), preset mapping, remove vocabulary, calories removal. ALL PASS.
+- tour:gen regenerated (37 screens, 52 components, 0 warnings); all order values multiples of 10; dev-showcase/history/today comment mentions neutralized.
+- README feature map rewritten for Part 8; CHANGELOG Part 8 entry; package.json + verify:arch + migrate:part8 scripts.
+- Harness: verify-layout default widths 320/360/390/430; okH includes 32; rightEdge clip-aware (v2 parity with overlap).
+- E2E verified (agent-browser, fresh account pt8b@test.dev): signup → onboarding (units/goal=strength/level=beginner/days=4) → auto-template "Full Body 3-Day" created+followed (Workout card: Day 1/3 Full Body A + Start Day 1) → Start → session (A1 Barbell Bench Press, 0/9 sets, copy-last blanks) → weight 60 + "Log set ✓" → 1/9 + completed row → ✕ menu → Finish → back on #/workout with cursor ADVANCED to Day 2/3 Full Body B; workout logged via API (today, 1 set). Tour auto-started for the new user on the session screen (Part 7 system live on new screens) — Skip works.
+- Final battery: tsc 0 errors · lint 0 errors · verify:arch PASS · verify:formulas PASS · tour:check in sync · verify-layout PASS at 320/360/390/430 on ALL 28 routes (workout/dashboard/more/logs(+detail)/programs(+detail)/on-demand(+detail)/library/builder(+new/program/session/sets-editor)/calendar(+filters)/settings/help/body(+timeline+compare)/insights/tools/dictionary/profile/exercises/dev/schedule-pick).
+
+Stage Summary:
+- Part 8 shipped: phone-only IA (3 tabs + gated logging), GroupCard/SetRow single-source, all §3 screens, §5 presets, §6.1–6.12 (6.13 sync-conflict logging + 6.14 stress-seed budgets are schema/server-ready but not CI-gated — documented follow-ups), §7 migrations additive with old-backup import compat (calories exported then dropped).
+- Deferred/known gaps (next phase): seed:stress script + perf budgets; SyncConflict write-path on real merges; notifications OS-permission flow for scheduled sessions; welcome-tour copy mentions; dead code cleanup of features/today + features/history (compiled but unrouted).

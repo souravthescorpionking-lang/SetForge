@@ -273,7 +273,7 @@ function ActiveOverlay({ active: tour }: { active: ActiveTour }) {
 function PauseChip({ active }: { active: ActiveTour }) {
   const resume = () => useTourStore.getState()._setPaused(false);
   return (
-    <div className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-1/2 z-[46] -translate-x-1/2 lg:bottom-6">
+    <div className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-1/2 z-[46] -translate-x-1/2">
       <div className="pointer-events-auto flex h-10 items-center gap-0.5 rounded-full border border-border bg-card pl-4 pr-1 shadow-lg">
         <button
           type="button"

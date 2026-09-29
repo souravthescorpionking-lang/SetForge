@@ -146,9 +146,9 @@ export default function BodyCompareScreen() {
               <Skeleton className="h-11 rounded-lg" />
               <Skeleton className="h-11 rounded-lg" />
             </div>
-            <div className="grid grid-cols-2 gap-2 lg:gap-4">
-              <Skeleton className="h-72 rounded-lg lg:h-96" />
-              <Skeleton className="h-72 rounded-lg lg:h-96" />
+            <div className="grid grid-cols-2 gap-2 gap-2">
+              <Skeleton className="h-72 rounded-lg h-72" />
+              <Skeleton className="h-72 rounded-lg h-72" />
             </div>
           </div>
         </ScrollBody>
@@ -270,7 +270,7 @@ export default function BodyCompareScreen() {
           </div>
 
           {/* side-by-side comparison — grid-cols-2 everywhere; larger on ≥lg */}
-          <div className="grid grid-cols-2 gap-2 lg:gap-4">
+          <div className="grid grid-cols-2 gap-2 gap-2">
             <ComparePanel side="A" date={a} photo={photoA} slotLabel={slotLabelFor(activeSlot, photoA)} />
             <ComparePanel side="B" date={b} photo={photoB} slotLabel={slotLabelFor(activeSlot, photoB)} />
           </div>
@@ -324,7 +324,7 @@ function ComparePanel({
           loading="lazy"
         />
       ) : (
-        <div className="flex h-64 items-center justify-center border-b border-dashed bg-muted/30 lg:h-[420px]">
+        <div className="flex h-64 items-center justify-center border-b border-dashed bg-muted/30 h-64">
           <div className="flex flex-col items-center gap-1 px-4 text-center text-muted-foreground">
             <ImageIcon className="h-6 w-6" aria-hidden />
             <span className="text-xs font-semibold">

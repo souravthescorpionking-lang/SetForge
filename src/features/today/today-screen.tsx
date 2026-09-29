@@ -3,12 +3,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // TodayScreen — the Part 3 rebuild of the day view (#/today), composed ONLY
 // from the layout primitives (Screen/TopBar/SubBar/ScrollBody/BottomBar/NavBar)
-// and the ONE ExerciseCard (edit mode) from @/components/exercise-card.
+// and the ONE GroupCard (edit mode) from @/components/exercise-card.
 //
 //   TopBar (56)  : brand "SetForge" · Calendar action · ⋮ menu (+ Arrange)
 //   SubBar (48)  : DateStrip ◄ [Thu 25 Sep] ► + Today chip + §4.11 4px sets bar
 //   ScrollBody   : [§4.11 RestRingBlock while resting · RING] → MetaRow →
-//                  ExerciseCard×N → SummaryRow → spacer (or ONE 200px empty-state
+//                  GroupCard×N → SummaryRow → spacer (or ONE 200px empty-state
 //                  block on days with no workout)
 //   BottomBar(56): content swaps — RestBar (rest running) | GuidedBar (§4.11
 //                  guided mode, workout unfinished) | FinishedBar | FinishBar |
@@ -40,15 +40,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
 import { tourAttrs } from "@/lib/tour/attrs";
-import {
-  ExerciseCard,
-  toCardSet,
-  type CardAction,
-  type CardExercise,
-  type CardSet,
-  type CardVisibleColumns,
-} from "@/components/exercise-card/exercise-card";
-import { trimNum } from "@/components/exercise-card/card-types";
+import { SoloCard } from "@/components/group-card";
+import { CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
+import { trimNum } from "@/components/group-card/group-types";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -101,7 +95,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // (src/features/screens/today.tsx); this module only declares the inline
 // steps (today.* + the exerciseCard.* underHeader anchors below).
 
-/** Map a CardSet patch (SetRow/ExerciseCard contract) onto the API's SetInput. */
+/** Map a CardSet patch (SetRow/GroupCard contract) onto the API's SetInput. */
 function cardPatchToSetInput(patch: Partial<CardSet>): SetInput {
   const out: SetInput = {};
   if ("weightKg" in patch) out.weight = patch.weightKg ?? null;
@@ -141,7 +135,7 @@ export default function TodayScreen() {
   const sessionFromWorkout = useSessionFromWorkout();
 
   // ---------- date state (syncs with the ?date= query param) ----------
-  const routeDate = route.name === "today" ? route.query.get("date") : null;
+  const routeDate = route.name === "session" ? route.query.get("date") : null;
   const [dateKey, setDateKey] = useState(() =>
     routeDate && DATE_RE.test(routeDate) ? routeDate : todayKey(),
   );
@@ -149,7 +143,7 @@ export default function TodayScreen() {
   useEffect(() => {
     if (routeDate && DATE_RE.test(routeDate)) {
       if (routeDate !== dateKey) setDateKey(routeDate);
-    } else if (route.name === "today" && !routeDate && dateKey !== todayKey()) {
+    } else if (route.name === "session" && !routeDate && dateKey !== todayKey()) {
       // #/today without a ?date= param always means today.
       setDateKey(todayKey());
     }
@@ -901,7 +895,7 @@ export default function TodayScreen() {
                   }}
                   className="relative flex-none"
                 >
-                  <ExerciseCard
+                  <SoloCard
                     mode="edit"
                     exercise={toCardExercise(we)}
                     sets={cardSets(we)}

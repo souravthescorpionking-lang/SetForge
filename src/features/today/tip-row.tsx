@@ -1,7 +1,7 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TrainerTipRow — §4.11 item 8: the trainer tip rendered as an ExerciseCard
+// TrainerTipRow — §4.11 item 8: the trainer tip rendered as an GroupCard
 // `underHeader` inline flow element. Collapsed it is a single 56px row
 // (lightbulb + one-line preview + chevron); tapping expands the full text
 // beneath it with the 0fr→1fr grid-row transition (max 120px, internal

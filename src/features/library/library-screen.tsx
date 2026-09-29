@@ -347,9 +347,9 @@ export default function LibraryScreen() {
         </SubBar>
       }
     >
-      <ScrollBody contentClassName="lg:grid lg:grid-cols-2 lg:gap-3">
+      <ScrollBody contentClassName="">
         {/* scope + filter chip row (the ONE allowed horizontal scroller) */}
-        <ChipScroller label="Library filters" className="lg:col-span-2">
+        <ChipScroller label="Library filters" className="">
           {(["all", "fav", "mine"] as const).map((s) => (
             <button
               key={s}
@@ -401,7 +401,7 @@ export default function LibraryScreen() {
 
         {/* multi-select muscle chips (renders beneath when open) */}
         {muscleOpen ? (
-          <ChipScroller label="Muscle filters" className="lg:col-span-2">
+          <ChipScroller label="Muscle filters" className="">
             {MUSCLES.map((m) => {
               const selected = muscles.includes(m);
               return (
@@ -431,7 +431,7 @@ export default function LibraryScreen() {
 
         {/* multi-select equipment chips (renders beneath when open) */}
         {equipOpen ? (
-          <ChipScroller label="Equipment filters" className="lg:col-span-2">
+          <ChipScroller label="Equipment filters" className="">
             {EQUIPMENT.map((eq) => {
               const selected = equipment.includes(eq);
               return (
@@ -455,13 +455,13 @@ export default function LibraryScreen() {
         ) : null}
 
         {listQuery.isLoading ? (
-          <div className="flex flex-col gap-3 lg:col-span-2" aria-busy="true" aria-label="Loading library">
+          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading library">
             {Array.from({ length: 6 }, (_, i) => (
               <Skeleton key={i} className="h-14 rounded-lg" />
             ))}
           </div>
         ) : listQuery.isError ? (
-          <div className="flex h-[96px] flex-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center lg:col-span-2">
+          <div className="flex h-[96px] flex-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center">
             <p className="text-sm font-semibold">Couldn&apos;t load the library</p>
             <Button type="button" variant="secondary" className="h-9" tour={{ skipTour: true, reason: "Error-state retry button for the library query" }} onClick={() => void listQuery.refetch()}>
               Retry
@@ -469,7 +469,7 @@ export default function LibraryScreen() {
             <p className="sr-only">{errMessage(listQuery.error)}</p>
           </div>
         ) : groups.length === 0 ? (
-          <div className="flex h-[96px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center lg:col-span-2">
+          <div className="flex h-[96px] flex-none flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center">
             <p className="text-sm font-semibold">No exercises found</p>
             {filtersActive ? (
               <p className="text-xs text-muted-foreground">Try clearing filters or a different search.</p>
@@ -478,7 +478,7 @@ export default function LibraryScreen() {
         ) : (
           groups.map(([category, rows]) => (
             <Fragment key={category}>
-              <SectionHeader label={category} count={rows.length} className="lg:col-span-2" />
+              <SectionHeader label={category} count={rows.length} className="" />
               {rows.map((entry) => (
                 <ExerciseRow
                   key={entry.key}

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
 import { toDayUtc, addDays, todayDayUtc } from "@/lib/dates";
 import { mapWorkout, mapSet, mapGroup, mapWorkoutSummary } from "../mappers";
-import { badRequest, notFound, conflict } from "../http";
+import { badRequest, notFound } from "../http";
 import type { Prisma } from "@prisma/client";
 
 export const workoutInclude = {
@@ -33,7 +33,7 @@ export async function recomputePRs(
       userId,
       workoutExercise: {
         exerciseId,
-        workout: { deletedAt: null, discardedAt: null }, // Part 6: soft lifecycle excluded from PRs
+        workout: { removedAt: null }, // Part 8 §6.9: removed sessions excluded from PRs
       },
       weight: { not: null },
       reps: { not: null },
@@ -76,10 +76,28 @@ const TX_OPTIONS = { timeout: 15_000, maxWait: 5_000 } as const;
 
 export async function getWorkoutByDate(userId: string, dateInput: string | Date) {
   const date = toDayUtc(dateInput);
-  // Part 6: soft-deleted and discarded workouts are invisible on the day surface.
+  // Part 8: a day may hold several sessions. The "day view" surfaces the ACTIVE
+  // (unfinished, unremoved) session; otherwise the latest finished one.
+  const w =
+    (await db.workout.findFirst({
+      where: { userId, date, removedAt: null, finishedAt: null },
+      include: workoutInclude,
+      orderBy: { createdAt: "desc" },
+    })) ??
+    (await db.workout.findFirst({
+      where: { userId, date, removedAt: null },
+      include: workoutInclude,
+      orderBy: { createdAt: "desc" },
+    }));
+  return w ? mapWorkout(w) : null;
+}
+
+/** Part 8 §3.10: the in-progress session (any date) — the Logging screen target. */
+export async function getActiveSession(userId: string) {
   const w = await db.workout.findFirst({
-    where: { userId, date, deletedAt: null, discardedAt: null },
+    where: { userId, removedAt: null, finishedAt: null, startAt: { not: null } },
     include: workoutInclude,
+    orderBy: { startAt: "desc" },
   });
   return w ? mapWorkout(w) : null;
 }
@@ -94,7 +112,7 @@ export async function listWorkouts(
   userId: string,
   opts: { from?: string; to?: string; limit?: number; search?: string },
 ) {
-  const where: Prisma.WorkoutWhereInput = { userId, deletedAt: null, discardedAt: null };
+  const where: Prisma.WorkoutWhereInput = { userId, removedAt: null };
   if (opts.from || opts.to) {
     where.date = {
       ...(opts.from ? { gte: toDayUtc(opts.from) } : {}),
@@ -130,7 +148,7 @@ export async function listWorkouts(
 /** Workout tree by a date range (calendar + history screens). */
 export async function getWorkoutsBetween(userId: string, from: string | Date, to: string | Date) {
   const rows = await db.workout.findMany({
-    where: { userId, deletedAt: null, discardedAt: null, date: { gte: toDayUtc(from), lte: toDayUtc(to) } },
+    where: { userId, removedAt: null, date: { gte: toDayUtc(from), lte: toDayUtc(to) } },
     orderBy: { date: "asc" },
     include: workoutInclude,
   });
@@ -141,17 +159,13 @@ export async function getWorkoutsBetween(userId: string, from: string | Date, to
 
 export async function createOrGetWorkout(userId: string, dateInput: string | Date) {
   const date = toDayUtc(dateInput);
-  // Part 6: a soft-deleted/discarded workout may still occupy (userId, date) —
-  // a fresh start on that date purges it (the discard/delete intent already won).
-  const occupant = await db.workout.findUnique({ where: { userId_date: { userId, date } } });
-  if (occupant && (occupant.deletedAt != null || occupant.discardedAt != null)) {
-    const exerciseIds = await db.workoutExercise.findMany({ where: { workoutId: occupant.id }, select: { exerciseId: true } });
-    await db.workout.delete({ where: { id: occupant.id } });
-    for (const { exerciseId } of exerciseIds) {
-      await db.$transaction(async (tx) => recomputePRs(tx, userId, exerciseId));
-    }
-  }
-  const existing = await db.workout.findFirst({ where: { userId, date, deletedAt: null, discardedAt: null }, include: workoutInclude });
+  // Part 8: days hold multiple sessions. "Get or create" continues the ACTIVE
+  // (unfinished) session of that date when one exists; otherwise creates fresh.
+  const existing = await db.workout.findFirst({
+    where: { userId, date, removedAt: null, finishedAt: null },
+    include: workoutInclude,
+    orderBy: { createdAt: "desc" },
+  });
   if (existing) return mapWorkout(existing);
   const created = await db.workout.create({
     data: { id: uuid7(), userId, date },
@@ -170,12 +184,8 @@ export async function updateWorkout(
 
   let date = w.date;
   if (patch.date !== undefined) {
-    const newDate = toDayUtc(patch.date);
-    if (newDate.getTime() !== w.date.getTime()) {
-      const clash = await db.workout.findFirst({ where: { userId, date: newDate, NOT: { id } } });
-      if (clash) throw conflict("A workout already exists on that date");
-      date = newDate;
-    }
+    // Part 8: several sessions per day are allowed — moving dates no longer clashes.
+    date = toDayUtc(patch.date);
   }
   const updated = await db.workout.update({
     where: { id },
@@ -190,29 +200,30 @@ export async function updateWorkout(
   return mapWorkout(updated);
 }
 
-/** DELETE /api/workouts/:id — now a SOFT delete (§4.12) + PR recompute; Undo → restore. */
+/** DELETE /api/workouts/:id — §6.9 single remove semantics (reason USER_DELETE) + PR recompute; Undo → restore. */
 export async function deleteWorkout(userId: string, id: string) {
   const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
   if (!w) throw notFound("Workout not found");
   const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
+  const now = new Date();
   await db.$transaction(async (tx) => {
-    await tx.workout.update({ where: { id }, data: { deletedAt: new Date() } });
+    await tx.workout.update({ where: { id }, data: { removedAt: now, removeReason: "USER_DELETE" } });
     for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
   });
-  return { ok: true, deletedAt: new Date().toISOString() };
+  return { ok: true, removedAt: now.toISOString(), removeReason: "USER_DELETE" };
 }
 
 // ---------- Part 6: discard / restore / purge (§4.11 Finish ASK + §4.12) ----------
 
 /**
- * POST /api/workouts/:id/discard — session discard: sets discardedAt, reverts
+ * POST /api/workouts/:id/discard — session discard: sets removedAt (reason DISCARDED_SESSION), reverts
  * cursor/schedule effects best-effort, recomputes PRs. Hidden everywhere until
  * restored (10s client Undo window → restore).
  */
 export async function discardWorkout(userId: string, id: string) {
   const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
   if (!w) throw notFound("Workout not found");
-  if (w.discardedAt) return { ok: true, discardedAt: w.discardedAt.toISOString() };
+  if (w.removedAt) return { ok: true, removedAt: w.removedAt.toISOString(), removeReason: w.removeReason ?? "DISCARDED_SESSION" };
 
   const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
   const now = new Date();
@@ -272,27 +283,21 @@ export async function discardWorkout(userId: string, id: string) {
   }
 
   await db.$transaction(async (tx) => {
-    await tx.workout.update({ where: { id }, data: { discardedAt: now } });
+    await tx.workout.update({ where: { id }, data: { removedAt: now, removeReason: "DISCARDED_SESSION" } });
     for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
   });
-  return { ok: true, discardedAt: now.toISOString() };
+  return { ok: true, removedAt: now.toISOString(), removeReason: "DISCARDED_SESSION" };
 }
 
-/** POST /api/workouts/:id/restore — clears discardedAt/deletedAt (409 on date clash) + PR recompute. */
+/** POST /api/workouts/:id/restore — clears removedAt/removeReason + PR recompute (§6.9). */
 export async function restoreWorkout(userId: string, id: string) {
   const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
   if (!w) throw notFound("Workout not found");
-  if (!w.discardedAt && !w.deletedAt) return { ok: true };
-
-  const clash = await db.workout.findFirst({
-    where: { userId, date: w.date, deletedAt: null, discardedAt: null, NOT: { id } },
-    select: { id: true },
-  });
-  if (clash) throw conflict("Another workout already occupies that date — restore not possible");
+  if (!w.removedAt) return { ok: true };
 
   const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
   await db.$transaction(async (tx) => {
-    await tx.workout.update({ where: { id }, data: { discardedAt: null, deletedAt: null } });
+    await tx.workout.update({ where: { id }, data: { removedAt: null, removeReason: null } });
     for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
   });
   return { ok: true };
@@ -310,11 +315,11 @@ export async function purgeWorkout(userId: string, id: string) {
   return { ok: true };
 }
 
-/** GET discarded/deleted workouts (Settings → Data "Show discarded (N)"). */
-export async function listHiddenWorkouts(userId: string) {
+/** GET removed workouts (§6.9 Backup & data → Removed items; 30-day auto-purge). */
+export async function listRemovedWorkouts(userId: string) {
   const rows = await db.workout.findMany({
-    where: { userId, OR: [{ discardedAt: { not: null } }, { deletedAt: { not: null } }] },
-    orderBy: { date: "desc" },
+    where: { userId, removedAt: { not: null } },
+    orderBy: { removedAt: "desc" },
     take: 200,
     include: { exercises: { select: { exerciseId: true } } },
   });
@@ -322,8 +327,8 @@ export async function listHiddenWorkouts(userId: string) {
     id: w.id,
     date: w.date.toISOString(),
     comment: w.comment ?? null,
-    discardedAt: w.discardedAt?.toISOString() ?? null,
-    deletedAt: w.deletedAt?.toISOString() ?? null,
+    removedAt: w.removedAt?.toISOString() ?? null,
+    removeReason: w.removeReason ?? null,
     exerciseCount: w.exercises.length,
   }));
 }
@@ -656,9 +661,10 @@ export async function copyWorkout(
 
   let source: WorkoutFull | null = null;
   if (input.fromDate) {
-    source = await db.workout.findUnique({
-      where: { userId_date: { userId, date: toDayUtc(input.fromDate) } },
+    source = await db.workout.findFirst({
+      where: { userId, date: toDayUtc(input.fromDate), removedAt: null },
       include: workoutInclude,
+      orderBy: { createdAt: "desc" },
     });
   } else {
     source = await db.workout.findFirst({
@@ -748,8 +754,12 @@ export async function moveWorkout(
   const movingAll = !input.workoutExerciseIds?.length;
   const movingIds = new Set(input.workoutExerciseIds ?? []);
 
-  // find-or-create target workout at newDate
-  let target = await db.workout.findUnique({ where: { userId_date: { userId, date: newDate } }, include: workoutInclude });
+  // find-or-create target workout at newDate (active session first)
+  let target = await db.workout.findFirst({
+    where: { userId, date: newDate, removedAt: null, finishedAt: null },
+    include: workoutInclude,
+    orderBy: { createdAt: "desc" },
+  });
   if (!target) {
     target = await db.workout.create({ data: { id: uuid7(), userId, date: newDate }, include: workoutInclude });
   } else if (target.id === source.id) {

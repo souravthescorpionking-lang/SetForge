@@ -19,7 +19,12 @@ export default function DictionaryScreen() {
     staleTime: 10 * 60 * 1000,
   });
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // Part 8 §6.10: ?term= deep link opens that term's definition.
+  const [expanded, setExpanded] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const t = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("term");
+    return t;
+  });
 
   const terms = useMemo(() => {
     const all = data?.terms ?? [];

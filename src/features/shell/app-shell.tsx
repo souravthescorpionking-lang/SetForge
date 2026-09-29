@@ -1,60 +1,63 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AppShell — the Part 3 application shell (replaces the old nav-shell chrome).
+// AppShell — the Part 8 phone-only application shell.
 //
-// Authenticated layout:
-//   mobile/tablet  → [ screen stack (fills viewport, NavBar at bottom) ]
-//   desktop (≥lg)  → NavPane 360px | right pane (screen stack)
-// The right pane is a flex column; each screen owns its own chrome:
-//   • legacy pass-through screens render [scroll area + <NavBar/>] themselves
-//   • new Part 3 screens render <Screen> (TopBar/SubBar/ScrollBody/BottomBar/NavBar)
-// so replacing a screen file never requires touching this shell.
+// Authenticated layout (Law 1): ONE centered column, max-width 480px:
+//   [ screen stack: TopBar(56) → [SubBar(48)] → ScrollBody → [BottomBar(56)]
+//     → NavBar(64: Workout · Dashboard · More) ]
+// The Logging screen (#/session) renders without a NavBar (Law 2). There is no
+// desktop two-pane — every screen owns its own chrome via <Screen>, so
+// replacing a screen file never requires touching this shell.
 //
 // Unauthenticated: only the auth screen renders (hash is forced to #/auth).
-// Authenticated #/auth redirects to #/today.
+// Authenticated #/auth redirects to #/workout.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { NavPane } from "@/components/layout";
 import { useApp } from "@/lib/client/store";
 import type { SessionDTO } from "@/lib/types";
 import { replaceHash, useHashRoute, type Route } from "./router";
 
 // Screen slots — the router imports ONLY from src/features/screens/*.
-import HomeScreen from "@/features/screens/home";
-import TodayScreen from "@/features/screens/today";
-import TrainingScreen from "@/features/screens/training";
-import CalendarScreen from "@/features/screens/calendar";
-import CalendarFiltersScreen from "@/features/screens/calendar-filters";
-import HistoryScreen from "@/features/screens/history";
-import ExercisePickerScreen from "@/features/screens/picker";
+import WorkoutScreen from "@/features/screens/workout";
+import DashboardScreen from "@/features/screens/dashboard";
+import MoreScreen from "@/features/screens/more";
+import SessionScreen from "@/features/screens/session";
+import SessionExerciseScreen from "@/features/screens/session-exercise";
+import SessionArrangeScreen from "@/features/screens/session-arrange";
+import LogsScreen from "@/features/screens/logs";
+import LogDetailScreen from "@/features/screens/log-detail";
 import ProgramsScreen from "@/features/screens/programs";
 import ProgramDetailScreen from "@/features/screens/program-detail";
-import LogDayScreen from "@/features/screens/log-day";
-import PredefinedEditorScreen from "@/features/screens/predefined-editor";
+import ProgramDayScreen from "@/features/screens/program-day";
+import DayArrangeScreen from "@/features/screens/day-arrange";
+import OnDemandScreen from "@/features/screens/on-demand";
+import OnDemandDetailScreen from "@/features/screens/on-demand-detail";
+import LibraryScreen from "@/features/screens/library";
+import LibraryEntryScreen from "@/features/screens/library-entry";
+import BuilderScreen from "@/features/screens/builder";
+import BuilderNewScreen from "@/features/screens/builder-new";
+import BuilderProgramScreen from "@/features/screens/builder-program";
+import BuilderSessionScreen from "@/features/screens/builder-session";
+import SetsEditorScreen from "@/features/screens/sets-editor";
+import CalendarScreen from "@/features/screens/calendar";
+import CalendarFiltersScreen from "@/features/screens/calendar-filters";
 import SchedulePickScreen from "@/features/screens/schedule-pick";
-import MoreScreen from "@/features/screens/more";
+import ExercisePickerScreen from "@/features/screens/picker";
+import ExerciseOverviewScreen from "@/features/screens/exercise-overview";
 import BodyScreen from "@/features/screens/body";
+import BodyCompareScreen from "@/features/screens/body-compare";
 import RecordsScreen from "@/features/screens/records";
 import ToolsScreen from "@/features/screens/tools";
+import DictionaryScreen from "@/features/screens/dictionary";
+import OnboardingScreen from "@/features/screens/onboarding";
+import ProfileScreen from "@/features/screens/profile";
 import SettingsScreen from "@/features/screens/settings";
 import HelpScreen from "@/features/screens/help";
 import AuthScreen from "@/features/screens/auth";
 import DevShowcaseScreen from "@/features/screens/dev-showcase";
-import ExerciseOverviewScreen from "@/features/screens/exercise-overview";
-// ---- Part 6 ----
-import LibraryScreen from "@/features/screens/library";
-import LibraryEntryScreen from "@/features/screens/library-entry";
-import ProgramDayScreen from "@/features/screens/program-day";
-import DayArrangeScreen from "@/features/screens/day-arrange";
-import ProgramBuilderScreen from "@/features/screens/program-builder";
-import TodayArrangeScreen from "@/features/screens/today-arrange";
-import DictionaryScreen from "@/features/screens/dictionary";
-import OnboardingScreen from "@/features/screens/onboarding";
-import ProfileScreen from "@/features/screens/profile";
-import BodyCompareScreen from "@/features/screens/body-compare";
 import { ScreenErrorBoundary } from "@/components/shared/screen-error-boundary";
 import { profileApi } from "@/lib/client/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -86,7 +89,7 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
     if (!session) {
       if (route.name !== "auth") replaceHash("#/auth");
     } else if (route.name === "auth") {
-      replaceHash("#/home");
+      replaceHash("#/workout");
     } else if (
       profile &&
       profile.onboardingCompletedAt == null &&
@@ -98,9 +101,9 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
     }
   }, [session, route.name, profile, queryClient]);
 
-  // Global keyboard shortcuts (desktop, audit M5 + Part 7 tour keys):
-  //   ?  → open the per-screen help/tour popover     N → add exercise (picker)
-  //   Shift+? → tour the current screen               / → focus search
+  // Global keyboard shortcuts (Part 7 tour keys):
+  //   ?  → open the per-screen help/tour popover     Shift+? → tour this screen
+  //   /  → focus the screen's search input
   // Ignored while typing in any editable element or with modifiers held.
   useEffect(() => {
     if (!session) return;
@@ -118,19 +121,12 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
         }
         return;
       }
-      if (e.key === "/" ) {
+      if (e.key === "/") {
         const search = document.querySelector<HTMLInputElement>(
           'input[type="search"], input[aria-label*="earch" i], input[placeholder*="earch" i]',
         );
         if (search) {
           search.focus();
-          e.preventDefault();
-        }
-        return;
-      }
-      if (e.key === "n" || e.key === "N") {
-        if (route.name !== "exercises") {
-          replaceHash("#/exercises");
           e.preventDefault();
         }
       }
@@ -147,11 +143,9 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
   // hint cards portal to document.body (LAW 4/5: only fixed elements).
   return (
     <TourProvider profile={profile}>
-      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground lg:flex-row">
-        <NavPane session={session} />
-        {/* data-screen-container: tour anchors must live inside the rendered
-            screen (the NavPane sidebar is deliberately outside). */}
-        <div data-screen-container className="flex min-w-0 flex-1 flex-col">
+      {/* Part 8 Law 1: phone-only frame — single centered column, max 480px. */}
+      <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
+        <div data-screen-container className="mx-auto flex min-h-0 w-full max-w-[480px] flex-1 flex-col">
           <ScreenErrorBoundary route={route.name}>{renderScreen(route)}</ScreenErrorBoundary>
         </div>
       </div>
@@ -161,72 +155,90 @@ export function AppShell({ initialSession }: { initialSession: SessionDTO | null
 
 function renderScreen(route: Route): ReactNode {
   switch (route.name) {
-    case "home":
-      return <HomeScreen />;
-    case "today":
-      return <TodayScreen />;
-    case "training":
-      return <TrainingScreen exerciseId={route.params.exerciseId} />;
-    case "calendar":
-      return <CalendarScreen />;
-    case "calendar-filters":
-      return <CalendarFiltersScreen />;
-    case "history":
-      return <HistoryScreen />;
-    case "exercises":
-      return <ExercisePickerScreen />;
+    case "workout":
+      return <WorkoutScreen />;
+    case "dashboard":
+      return <DashboardScreen />;
+    case "more":
+      return <MoreScreen />;
+    // ---- Logging (§3.10): Start/Continue only; screen gates itself. ----
+    case "session":
+      return <SessionScreen />;
+    case "session-exercise":
+      return <SessionExerciseScreen exerciseId={route.params.exerciseId} />;
+    case "session-arrange":
+      return <SessionArrangeScreen />;
+    // ---- Logs ----
+    case "logs":
+      return <LogsScreen />;
+    case "log-detail":
+      return <LogDetailScreen workoutId={route.params.workoutId} />;
+    // ---- Programs ----
     case "programs":
       return <ProgramsScreen />;
     case "program-detail":
       return <ProgramDetailScreen routineId={route.params.routineId} />;
-    case "log-day":
-      return <LogDayScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
-    case "predefined-editor":
-      return (
-        <PredefinedEditorScreen routineId={route.params.routineId} reId={route.params.reId} />
-      );
-    case "schedule-pick":
-      return <SchedulePickScreen />;
-    case "more":
-      return <MoreScreen />;
-    case "body":
-      return <BodyScreen />;
-    case "insights":
-      return <RecordsScreen />;
-    case "tools":
-      return <ToolsScreen />;
-    case "settings":
-      return <SettingsScreen />;
-    case "help":
-      return <HelpScreen />;
-    case "auth":
-      // Authenticated visit of #/auth — the redirect effect is in flight;
-      // render Home for that single frame.
-      return <HomeScreen />;
-    case "dev":
-      return <DevShowcaseScreen />;
-    case "exercise-overview":
-      return <ExerciseOverviewScreen exerciseId={route.params.exerciseId} />;
-    // ---- Part 6 ----
-    case "library":
-      return <LibraryScreen />;
-    case "library-entry":
-      return <LibraryEntryScreen catalogKey={route.params.catalogKey} />;
     case "program-day":
       return <ProgramDayScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
     case "day-arrange":
       return <DayArrangeScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
-    case "today-arrange":
-      return <TodayArrangeScreen />;
-    case "program-builder":
-      return <ProgramBuilderScreen />;
+    // ---- On Demand ----
+    case "on-demand":
+      return <OnDemandScreen />;
+    case "on-demand-detail":
+      return <OnDemandDetailScreen routineId={route.params.routineId} />;
+    // ---- Library ----
+    case "library":
+      return <LibraryScreen />;
+    case "library-entry":
+      return <LibraryEntryScreen catalogKey={route.params.catalogKey} />;
+    // ---- Builder ----
+    case "builder":
+      return <BuilderScreen />;
+    case "builder-new":
+      return <BuilderNewScreen />;
+    case "builder-program":
+      return <BuilderProgramScreen routineId={route.params.routineId} />;
+    case "builder-session":
+      return <BuilderSessionScreen routineId={route.params.routineId} />;
+    case "sets-editor":
+      return <SetsEditorScreen routineId={route.params.routineId} reId={route.params.reId} />;
+    // ---- Calendar (via 📅) ----
+    case "calendar":
+      return <CalendarScreen />;
+    case "calendar-filters":
+      return <CalendarFiltersScreen />;
+    case "schedule-pick":
+      return <SchedulePickScreen />;
+    // ---- Exercise picker / focus ----
+    case "exercises":
+      return <ExercisePickerScreen />;
+    case "exercise-overview":
+      return <ExerciseOverviewScreen exerciseId={route.params.exerciseId} />;
+    // ---- More destinations ----
+    case "body":
+      return <BodyScreen />;
+    case "body-compare":
+      return <BodyCompareScreen />;
+    case "insights":
+      return <RecordsScreen />;
+    case "tools":
+      return <ToolsScreen />;
     case "dictionary":
       return <DictionaryScreen />;
     case "onboarding":
       return <OnboardingScreen />;
     case "profile":
       return <ProfileScreen />;
-    case "body-compare":
-      return <BodyCompareScreen />;
+    case "settings":
+      return <SettingsScreen />;
+    case "help":
+      return <HelpScreen />;
+    case "auth":
+      // Authenticated visit of #/auth — the redirect effect is in flight;
+      // render Workout for that single frame.
+      return <WorkoutScreen />;
+    case "dev":
+      return <DevShowcaseScreen />;
   }
 }

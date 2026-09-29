@@ -31,7 +31,7 @@
 //                            "+ Add goal" row opens a 96px inline creator (type
 //                            select + target input) — no dialogs.
 //                  HISTORY  — DateGroup×N (32px headers, PR badge when a record
-//                            falls on that day) + ONE ExerciseCard read mode
+//                            falls on that day) + ONE GroupCard read mode
 //                            per workout date (tap to collapse/expand; ⋮ Notes /
 //                            Open → training screen) — the pattern from the
 //                            training screen's History tab.
@@ -40,14 +40,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
-import {
-  ExerciseCard,
-  toCardSet,
-  type CardAction,
-  type CardExercise,
-  type CardSet,
-  type CardVisibleColumns,
-} from "@/components/exercise-card/exercise-card";
+import { SoloCard } from "@/components/group-card";
+import { CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -831,7 +825,7 @@ function GoalExpansion({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HISTORY — DateGroup×N (32px headers) + ONE ExerciseCard read mode per date
+// HISTORY — DateGroup×N (32px headers) + ONE GroupCard read mode per date
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HistoryTab({
@@ -964,7 +958,7 @@ function HistoryTab({
                       }
                     }}
                   >
-                    <ExerciseCard
+                    <SoloCard
                       mode="read"
                       collapsed={collapsed}
                       exercise={cardEx}

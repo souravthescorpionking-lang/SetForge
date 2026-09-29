@@ -16,7 +16,7 @@ import { queueMutation } from "@/lib/client/offline";
 import { useInvalidate, useOnline } from "@/lib/client/query";
 import { routinesApi, exercisesApi, type PredefinedSetInput } from "@/lib/client/api";
 import { exerciseUnit } from "@/features/exercises/labels";
-import type { CardExercise, CardSet } from "@/components/exercise-card/exercise-card";
+import type { CardExercise, CardSet } from "@/components/group-card/group-card";
 import type { RoutineDayDTO, RoutineDTO, RoutineExerciseDTO, SettingsDTO } from "@/lib/types";
 
 // ---------- meta formatting ----------
@@ -118,7 +118,7 @@ export function cardSetsOf(re: RoutineExerciseDTO): CardSet[] {
     });
 }
 
-/** Map a CardSet patch (SetRow/ExerciseCard contract) onto PredefinedSetInput.
+/** Map a CardSet patch (SetRow/GroupCard contract) onto PredefinedSetInput.
  *  `note` is dropped — predefined sets carry no comment field. */
 export function cardPatchToPredefinedInput(patch: Partial<CardSet>): PredefinedSetInput {
   const out: PredefinedSetInput = {};

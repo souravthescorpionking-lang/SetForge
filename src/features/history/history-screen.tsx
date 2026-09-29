@@ -2,18 +2,18 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HistoryScreen — #/history (p3-6 rebuild). The workout-history list on the
-// same system as the Calendar: DateGroup language + the ONE ExerciseCard.
+// same system as the Calendar: DateGroup language + the ONE GroupCard.
 //
 //   TopBar (56)  : title "History" | ⋮ (Filters → #/calendar/filters; export
 //                  note → Settings · Data)
 //   ScrollBody   : month separators (32px) → DateGroup×N (32px headers) each
 //                  containing ONE WorkoutBlock: 48px summary row (volume ·
-//                  sets · duration) + ExerciseCard×N read mode (collapsed →
+//                  sets · duration) + GroupCard×N read mode (collapsed →
 //                  tap expands SetRows; PR/note markers visible). No dialogs.
 //
 // Workout fetching ported from the legacy workout-history-view (summaries via
 // workoutsApi.list, newest first; month grouping kept); rendering goes through
-// WorkoutBlock + the ExerciseCard read mode instead of the legacy SetTable.
+// WorkoutBlock + the GroupCard read mode instead of the legacy SetTable.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useMemo } from "react";
@@ -33,7 +33,7 @@ import { useApp } from "@/lib/client/store";
 import { qk } from "@/lib/client/query";
 import { workoutsApi } from "@/lib/client/api";
 import { dayKeyOf } from "@/lib/client/format";
-import type { CardVisibleColumns } from "@/components/exercise-card/exercise-card";
+import type { CardVisibleColumns } from "@/components/group-card/group-card";
 import type { WorkoutSummaryDTO } from "@/lib/types";
 import { WorkoutBlock } from "./workout-block";
 import { monthLabelLong, monthOf } from "@/features/calendar/month-utils";

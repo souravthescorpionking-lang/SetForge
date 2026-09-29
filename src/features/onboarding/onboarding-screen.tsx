@@ -45,7 +45,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { profileApi } from "@/lib/client/api";
+import { profileApi, programsApi } from "@/lib/client/api";
 import { hapticSelection, hapticSuccess, hapticTap } from "@/lib/client/haptics";
 import { useApp } from "@/lib/client/store";
 import { tourAttrs } from "@/lib/tour/attrs";
@@ -170,7 +170,7 @@ export default function OnboardingScreen() {
   const finish = async () => {
     setSaving(true);
     try {
-      const dto = await profileApi.completeOnboarding({
+      const res = await profileApi.completeOnboarding({
         unitSystem: unit,
         goal,
         level,
@@ -179,6 +179,7 @@ export default function OnboardingScreen() {
         ...(weightKg != null ? { weightKg: roundTo1(weightKg) } : {}),
         ...(age != null ? { age } : {}),
       });
+      const dto = res.profile;
       applyProfile(dto);
       // The service persisted unitSystem, but the client settings/session in
       // the store still carry the signup default — sync them so every unit-aware
@@ -186,8 +187,28 @@ export default function OnboardingScreen() {
       // reload. Idempotent PATCH; failure is non-fatal (reload would resync).
       void updateSettings({ unitSystem: unit }).catch(() => undefined);
       hapticSuccess();
-      toast.success("Welcome to SetForge");
-      replaceHash("#/home");
+      // Part 8 §6.11: the server auto-created + followed the best-matching
+      // template — toast with Undo → unfollow (the routine itself is kept).
+      if (res.startedTemplate) {
+        const t = res.startedTemplate;
+        toast.success(`Started "${t.name}" — ${t.dayCount} days per week ready`, {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              void programsApi
+                .unfollow()
+                .then(() => {
+                  toast.success("Unfollowed — you can follow any program later");
+                  void qc.invalidateQueries();
+                })
+                .catch(() => toast.error("Could not unfollow"));
+            },
+          },
+        });
+      } else {
+        toast.success("Welcome to SetForge");
+      }
+      replaceHash("#/workout");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not finish setup — try again");
     } finally {
@@ -200,9 +221,9 @@ export default function OnboardingScreen() {
     setSaving(true);
     try {
       const dto = await profileApi.completeOnboarding({ skipped: true });
-      applyProfile(dto);
+      applyProfile(dto.profile);
       toast.info("Setup skipped — finish any time from Profile");
-      replaceHash("#/home");
+      replaceHash("#/workout");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not skip setup — try again");
     } finally {

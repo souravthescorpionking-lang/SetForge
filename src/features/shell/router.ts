@@ -1,33 +1,47 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Part 5 hash router — the URL contract (braces = params):
+// Part 8 hash router — the phone-only URL contract (braces = params):
 //
-//   #/home                           → screens/home           (—)   NEW default
-//   #/today                          → screens/today          (—)
-//   #/today/{exerciseId}             → screens/training       { exerciseId }
-//   #/calendar                       → screens/calendar       (—)
-//   #/calendar/filters               → screens/calendar-filters (—)
-//   #/history                        → screens/history        (—)
-//   #/exercises                      → screens/picker         (—)
-//   #/programs                       → screens/programs       (—)   NEW
-//   #/programs/{id}                  → screens/program-detail { routineId }
-//   #/programs/{id}/log/{dayId}      → screens/log-day        { routineId, dayId }
-//   #/programs/{id}/exercise/{reId}  → screens/predefined-editor { routineId, reId }
-//   #/schedule/pick?date=YYYY-MM-DD  → screens/schedule-pick  (—)   NEW
-//   #/more                           → screens/more           (—)   NEW
-//   #/body                           → screens/body           (—)
-//   #/insights                       → screens/records        (—)
-//   #/tools                          → screens/tools          (—)
-//   #/settings                       → screens/settings       (—)
-//   #/help                           → screens/help           (—)
-//   #/auth                           → screens/auth           (—)
-//   #/dev                            → screens/dev-showcase   (—)
-//   #/exercise-overview/{id}         → screens/exercise-overview { exerciseId }
+//   #/workout                                  → screens/workout            (—)   tab 1 · default
+//   #/dashboard                                → screens/dashboard          (—)   tab 2
+//   #/more                                     → screens/more               (—)   tab 3
+//   #/session                                  → screens/session            (—)   Logging (Start/Continue only; gated)
+//   #/session/exercise/{workoutExerciseId}     → screens/session-exercise   { exerciseId }
+//   #/session/arrange                          → screens/session-arrange    (—)
+//   #/logs                                     → screens/logs               (—)
+//   #/logs/{workoutId}                         → screens/log-detail         { workoutId }
+//   #/programs                                 → screens/programs           (—)   view only
+//   #/programs/{id}                            → screens/program-detail     { routineId }
+//   #/programs/{id}/day/{dayId}                → screens/program-day        { routineId, dayId }
+//   #/programs/{id}/day/{dayId}/arrange        → screens/day-arrange        { routineId, dayId }
+//   #/on-demand                                → screens/on-demand          (—)
+//   #/on-demand/{id}                           → screens/on-demand-detail   { routineId }
+//   #/library                                  → screens/library            (—)
+//   #/library/{catalogKey}                     → screens/library-entry      { catalogKey }
+//   #/builder                                  → screens/builder            (—)   hub
+//   #/builder/new                              → screens/builder-new        (—)   creation wizard
+//   #/builder/program/{id}                     → screens/builder-program    { routineId }
+//   #/builder/session/{id}                     → screens/builder-session    { routineId }
+//   #/builder/program/{id}/exercise/{reId}     → screens/sets-editor        { routineId, reId }
+//   #/builder/session/{id}/exercise/{reId}     → screens/sets-editor        { routineId, reId }
+//   #/calendar                                 → screens/calendar           (—)   via 📅
+//   #/calendar/filters                         → screens/calendar-filters   (—)
+//   #/schedule/pick?date=YYYY-MM-DD            → screens/schedule-pick      (—)
+//   #/exercises                                → screens/picker             (—)   library picker
+//   #/exercise-overview/{id}                   → screens/exercise-overview  { exerciseId }
+//   #/body, #/body/compare, #/insights, #/tools, #/dictionary,
+//   #/profile, #/settings, #/help, #/auth, #/dev, #/onboarding        (kept; reached via More)
 //
-// LEGACY redirects (location.replace — no history pollution):
-//   #/routines…  → #/programs…  (path-for-path)   ·  "" or "#/" → #/home
-//   Any other unknown hash → #/home. Query strings (?a=b) are preserved and
+// LEGACY redirects (location.replace — no history pollution; kept for 3 releases):
+//   "" | "#/" | "#/home"            → #/workout          (Part 8 removed the Home hub)
+//   #/today…                        → #/session…         (Logging route renamed)
+//   #/history                       → #/logs
+//   #/programs/new/builder          → #/builder/new
+//   #/programs/{id}/log/{dayId}     → #/programs/{id}    (log-day preview folded into Start)
+//   #/programs/{id}/exercise/{reId} → #/builder/program/{id}/exercise/{reId}
+//   #/routines…                     → #/programs…        (Part 5 legacy)
+//   Any other unknown hash → #/workout. Query strings (?a=b) are preserved and
 //   exposed on Route.query. The router imports ONLY from src/features/screens/*
 // so screen files can be replaced without touching this router.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,92 +49,104 @@
 import { useEffect, useState } from "react";
 
 export type RouteName =
-  | "home"
-  | "today"
-  | "training"
-  | "calendar"
-  | "calendar-filters"
-  | "history"
-  | "exercises"
+  | "workout"
+  | "dashboard"
+  | "more"
+  | "session"
+  | "session-exercise"
+  | "session-arrange"
+  | "logs"
+  | "log-detail"
   | "programs"
   | "program-detail"
-  | "log-day"
-  | "predefined-editor"
-  | "schedule-pick"
-  | "more"
-  | "body"
-  | "insights"
-  | "tools"
-  | "settings"
-  | "help"
-  | "auth"
-  | "dev"
-  | "exercise-overview"
-  // ---- Part 6 ----
-  | "library"
-  | "library-entry"
   | "program-day"
   | "day-arrange"
-  | "today-arrange"
-  | "program-builder"
+  | "on-demand"
+  | "on-demand-detail"
+  | "library"
+  | "library-entry"
+  | "builder"
+  | "builder-new"
+  | "builder-program"
+  | "builder-session"
+  | "sets-editor"
+  | "calendar"
+  | "calendar-filters"
+  | "schedule-pick"
+  | "exercises"
+  | "exercise-overview"
+  | "body"
+  | "body-compare"
+  | "insights"
+  | "tools"
   | "dictionary"
   | "onboarding"
   | "profile"
-  | "body-compare";
+  | "settings"
+  | "help"
+  | "auth"
+  | "dev";
 
 /** Params extracted from the URL contract (all optional — presence depends on route). */
 export type RouteParams = {
-  /** #/today/{exerciseId} */
+  /** #/session/exercise/{workoutExerciseId} */
   exerciseId?: string;
-  /** #/programs/{id} (+ nested log-day / predefined-editor / day / arrange) */
+  /** #/programs/{id} and every nested program/builder route. */
   routineId?: string;
-  /** #/programs/{id}/log/{dayId} and #/programs/{id}/day/{dayId} */
+  /** #/programs/{id}/day/{dayId} (+ /arrange) */
   dayId?: string;
-  /** #/programs/{id}/exercise/{reId} */
+  /** #/builder/(program|session)/{id}/exercise/{reId} */
   reId?: string;
-  /** #/library/{catalogKey} (Part 6) */
+  /** #/logs/{workoutId} */
+  workoutId?: string;
+  /** #/library/{catalogKey} */
   catalogKey?: string;
 };
 
 type RouteMeta = { query: URLSearchParams; hash: string };
 
 export type Route =
-  | ({ name: "home" } & RouteMeta)
-  | ({ name: "today" } & RouteMeta)
-  | ({ name: "training"; params: RouteParams & { exerciseId: string } } & RouteMeta)
-  | ({ name: "calendar" } & RouteMeta)
-  | ({ name: "calendar-filters" } & RouteMeta)
-  | ({ name: "history" } & RouteMeta)
-  | ({ name: "exercises" } & RouteMeta)
+  | ({ name: "workout" } & RouteMeta)
+  | ({ name: "dashboard" } & RouteMeta)
+  | ({ name: "more" } & RouteMeta)
+  | ({ name: "session" } & RouteMeta)
+  | ({ name: "session-exercise"; params: RouteParams & { exerciseId: string } } & RouteMeta)
+  | ({ name: "session-arrange" } & RouteMeta)
+  | ({ name: "logs" } & RouteMeta)
+  | ({ name: "log-detail"; params: RouteParams & { workoutId: string } } & RouteMeta)
   | ({ name: "programs" } & RouteMeta)
   | ({ name: "program-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
-  | ({ name: "log-day"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
-  | ({ name: "predefined-editor"; params: RouteParams & { routineId: string; reId: string } } & RouteMeta)
-  | ({ name: "schedule-pick" } & RouteMeta)
-  | ({ name: "more" } & RouteMeta)
-  | ({ name: "body" } & RouteMeta)
-  | ({ name: "insights" } & RouteMeta)
-  | ({ name: "tools" } & RouteMeta)
-  | ({ name: "settings" } & RouteMeta)
-  | ({ name: "help" } & RouteMeta)
-  | ({ name: "auth" } & RouteMeta)
-  | ({ name: "dev" } & RouteMeta)
-  | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta)
-  // ---- Part 6 ----
-  | ({ name: "library" } & RouteMeta)
-  | ({ name: "library-entry"; params: RouteParams & { catalogKey: string } } & RouteMeta)
   | ({ name: "program-day"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
   | ({ name: "day-arrange"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
-  | ({ name: "today-arrange" } & RouteMeta)
-  | ({ name: "program-builder" } & RouteMeta)
+  | ({ name: "on-demand" } & RouteMeta)
+  | ({ name: "on-demand-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "library" } & RouteMeta)
+  | ({ name: "library-entry"; params: RouteParams & { catalogKey: string } } & RouteMeta)
+  | ({ name: "builder" } & RouteMeta)
+  | ({ name: "builder-new" } & RouteMeta)
+  | ({ name: "builder-program"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "builder-session"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "sets-editor"; params: RouteParams & { routineId: string; reId: string } } & RouteMeta)
+  | ({ name: "calendar" } & RouteMeta)
+  | ({ name: "calendar-filters" } & RouteMeta)
+  | ({ name: "schedule-pick" } & RouteMeta)
+  | ({ name: "exercises" } & RouteMeta)
+  | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta)
+  | ({ name: "body" } & RouteMeta)
+  | ({ name: "body-compare" } & RouteMeta)
+  | ({ name: "insights" } & RouteMeta)
+  | ({ name: "tools" } & RouteMeta)
   | ({ name: "dictionary" } & RouteMeta)
   | ({ name: "onboarding" } & RouteMeta)
   | ({ name: "profile" } & RouteMeta)
-  | ({ name: "body-compare" } & RouteMeta);
+  | ({ name: "settings" } & RouteMeta)
+  | ({ name: "help" } & RouteMeta)
+  | ({ name: "auth" } & RouteMeta)
+  | ({ name: "dev" } & RouteMeta);
 
-/** Route used before the real hash is read (and on the server): #/home. */
+/** Route used before the real hash is read (and on the server): #/workout. */
 export const HOME_ROUTE: Route = {
-  name: "home",
+  name: "workout",
   query: new URLSearchParams(),
   hash: "",
 };
@@ -134,17 +160,38 @@ export function canonicalHash(hash: string): string | null {
   const [pathPart, queryPart] = raw.split("?");
   const query = queryPart ? `?${queryPart}` : "";
   const segs = (pathPart ?? "").split("/").filter(Boolean);
-  if (segs.length === 0) return `#/home${query}`;
-  if (segs[0] === "routines") {
+  if (segs.length === 0) return `#/workout${query}`;
+  const head = segs[0];
+
+  // Part 5 legacy: routines → programs (path-for-path).
+  if (head === "routines") {
     const rest = segs.slice(1);
     return `#/programs${rest.length > 0 ? `/${rest.join("/")}` : ""}${query}`;
+  }
+
+  // Part 8 legacy rewrites (keep for 3 releases).
+  if (head === "home") return `#/workout${query}`;
+  if (head === "today") {
+    if (segs.length <= 1) return `#/session${query}`;
+    if (segs[1] === "arrange") return `#/session/arrange${query}`;
+    return `#/session/exercise/${segs.slice(1).join("/")}${query}`;
+  }
+  if (head === "history") return `#/logs${query}`;
+
+  if (head === "programs" && segs.length >= 3) {
+    const id = segs[1];
+    if (id === "new" && segs[2] === "builder") return `#/builder/new${query}`;
+    if (segs[2] === "log" && segs[3]) return `#/programs/${id}${query}`;
+    if (segs[2] === "exercise" && segs[3]) {
+      return `#/builder/program/${id}/exercise/${segs[3]}${query}`;
+    }
   }
   return null;
 }
 
 /**
  * Parse a location.hash into a Route. Returns null for hashes that match no
- * pattern in the URL contract (caller redirects those to #/home).
+ * pattern in the URL contract (caller redirects those to #/workout).
  * Pure function — safe on the server (pass "" for the SSR default).
  */
 export function parseRoute(hash: string): Route | null {
@@ -157,69 +204,94 @@ export function parseRoute(hash: string): Route | null {
 
   switch (head) {
     case "":
-    case "home":
-      if (segs.length === 0) return { name: "home", ...meta };
-      if (segs.length === 1) return { name: "home", ...meta };
+    case "workout":
+      return segs.length <= 1 ? { name: "workout", ...meta } : null;
+
+    case "dashboard":
+      return segs.length === 1 ? { name: "dashboard", ...meta } : null;
+
+    case "more":
+      return segs.length === 1 ? { name: "more", ...meta } : null;
+
+    // ---- Logging (§3.10): only reachable via Start/Continue; the screen
+    // itself redirects to #/workout when no session is in progress. ----
+    case "session":
+      if (segs.length <= 1) return { name: "session", ...meta };
+      if (segs[1] === "arrange") return { name: "session-arrange", ...meta };
+      if (segs[1] === "exercise" && segs[2]) {
+        return { name: "session-exercise", params: { exerciseId: segs[2] }, ...meta };
+      }
       return null;
 
-    case "today":
-      if (segs.length === 0) return { name: "today", ...meta };
-      if (segs.length === 1) return { name: "today", ...meta };
-      if (segs.length === 2 && segs[1] === "arrange") return { name: "today-arrange", ...meta }; // Part 6
-      if (segs.length === 2) return { name: "training", params: { exerciseId: segs[1] }, ...meta };
+    case "logs":
+      if (segs.length <= 1) return { name: "logs", ...meta };
+      if (segs.length === 2 && segs[1]) return { name: "log-detail", params: { workoutId: segs[1] }, ...meta };
       return null;
+
+    case "programs": {
+      if (segs.length === 1) return { name: "programs", ...meta };
+      const id = segs[1];
+      if (segs.length === 2 && id && id !== "new") return { name: "program-detail", params: { routineId: id }, ...meta };
+      const leaf = segs[2];
+      const leafId = segs[3];
+      if (id && leaf === "day" && leafId) {
+        if (segs.length === 4) return { name: "program-day", params: { routineId: id, dayId: leafId }, ...meta };
+        if (segs.length === 5 && segs[4] === "arrange") {
+          return { name: "day-arrange", params: { routineId: id, dayId: leafId }, ...meta };
+        }
+      }
+      return null;
+    }
+
+    case "on-demand":
+      if (segs.length === 1) return { name: "on-demand", ...meta };
+      if (segs.length === 2 && segs[1]) return { name: "on-demand-detail", params: { routineId: segs[1] }, ...meta };
+      return null;
+
+    case "library":
+      if (segs.length === 1) return { name: "library", ...meta };
+      if (segs.length === 2 && segs[1]) return { name: "library-entry", params: { catalogKey: decodeURIComponent(segs[1]) }, ...meta };
+      return null;
+
+    case "builder": {
+      if (segs.length === 1) return { name: "builder", ...meta };
+      if (segs.length === 2 && segs[1] === "new") return { name: "builder-new", ...meta };
+      const kind = segs[1]; // program | session
+      const id = segs[2];
+      if ((kind === "program" || kind === "session") && id) {
+        if (segs.length === 3) {
+          return kind === "program"
+            ? { name: "builder-program", params: { routineId: id }, ...meta }
+            : { name: "builder-session", params: { routineId: id }, ...meta };
+        }
+        if (segs.length === 5 && segs[3] === "exercise" && segs[4]) {
+          return { name: "sets-editor", params: { routineId: id, reId: segs[4] }, ...meta };
+        }
+      }
+      return null;
+    }
 
     case "calendar":
       if (segs.length === 1) return { name: "calendar", ...meta };
       if (segs.length === 2 && segs[1] === "filters") return { name: "calendar-filters", ...meta };
       return null;
 
-    case "history":
-      return segs.length === 1 ? { name: "history", ...meta } : null;
-
-    case "exercises":
-      return segs.length === 1 ? { name: "exercises", ...meta } : null;
-
-    case "programs":
-    case "routines": {
-      // "routines" parses identically (deep links written before Part 5 that
-      // slip through the canonical rewrite still resolve; useHashRoute
-      // additionally replaces the URL so the address bar shows #/programs).
-      if (segs.length === 1) return { name: "programs", ...meta };
-      // Part 6: #/programs/new/builder (must precede the generic {id} match)
-      if (segs.length === 3 && segs[1] === "new" && segs[2] === "builder") {
-        return { name: "program-builder", ...meta };
-      }
-      const id = segs[1];
-      if (segs.length === 2 && id && id !== "new") return { name: "program-detail", params: { routineId: id }, ...meta };
-      const leaf = segs[2];
-      const leafId = segs[3];
-      if (segs.length === 4 && id && leaf === "log" && leafId) {
-        return { name: "log-day", params: { routineId: id, dayId: leafId }, ...meta };
-      }
-      if (segs.length === 4 && id && leaf === "exercise" && leafId) {
-        return { name: "predefined-editor", params: { routineId: id, reId: leafId }, ...meta };
-      }
-      // Part 6: #/programs/{id}/day/{dayId} (+ /arrange)
-      if (segs.length === 4 && id && leaf === "day" && leafId) {
-        return { name: "program-day", params: { routineId: id, dayId: leafId }, ...meta };
-      }
-      if (segs.length === 5 && id && leaf === "day" && leafId && segs[4] === "arrange") {
-        return { name: "day-arrange", params: { routineId: id, dayId: leafId }, ...meta };
-      }
-      return null;
-    }
-
     case "schedule":
       if (segs.length === 2 && segs[1] === "pick") return { name: "schedule-pick", ...meta };
       return null;
 
-    case "more":
-      return segs.length === 1 ? { name: "more", ...meta } : null;
+    case "exercises":
+      return segs.length === 1 ? { name: "exercises", ...meta } : null;
+
+    case "exercise-overview":
+      if (segs.length === 2 && segs[1]) {
+        return { name: "exercise-overview", params: { exerciseId: segs[1] }, ...meta };
+      }
+      return null;
 
     case "body":
       if (segs.length === 1) return { name: "body", ...meta };
-      if (segs.length === 2 && segs[1] === "compare") return { name: "body-compare", ...meta }; // Part 6
+      if (segs.length === 2 && segs[1] === "compare") return { name: "body-compare", ...meta };
       return null;
 
     case "insights":
@@ -227,6 +299,15 @@ export function parseRoute(hash: string): Route | null {
 
     case "tools":
       return segs.length === 1 ? { name: "tools", ...meta } : null;
+
+    case "dictionary":
+      return segs.length === 1 ? { name: "dictionary", ...meta } : null;
+
+    case "onboarding":
+      return segs.length === 1 ? { name: "onboarding", ...meta } : null;
+
+    case "profile":
+      return segs.length === 1 ? { name: "profile", ...meta } : null;
 
     case "settings":
       return segs.length === 1 ? { name: "settings", ...meta } : null;
@@ -240,28 +321,6 @@ export function parseRoute(hash: string): Route | null {
     case "dev":
       return segs.length === 1 ? { name: "dev", ...meta } : null;
 
-    case "exercise-overview":
-      if (segs.length === 2 && segs[1]) {
-        return { name: "exercise-overview", params: { exerciseId: segs[1] }, ...meta };
-      }
-      return null;
-
-    // ---- Part 6 routes ----
-
-    case "library":
-      if (segs.length === 1) return { name: "library", ...meta };
-      if (segs.length === 2 && segs[1]) return { name: "library-entry", params: { catalogKey: decodeURIComponent(segs[1]) }, ...meta };
-      return null;
-
-    case "dictionary":
-      return segs.length === 1 ? { name: "dictionary", ...meta } : null;
-
-    case "onboarding":
-      return segs.length === 1 ? { name: "onboarding", ...meta } : null;
-
-    case "profile":
-      return segs.length === 1 ? { name: "profile", ...meta } : null;
-
     default:
       return null;
   }
@@ -273,11 +332,11 @@ function sameRoute(a: Route, b: Route): boolean {
 
 /**
  * Hash-route state hook. Listens to hashchange (browser back/forward work;
- * deep links resolve via the mount effect). Initial state is the home route on
- * both server and first client render (hydration-safe); the real hash is
- * applied immediately after mount. Legacy #/routines* hashes are rewritten to
- * their #/programs* equivalents and unknown hashes to #/home — both via
- * location.replace (no history pollution).
+ * deep links resolve via the mount effect). Initial state is the workout route
+ * on both server and first client render (hydration-safe); the real hash is
+ * applied immediately after mount. Legacy hashes are rewritten to their modern
+ * equivalents and unknown hashes to #/workout — both via location.replace
+ * (no history pollution).
  */
 export function useHashRoute(): Route {
   const [route, setRoute] = useState<Route>(HOME_ROUTE);
@@ -291,7 +350,7 @@ export function useHashRoute(): Route {
       }
       const parsed = parseRoute(window.location.hash);
       if (!parsed) {
-        window.location.replace(`${window.location.pathname}${window.location.search}#/home`);
+        window.location.replace(`${window.location.pathname}${window.location.search}#/workout`);
         return;
       }
       setRoute((prev) => (sameRoute(prev, parsed) ? prev : parsed));

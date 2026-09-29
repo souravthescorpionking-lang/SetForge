@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
+import { startOnboardingTemplate } from "./onboarding-template";
 import type { UserProfileDTO } from "@/lib/types";
 
 function toDTO(row: {
@@ -104,7 +105,37 @@ export async function completeOnboarding(userId: string, payload: OnboardingPayl
   }
 
   void metric; // imperial inputs are converted client-side before submit (live-convert step)
+
+  // Part 8 §6.11: auto-create + follow the best-matching template (level ×
+  // days/week). Failures never break onboarding — the toast just won't show.
+  let startedTemplate: { id: string; name: string; dayCount: number } | null = null;
+  try {
+    startedTemplate = await startOnboardingTemplate(userId, payload.level, payload.daysPerWeekTarget);
+  } catch {
+    startedTemplate = null;
+  }
+  void startedTemplate; // callers read it via completeOnboardingWithTemplate
   return toDTO(row);
+}
+
+/** completeOnboarding + §6.11 template result (used by the route). */
+export async function completeOnboardingWithTemplate(
+  userId: string,
+  payload: OnboardingPayload,
+): Promise<{ profile: UserProfileDTO; startedTemplate: { id: string; name: string; dayCount: number } | null }> {
+  const profile = await completeOnboarding(userId, payload);
+  // completeOnboarding swallowed template errors internally; re-check the
+  // follow state cheaply so the client toast is accurate.
+  const active = await db.activeRoutine.findUnique({
+    where: { userId },
+    include: { routine: { select: { id: true, name: true } } },
+  });
+  const dayCount = active ? await db.routineDay.count({ where: { routineId: active.routineId } }) : 0;
+  const startedTemplate =
+    active && profile.onboardingCompletedAt && Date.now() - new Date(profile.onboardingCompletedAt).getTime() < 10_000
+      ? { id: active.routine.id, name: active.routine.name, dayCount }
+      : null;
+  return { profile, startedTemplate };
 }
 
 /**

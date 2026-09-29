@@ -10,7 +10,7 @@
 //
 //   48px data-row date header : "Thu 25 Sep · 4 sets · 5,400 kg" (computed —
 //                               volume falls back to distance for cardio days)
-//   ExerciseCard ×N           : summary mode one-liners; tap → expands inline
+//   GroupCard ×N           : summary mode one-liners; tap → expands inline
 //                               to read mode with SetRows; tap again collapses;
 //                               only ONE card expanded at a time.
 //   empty day                 : one muted 48px data-row "Rest day".
@@ -21,14 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useMemo, useState } from "react";
-import {
-  ExerciseCard,
-  toCardSet,
-  type CardAction,
-  type CardExercise,
-  type CardSet,
-  type CardVisibleColumns,
-} from "@/components/exercise-card/exercise-card";
+import { SoloCard } from "@/components/group-card";
+import { CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -389,7 +383,7 @@ export function SelectedDayPanel({ dayKey, summary, entry, visibleColumns }: Pro
       ) : exercises.length > 0 ? (
         exercises.map((we) => (
           <div key={we.id} className="flex flex-col">
-            <ExerciseCard
+            <SoloCard
               mode={expandedId === we.id ? "read" : "summary"}
               exercise={toCardExercise(we, settings)}
               sets={toReadCardSets(we.sets)}

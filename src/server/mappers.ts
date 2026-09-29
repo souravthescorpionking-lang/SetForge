@@ -78,6 +78,11 @@ export function mapExercise(
     setupNotes: e.setupNotes ?? null,
     targetNotes: e.targetNotes ?? null,
     catalogKey: e.catalogKey ?? null,
+    // ---- Part 8 ----
+    showRpe: e.showRpe,
+    showTempo: e.showTempo,
+    showRest: e.showRest,
+    transitionRestSec: e.transitionRestSec ?? null,
     ...extras,
   };
 }
@@ -116,9 +121,9 @@ export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { e
     sourceDayId: w.sourceDayId ?? null,
     scheduledStart: w.scheduledStart ?? false,
     finishedAt: w.finishedAt?.toISOString() ?? null,
-    // ---- Part 6: lifecycle ----
-    discardedAt: w.discardedAt?.toISOString() ?? null,
-    deletedAt: w.deletedAt?.toISOString() ?? null,
+    // ---- Part 8 §6.9: single remove semantics ----
+    removedAt: w.removedAt?.toISOString() ?? null,
+    removeReason: w.removeReason ?? null,
     groups: w.groups.map(mapGroup),
     exercises: w.exercises
       .slice()
@@ -193,6 +198,9 @@ export function mapPredefinedSet(s: PredefinedSet): PredefinedSetDTO {
     rpe: s.rpe ?? null,
     tempo: s.tempo ?? null,
     restPlannedSec: s.restPlannedSec ?? null,
+    // ---- Part 8 §6.4 ----
+    weightKind: (s.weightKind ?? (s.weight != null ? "FIXED" : "COPY_LAST")) as "FIXED" | "COPY_LAST" | "PERCENT_1RM",
+    pct: s.pct ?? null,
   };
 }
 
@@ -205,6 +213,8 @@ export function mapRoutineExercise(re: RoutineExercise & { exercise: ExerciseWit
     groupId: re.groupId ?? null,
     exercise: mapExercise(re.exercise),
     sets: re.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapPredefinedSet),
+    // ---- Part 8 §6.2 ----
+    warmupScheme: (re.warmupScheme ?? "NONE") as "NONE" | "STANDARD" | "LIGHT" | "CUSTOM",
   };
 }
 

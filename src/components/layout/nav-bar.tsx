@@ -1,22 +1,15 @@
 "use client";
 
-// NavBar — mobile/tablet bottom tab bar. Exactly 64px (h-16) + safe-area inset;
-// hidden ≥lg (desktop uses NavPane instead). A plain flex sibling inside the
+// NavBar — Part 8 phone-only bottom tab bar. Exactly 64px (h-16) + safe-area
+// inset. THREE destinations — Workout · Dashboard · More (Law 1: no desktop
+// pane; this bar renders at every width). A plain flex sibling inside the
 // screen stack (never position:fixed), so it can never cover content.
 //
-// Part 5: 5 destinations — Home · Calendar · Programs · Body · More
-// (grid-cols-5; secondary destinations live behind #/more). Active tab =
-// orange tint. Every item is a full 64px cell (≥44px touch target) with a
-// single-line, non-wrapping label.
+// Active tab = orange tint. Every item is a full 64px cell (≥44px touch
+// target) with a single-line, non-wrapping label.
 
 import { cn } from "@/lib/utils";
-import {
-  Flame,
-  CalendarDays,
-  Repeat2,
-  Ruler,
-  MoreHorizontal,
-} from "lucide-react";
+import { Dumbbell, LayoutDashboard, MoreHorizontal } from "lucide-react";
 import { useHashSegment } from "./use-hash-segment";
 import type { TourDecl } from "@/lib/tour/types";
 
@@ -32,24 +25,16 @@ interface NavDestination {
 
 const DESTINATIONS: readonly NavDestination[] = [
   {
-    key: "home", label: "Home", hash: "#/home", icon: Flame,
-    tour: { id: "nav.home", label: "Home tab", help: "Your dashboard: today's session, stats and recent logs.", order: 100 },
+    key: "workout", label: "Workout", hash: "#/workout", icon: Dumbbell,
+    tour: { id: "nav.workout", label: "Workout tab", help: "Start today's session and reach programs, logs and the builder.", order: 100 },
   },
   {
-    key: "calendar", label: "Calendar", hash: "#/calendar", icon: CalendarDays,
-    tour: { id: "nav.calendar", label: "Calendar tab", help: "Month dots and day lists of everything you logged.", order: 110 },
-  },
-  {
-    key: "programs", label: "Programs", hash: "#/programs", icon: Repeat2,
-    tour: { id: "nav.programs", label: "Programs tab", help: "Routines, sessions and the program builder.", order: 120 },
-  },
-  {
-    key: "body", label: "Body", hash: "#/body", icon: Ruler,
-    tour: { id: "nav.body", label: "Body tab", help: "Measurements, progress photos and compare view.", order: 130 },
+    key: "dashboard", label: "Dashboard", hash: "#/dashboard", icon: LayoutDashboard,
+    tour: { id: "nav.dashboard", label: "Dashboard tab", help: "Today at a glance: upcoming, weekly stats, body and records.", order: 110 },
   },
   {
     key: "more", label: "More", hash: "#/more", icon: MoreHorizontal,
-    tour: { id: "nav.more", label: "More tab", help: "History, insights, tools, dictionary and settings.", order: 140 },
+    tour: { id: "nav.more", label: "More tab", help: "Body, records, tools, dictionary, settings, backup and help.", order: 120 },
   },
 ];
 
@@ -58,9 +43,9 @@ export function NavBar() {
   return (
     <nav
       aria-label="Primary"
-      className="flex-none border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="flex-none border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
     >
-      <div className="grid h-16 grid-cols-5">
+      <div className="mx-auto grid h-16 w-full max-w-[480px] grid-cols-3">
         {DESTINATIONS.map((d) => {
           const active = segment === d.key;
           const Icon = d.icon;

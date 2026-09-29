@@ -31,7 +31,7 @@ export function RestRingBlock({
   const display = formatDuration(remainingSec);
   return (
     <section
-      className="flex h-[200px] w-full flex-none flex-col items-center justify-center rounded-lg border bg-card lg:h-[240px]"
+      className="flex h-[200px] w-full flex-none flex-col items-center justify-center rounded-lg border bg-card "
       aria-label={`Rest countdown ring: ${display} remaining`}
     >
       <TickedRing fraction={fraction} size={160} label={display} />

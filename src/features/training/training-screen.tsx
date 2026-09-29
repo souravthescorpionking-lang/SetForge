@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // TrainingScreen — the per-exercise focus screen (#/today/{exerciseId}), Part 3
 // ORDER OF WORK step 4. Composed ONLY from the layout primitives and the ONE
-// ExerciseCard.
+// GroupCard.
 //
 //   TopBar (56)  : back (→ #/today, preserving ?date=) · exercise name (+
 //                  category colour dot) · Notes popover · Records (legacy
@@ -11,10 +11,10 @@
 //                  Rest override / Favourite)
 //   SubBar (48)  : Track | History | Graph — 3 equal-width tabs; the active tab
 //                  is deep-linkable via ?tab= (hash query, replaceHash)
-//   ScrollBody   : TRACK    — "Now" section header + ONE ExerciseCard (edit,
+//   ScrollBody   : TRACK    — "Now" section header + ONE GroupCard (edit,
 //                            hideHeader) + "Last time" header + read-collapsed
 //                            previous-performance card
-//                  HISTORY  — DateGroup×N (32px date header + ExerciseCard
+//                  HISTORY  — DateGroup×N (32px date header + GroupCard
 //                            read hideHeader); tapping a row toggles that card
 //                            (and only that card) to edit inline
 //                  GRAPH    — 48px ControlRow (metric | range | ⋮ options) →
@@ -43,14 +43,7 @@ import {
 } from "recharts";
 import { Screen, TopBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
 import { tourAttrs } from "@/lib/tour/attrs";
-import {
-  ExerciseCard,
-  toCardSet,
-  type CardAction,
-  type CardExercise,
-  type CardSet,
-  type CardVisibleColumns,
-} from "@/components/exercise-card/exercise-card";
+import { SoloCard, CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -124,7 +117,7 @@ type RangeValue = (typeof RANGE_OPTIONS)[number]["value"];
  * 48px ControlRow has no room for a 4th control (documented deviation). */
 const OMITTED_METRICS = new Set(["WEIGHT_FOR_REPS", "REP_MAXES"]);
 
-/** Map a CardSet patch (SetRow/ExerciseCard contract) onto the API's SetInput. */
+/** Map a CardSet patch (SetRow/GroupCard contract) onto the API's SetInput. */
 function cardPatchToSetInput(patch: Partial<CardSet>): SetInput {
   const out: SetInput = {};
   if ("weightKg" in patch) out.weight = patch.weightKg ?? null;
@@ -168,9 +161,9 @@ export default function TrainingScreen({ exerciseId }: { exerciseId: string }) {
   const toggleFavourite = useToggleFavourite();
 
   // ---------- route query state (?date= · ?tab= — both deep-linkable) ----------
-  const routeDate = route.name === "training" ? route.query.get("date") : null;
+  const routeDate = route.name === "session-exercise" ? route.query.get("date") : null;
   const dateKey = routeDate && DATE_RE.test(routeDate) ? routeDate : todayKey();
-  const tabParam = route.name === "training" ? route.query.get("tab") : null;
+  const tabParam = route.name === "session-exercise" ? route.query.get("tab") : null;
   const tab: TabKey = tabParam === "history" || tabParam === "graph" ? tabParam : "track";
 
   const todayHref = dateKey === todayKey() ? "/today" : `/today?date=${dateKey}`;
@@ -768,7 +761,7 @@ function TrackTab({
       <SectionHeader label={`Now · ${formatDayShort(dateKey)}`} />
       {we && workoutId ? (
         <div data-track-card className="flex-none">
-          <ExerciseCard
+          <SoloCard
             mode="edit"
             hideHeader
             exercise={cardEx}
@@ -802,7 +795,7 @@ function TrackTab({
         <Skeleton className="h-14 rounded-lg" />
       ) : lastDate && lastSetsList.length > 0 ? (
         <div className="relative flex-none">
-          <ExerciseCard
+          <SoloCard
             mode="read"
             collapsed={!lastExpanded}
             exercise={cardEx}
@@ -920,7 +913,7 @@ function HistoryTab({
                 }
               }}
             >
-              <ExerciseCard
+              <SoloCard
                 mode={editing ? "edit" : "read"}
                 hideHeader
                 exercise={cardEx}
@@ -1091,7 +1084,7 @@ function GraphTab({ exercise }: { exercise: ExerciseDTO }) {
       </div>
 
       {/* Chart box — fixed height; charts may scale internally (allowed exemption) */}
-      <div className="flex h-[240px] flex-none items-center justify-center overflow-hidden rounded-lg border bg-card p-2 lg:h-[360px]">
+      <div className="flex h-[240px] flex-none items-center justify-center overflow-hidden rounded-lg border bg-card p-2">
         {graph.isLoading ? (
           <Skeleton className="h-full w-full rounded-lg" />
         ) : points.length === 0 ? (

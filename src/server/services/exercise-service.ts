@@ -331,8 +331,7 @@ export async function getWeightTable(
   const workouts = await db.workout.findMany({
     where: {
       userId,
-      deletedAt: null,
-      discardedAt: null,
+      removedAt: null,
       date: { lte: beforeDate },
       exercises: { some: { exerciseId } },
     },

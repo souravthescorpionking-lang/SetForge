@@ -52,12 +52,18 @@ export async function updateSettings(
     showMaxWeightBar: boolean;
     calendarStyle: string;
     tempoPresets: string[];
-    showCaloriesCard: boolean;
     showThumbnails: boolean;
     // ---- Part 7: tour system ----
     showTours: boolean;
     showHints: boolean;
     replayToursOnUpdate: boolean;
+    // ---- Part 8: mode presets, auto session mode, transition rest, notifications ----
+    preset: string;
+    sessionMode: string;
+    defaultTransitionRestSec: number;
+    notifScheduled: boolean;
+    notifMissedDay: boolean;
+    notifPr: boolean;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });
@@ -65,6 +71,23 @@ export async function updateSettings(
   // Json columns arrive/leave as string[] — normalise null to the documented default.
   const data: Record<string, unknown> = { ...patch };
   if (patch.tempoPresets !== undefined) data.tempoPresets = patch.tempoPresets ?? [...DEFAULT_TEMPO_PRESETS];
+  // Part 8 §5 presets: a preset write fans out into the individual switches so
+  // users can still tweak anything under Advanced afterwards.
+  if (patch.preset !== undefined) {
+    const simple = patch.preset === "SIMPLE";
+    const power = patch.preset === "POWER";
+    Object.assign(data, {
+      showSetType: power,
+      showRpe: power,
+      showTempo: !simple,
+      showRest: !simple,
+      guidedMode: power,
+      showHints: !simple,
+      showVideoPanel: !simple,
+      autoMoveNextSet: power,
+      showSetsProgressBar: !simple,
+    });
+  }
   const updated = await db.userSettings.update({ where: { userId }, data });
   const { id: _id, userId: _uid, createdAt: _c, updatedAt: _u, ...rest } = updated;
   return {

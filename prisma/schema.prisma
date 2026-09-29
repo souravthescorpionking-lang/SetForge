@@ -121,6 +121,13 @@ model UserSettings {
   tempoPresets        Json? // string[]; default ["2-0-2-0","3-1-1-0","4-0-1-0","1-0-1-0"] applied app-side
   showCaloriesCard    Boolean @default(false) // Home calories card (manual kcal log)
   showThumbnails      Boolean @default(true) // library row thumbnails
+  // ---- Part 8: phone-only redesign ----
+  preset              String  @default("STANDARD") // SIMPLE | STANDARD | POWER (writes the individual switches)
+  sessionMode         String  @default("AUTO") // AUTO | GUIDED | FREE (AUTO = guided when started from a program/session)
+  defaultTransitionRestSec Int @default(0) // rest between groups (0 = off)
+  notifScheduled      Boolean @default(false) // notify at scheduled session time
+  notifMissedDay      Boolean @default(false) // missed-day nudge next morning (max 1/week)
+  notifPr             Boolean @default(true) // in-app PR celebration toast
   // ---- Part 7: tour system ----
   showTours           Boolean @default(true) // auto-start screen tours + welcome tour
   showHints           Boolean @default(true) // contextual one-time hints
@@ -195,6 +202,11 @@ model Exercise {
   defaultGraph    String? // preferred graph metric
   isFavorite      Boolean   @default(false)
   barWeight       Float? // per-exercise bar weight for plate calculator
+  // ---- Part 8: per-exercise set-table column visibility + transition rest ----
+  showRpe         Boolean @default(true)
+  showTempo       Boolean @default(true)
+  showRest        Boolean @default(true)
+  transitionRestSec Int? // rest when the pointer moves to the next group (null = settings default)
   autoWarmup      Boolean   @default(false) // auto-open the warm-up ramp in the training screen
   // ---- Part 2: per-exercise set defaults ----
   defaultSetType  String? // NORMAL | WARMUP | DROP | FAILURE | AMRAP preset for new sets
@@ -242,9 +254,9 @@ model Workout {
   sourceDayId     String? // routine day it was started from
   scheduledStart  Boolean   @default(false) // true = started from a PLANNED schedule entry
   finishedAt      DateTime? // set by the Finish action
-  // ---- Part 6: lifecycle (additive) ----
-  discardedAt     DateTime? // session discard: effects reverted, hidden everywhere until restored
-  deletedAt       DateTime? // history soft delete
+  // ---- Part 8 §6.9: single remove semantics (replaces discardedAt/deletedAt pair) ----
+  removedAt        DateTime? // set = hidden everywhere; listed under Backup & data -> Removed items
+  removeReason     String? // USER_DELETE | DISCARDED_SESSION | HISTORY_PURGE
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -252,9 +264,9 @@ model Workout {
   groups    WorkoutGroup[]
   scheduleEntries ScheduleEntry[]
 
-  @@unique([userId, date])
   @@index([userId, date])
   @@index([userId, sourceRoutineId])
+  @@index([userId, removedAt])
 }
 
 model WorkoutGroup {
@@ -264,6 +276,9 @@ model WorkoutGroup {
   workout   Workout         @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   name      String
   colour    String          @default("#f97316")
+  // ---- Part 8 §2.1: derived cache (recomputed on reorder, never user-edited) ----
+  code      String? // group letter "A"
+  size      Int? // member count
   createdAt DateTime        @default(now())
 
   exercises WorkoutExercise[]
@@ -395,6 +410,9 @@ model RoutineGroup {
   routine   Routine          @relation(fields: [routineId], references: [id], onDelete: Cascade)
   name      String
   colour    String           @default("#f97316")
+  // ---- Part 8 §2.1: derived cache ----
+  code      String? // group letter "A"
+  size      Int? // member count
   exercises RoutineExercise[]
 
   @@index([routineId])
@@ -410,10 +428,15 @@ model RoutineExercise {
   sortOrder  Int       @default(0)
   groupId    String?
   group      RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  // ---- Part 8 §6.2: warm-up generator ----
+  warmupScheme String? // NONE | STANDARD (40/60/80% x 5/3/2) | LIGHT (50/70% x 5/3) | CUSTOM
+  warmupCustom Json? // [{ pct, reps }] when scheme = CUSTOM
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
   sets PredefinedSet[]
+  progressionRule ProgressionRule?
+  progressionState ProgressionState?
 
   @@index([dayId])
   @@index([exerciseId])
@@ -432,6 +455,9 @@ model PredefinedSet {
   rpe               Float?
   tempo             String?
   restPlannedSec    Int?
+  // ---- Part 8 §6.4: weight prescription kinds ----
+  weightKind        String? // FIXED | COPY_LAST | PERCENT_1RM
+  pct               Float? // % of e1RM when weightKind = PERCENT_1RM
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -620,17 +646,64 @@ model ProgressPhoto {
   @@index([measurementRecordId])
 }
 
-model DailyCalories {
-  id        String   @id
-  userId    String
-  date      DateTime // UTC midnight of the day
-  kcal      Int
-  note      String?
+// ---------- Part 8 §6.3: progression rules & state ----------
+
+model ProgressionRule {
+  id                 String   @id
+  userId             String
+  routineExerciseId String   @unique
+  routineExercise    RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+  type               String   @default("LINEAR") // LINEAR | DOUBLE | NONE
+  increment          Float    @default(2.5)
+  unit               String   @default("kg") // kg | lbs | %
+  condition          String   @default("ALL_SETS_HIT") // ALL_SETS_HIT | LAST_SET_HIT
+  failStreakForDeload Int    @default(2)
+  deloadPct          Int      @default(10)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, date])
-  @@index([userId, date])
+  @@index([userId])
+}
+
+model ProgressionState {
+  id                 String   @id
+  userId             String
+  routineExerciseId String   @unique
+  routineExercise    RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+  nextWeightDelta    Float    @default(0)
+  failStreak         Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ---------- Part 8 §6.13: sync conflict log (read-only) ----------
+
+model SyncConflict {
+  id          String   @id
+  userId      String
+  table       String
+  rowId       String
+  field       String
+  localValue  String?
+  remoteValue String?
+  resolvedWith String  // LOCAL | REMOTE | UNION
+  at          DateTime @default(now())
+
+  @@index([userId, at])
+}
+
+// ---------- Part 8 §6.8: scheduled backup runs ----------
+
+model BackupRun {
+  id        String   @id
+  userId    String
+  target    String // local | s3 | webdav
+  status    String // OK | ERROR
+  bytes     Int?
+  at        DateTime @default(now())
+
+  @@index([userId, at])
 }
 
 // System-level exercise catalog (not per user). Loaded from

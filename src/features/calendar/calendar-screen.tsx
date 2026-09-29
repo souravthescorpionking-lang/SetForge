@@ -2,7 +2,7 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CalendarScreen — #/calendar (p3-6). Composed ONLY from the layout primitives
-// + the ONE ExerciseCard (via SelectedDayPanel).
+// + the ONE GroupCard (via SelectedDayPanel).
 //
 //   TopBar (56)  : `◄ Sep 2026 ►` (44px buttons either side of the month label
 //                  — label tap = jump to current month) | List/Month segmented
@@ -36,7 +36,7 @@ import { qk, useSchedule } from "@/lib/client/query";
 import { exercisesApi, workoutsApi } from "@/lib/client/api";
 import { todayKey } from "@/lib/client/format";
 import { replaceHash, useHashRoute } from "@/features/shell/router";
-import type { CardVisibleColumns } from "@/components/exercise-card/exercise-card";
+import type { CardVisibleColumns } from "@/components/group-card/group-card";
 import type { ProjectedDayDTO, ScheduleEntryDTO } from "@/lib/types";
 import { MonthView } from "./month-view";
 import { ListView } from "./list-view";

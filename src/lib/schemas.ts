@@ -176,9 +176,16 @@ export const routineCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   notes: z.string().max(2000).nullable().optional(),
   kind: z.enum(ROUTINE_KINDS).default("ROUTINE"),
+  // ---- Part 8 §3.8 (builder Level row; additive) ----
+  difficulty: z.enum(DIFFICULTIES).optional(),
 });
 export const routineUpdateSchema = routineCreateSchema.partial().extend({
   sortOrder: z.number().int().min(0).optional(),
+});
+// ---- Part 8 §3.8: routine superset-group creation (builder + Group) ----
+export const routineGroupCreateSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  assignReId: z.string().min(1).optional(),
 });
 export const routineDayCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -204,6 +211,9 @@ export const predefinedSetCreateSchema = z.object({
   rpe: z.number().min(6).max(10).nullable().optional(),
   tempo: tempoField,
   restPlannedSec: z.number().int().min(0).max(3600).nullable().optional(),
+  // ---- Part 8 §6.4 weight prescription kinds (additive) ----
+  weightKind: z.enum(["FIXED", "COPY_LAST", "PERCENT_1RM"]).nullable().optional(),
+  pct: nullableNum(100),
 });
 export const predefinedSetUpdateSchema = predefinedSetCreateSchema;
 export const routineLogSchema = z.object({ dayId: z.string().min(1), date: isoDate });
@@ -297,12 +307,18 @@ export const settingsUpdateSchema = z.object({
   showMaxWeightBar: z.boolean().optional(),
   calendarStyle: z.enum(CALENDAR_STYLES).optional(),
   tempoPresets: z.array(z.string().regex(TEMPO_REGEX, "Invalid tempo")).min(0).max(8).optional(),
-  showCaloriesCard: z.boolean().optional(),
   showThumbnails: z.boolean().optional(),
   // ---- Part 7: tour system ----
   showTours: z.boolean().optional(),
   showHints: z.boolean().optional(),
   replayToursOnUpdate: z.boolean().optional(),
+  // ---- Part 8 ----
+  preset: z.enum(["SIMPLE", "STANDARD", "POWER"]).optional(),
+  sessionMode: z.enum(["AUTO", "GUIDED", "FREE"]).optional(),
+  defaultTransitionRestSec: z.number().int().min(0).max(600).optional(),
+  notifScheduled: z.boolean().optional(),
+  notifMissedDay: z.boolean().optional(),
+  notifPr: z.boolean().optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),
@@ -426,11 +442,6 @@ export const onboardingCompleteSchema = z.object({
   weightKg: z.number().min(20).max(400).nullish(), // metric kg (client converts live)
   age: z.number().int().min(10).max(100).nullish(),
   skipped: z.boolean().optional(),
-});
-
-export const caloriesPutSchema = z.object({
-  kcal: z.number().int().min(0).max(20000).nullable(),
-  note: z.string().trim().max(200).nullable().optional(),
 });
 
 const phaseSchema = z.object({

@@ -60,7 +60,7 @@ function evaluateAutoStart(route: Route, onboarded: boolean): void {
   const pending = st.pending;
   if (pending) {
     if (pending.welcome) {
-      if (route.name !== "home") return; // navigation still in flight
+      if (route.name !== "workout") return; // navigation still in flight
       useTourStore.setState({ pending: null });
       startWelcomeTourInternal();
       return;
@@ -75,7 +75,7 @@ function evaluateAutoStart(route: Route, onboarded: boolean): void {
   if (!settings?.showTours) return;
 
   // 3) Welcome tour on #/home (onboarded + version unseen).
-  if (route.name === "home" && onboarded && st.seen[WELCOME_KEY]?.version !== registry.welcome.version) {
+  if (route.name === "workout" && onboarded && st.seen[WELCOME_KEY]?.version !== registry.welcome.version) {
     startWelcomeTourInternal();
     return;
   }

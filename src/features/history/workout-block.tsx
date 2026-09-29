@@ -2,12 +2,12 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WorkoutBlock — one workout of the History timeline (p3-6), in the Calendar's
-// DateGroup language + the ONE ExerciseCard:
+// DateGroup language + the ONE GroupCard:
 //
 //   DateGroup header : 32px (h-8) — "Fri 25 Sep" + truncated comment/hairline
 //   summary row      : 48px data-row — volume · sets · duration (cardio days
 //                      fall back to distance), computed from the summary DTO
-//   ExerciseCard ×N  : read mode, collapsed by default — tap the card (or its
+//   GroupCard ×N  : read mode, collapsed by default — tap the card (or its
 //                      chevron) to expand the SetRows inline; PR/note markers
 //                      render from SetDTO (newPr/comment via toCardSet)
 //
@@ -17,14 +17,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Fragment, useMemo, useState } from "react";
-import {
-  ExerciseCard,
-  toCardSet,
-  type CardAction,
-  type CardExercise,
-  type CardSet,
-  type CardVisibleColumns,
-} from "@/components/exercise-card/exercise-card";
+import { SoloCard } from "@/components/group-card";
+import { CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { useApp } from "@/lib/client/store";
@@ -183,7 +177,7 @@ export function WorkoutBlock({
                   }
                 }}
               >
-                <ExerciseCard
+                <SoloCard
                   mode="read"
                   collapsed={!expanded}
                   exercise={toCardExercise(we, settings)}
