@@ -1,0 +1,728 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// GroupCard — THE single source of truth group card (Part 8 §2). One card per
+     5→// GROUP (a superset group, or an ungrouped exercise as its own group of 1):
+     6→//
+     7→//   |▌ 4px colour bar full height (group colour; category colour on singletons)
+     8→//   | A1                Superset | 32  code (12px bold muted) · label right
+     9→//   | Deadlift                   | 40  name 16px
+    10→//   | Reps:  5  5  5     💡 …    | 40  per-set reps tabular · tip · options
+    11→//   | Tempo: 4/0/1/0              | 32  hidden when no tempo anywhere
+    12→//   | ⏱ ›                        | 40  collapsed rest (toggle remembered)
+    13→//   |    3× · Rest sec: 90 90 90 | 40  expanded rest row
+    14→//   |                              12  gap between exercises inside group (no line)
+    15→//
+    16→// Modes (§2.3):
+    17→//   view — Program detail / Session detail: Reps / Tempo / ⏱ rows.
+    18→//   read — Log detail: SetRow list read-only ("100 · 5 🏆").
+    19→//   edit — Builder editors: view layout, fields tappable, ≡ drag replaces 💡.
+    20→//   log  — Logging screen: Tempo row + SetRow list + "+ set"; collapsed
+    21→//          exercises show "0/3" right.
+    22→//
+    23→// Laws honoured: ONE border per GROUP; colour = the 4px bar ONLY (Law 7);
+    24→// rows 56/48/40/32, single line, nowrap + ellipsis (Law 4); card never
+    25→// scrolls and never contains inner cards; width = container width.
+    26→// Divider BETWEEN groups (16px gap + 1px 30%-muted line) is rendered by
+    27→// <GroupCardStack> — never inside the card, never after the last group.
+    28→// ─────────────────────────────────────────────────────────────────────────────
+    29→
+    30→import { Children, useState, isValidElement, type ReactNode } from "react";
+    31→import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+    32→import { Button } from "@/components/ui/button";
+    33→import {
+    34→  BarChart3,
+    35→  Check,
+    36→  ChevronDown,
+    37→  History,
+    38→  Info,
+    39→  Lightbulb,
+    40→  Maximize2,
+    41→  MessageSquareText,
+    42→  MoreVertical,
+    43→  PencilRuler,
+    44→  Plus,
+    45→  Replace,
+    46→  StickyNote,
+    47→  Timer,
+    48→  Trash2,
+    49→  Trophy,
+    50→  type LucideIcon,
+    51→} from "lucide-react";
+    52→import { cn } from "@/lib/utils";
+    53→import { rowBase } from "@/lib/ui/tokens";
+    54→import { tourAttrs } from "@/lib/tour/attrs";
+    55→import { SetRow } from "../set-row/set-row";
+    56→import { fieldsForType, formatRestSec, SET_TYPE_META, type SetField } from "@/lib/constants";
+    57→import { Term } from "@/components/shared/term";
+    58→import {
+    59→  trimNum,
+    60→  type CardAction,
+    61→  type CardExercise,
+    62→  type CardMode,
+    63→  type CardSet,
+    64→  type CardVisibleColumns,
+    65→} from "./group-types";
+    66→
+    67→export type {
+    68→  CardAction,
+    69→  CardExercise,
+    70→  CardMode,
+    71→  CardSet,
+    72→  CardVisibleColumns,
+    73→  ToCardSetInput,
+    74→  ApplyToAllFields,
+    75→} from "./group-types";
+    76→export { toCardSet } from "./group-types";
+    77→
+    78→// ---------- entries & group ----------
+    79→
+    80→export interface GroupCardEntry {
+    81→  exercise: CardExercise;
+    82→  sets: CardSet[];
+    83→  /** Derived series code, e.g. "A1" (empty for legacy solo usage). */
+    84→  code: string;
+    85→  /** Trainer tip (💡) — inline-expands to max 3 lines, 150ms. */
+    86→  tip?: string | null;
+    87→  /** Per-exercise coaching note (📝 §5.4) — 32px single-line row under the
+    88→   *  name; tap expands the full text (prose, exempt from nowrap). */
+    89→  note?: string | null;
+    90→  /** Part 9 §5: SeriesExercise-level “Rest: none” flag (rest row label). */
+    91→  restNone?: boolean;
+    92→  /** log mode: collapsed shows "0/3" right and hides the SetRow list. */
+    93→  collapsed?: boolean;
+    94→  /** edit mode: drag affordance replacing 💡. */
+    95→  dragHandle?: ReactNode;
+    96→  /** Part 10 §4.5 (L2 extension): when present, REPLACES this entry's default
+    97→   *  view/edit body block (reps/tempo/rest rows) with the consumer's editor
+    98→   *  rows — the Workout Builder's per-exercise Tempo/Tip/Rest/Set-table block.
+    99→   *  The code/name/⋮ header stays GroupCard-owned (one card, never forked). */
+   100→  editor?: ReactNode;
+   101→  /** Guided pointer: this entry holds the current set (3px accent bar rows). */
+   102→  currentSetIndex?: number;
+   103→  /** Part 9 §8 (log detail): extra rows rendered at the bottom of THIS entry
+   104→   *  (performed table · max weight · rest expand · edit history). The consumer
+   105→   *  owns the content — the card only anchors it below the mode bodies, so
+   106→   *  multi-exercise groups keep each exercise's rows attached to it. */
+   107→  footer?: ReactNode;
+   108→}
+   109→
+   110→export interface GroupCardGroup {
+   111→  /** Group letter ("A"; empty for solo groups). */
+   112→  code: string;
+   113→  /** "" | "Superset" | "Triset" | "Giant set". */
+   114→  label: string;
+   115→  /** 4px bar colour; falls back to the first entry's category colour. */
+   116→  colour?: string;
+   117→}
+   118→
+   119→export interface GroupCardProps {
+   120→  mode: CardMode;
+   121→  group: GroupCardGroup;
+   122→  entries: GroupCardEntry[];
+   123→  /** Omit → fully read-only (no menus/inputs even in log/edit mode). */
+   124→  onAction?: (action: CardAction, entryIndex: number) => void;
+   125→  /** Global column fallback; per-exercise showRpe/showTempo/showRest win. */
+   126→  visibleColumns?: CardVisibleColumns;
+   127→  /** ⏱ rest-row expanded (remembered per card for the session — parent state). */
+   128→  restExpanded?: boolean;
+   129→  onToggleRest?: () => void;
+   130→  /** Part 9 §5: screen-provided … menu (REPLACES the per-mode default; e.g. the
+   131→   *  day overview passes Rearrange/Replace/Exercise info/Notes). Icons and
+   132→   *  actions follow the same GroupMenuItem contract as the built-ins. */
+   133→  menuItems?: GroupMenuItem[];
+   134→  /** Part 10 §3.3 (L2 extension): OVERVIEW presentation for log mode —
+   135→   *  each entry collapses to its header rows and expands into the compact
+   136→   *  32px set table (Set | Type | Reps | Weight | Rest) instead of SetRow
+   137→   *  inputs. Tap rows/headers jump the live focus (§3.4). */
+   138→  overview?: GroupCardOverview;
+   139→  className?: string;
+   140→}
+   141→
+   142→/** §3.3 Overview wiring (see GroupCardProps.overview). */
+   143→export interface GroupCardOverview {
+   144→  /** The live focus set's id — its table row carries the 4px accent bar (L4). */
+   145→  focusSetId?: string | null;
+   146→  /** §3.4: tap a set row → the focus jumps to that set. */
+   147→  onJumpSet?: (setId: string) => void;
+   148→  /** §3.4: tap an exercise header → focus its first unlogged set. */
+   149→  onJumpEntry?: (entryIndex: number) => void;
+   150→}
+   151→
+   152→// ---------- … menu (per-mode, §2.2) ----------
+   153→
+   154→export interface GroupMenuItem {
+   155→  icon: LucideIcon;
+   156→  label: string;
+   157→  action: CardAction;
+   158→  destructive?: boolean;
+   159→}
+   160→
+   161→const NAV_ITEMS: GroupMenuItem[] = [
+   162→  { icon: Info, label: "Exercise detail", action: { type: "detail", exerciseId: "" } },
+   163→  { icon: History, label: "History", action: { type: "history", exerciseId: "" } },
+   164→  { icon: BarChart3, label: "Graph", action: { type: "graph", exerciseId: "" } },
+   165→  { icon: Trophy, label: "Records", action: { type: "records", exerciseId: "" } },
+   166→  { icon: MessageSquareText, label: "Notes", action: { type: "notes" } },
+   167→];
+   168→
+   169→function menuForMode(mode: CardMode): GroupMenuItem[] {
+   170→  switch (mode) {
+   171→    case "edit":
+   172→      return [
+   173→        ...NAV_ITEMS,
+   174→        { icon: PencilRuler, label: "Edit sets", action: { type: "edit-sets", exerciseId: "" } },
+   175→        { icon: Trash2, label: "Remove", action: { type: "remove" }, destructive: true },
+   176→      ];
+   177→    case "log":
+   178→      return [
+   179→        ...NAV_ITEMS,
+   180→        { icon: Replace, label: "Replace", action: { type: "replace" } },
+   181→        { icon: PencilRuler, label: "Edit sets", action: { type: "edit-sets", exerciseId: "" } },
+   182→        { icon: Trash2, label: "Remove", action: { type: "remove" }, destructive: true },
+   183→      ];
+   184→    case "read":
+   185→      return [
+   186→        { icon: MessageSquareText, label: "Notes", action: { type: "notes" } },
+   187→        { icon: Maximize2, label: "Open", action: { type: "open" } },
+   188→      ];
+   189→    default:
+   190→      return NAV_ITEMS;
+   191→  }
+   192→}
+   193→
+   194→// ---------- reps cell text (§2.2 markers) ----------
+   195→
+   196→// ---------- Part 10 §3.3: Overview table (compact 32px read rows) ----------
+   197→
+   198→/** Overview table grid: Set | Type | Reps | Weight | Rest. Fixed rails keep the
+   199→ *  two value columns filling leftover card width (same minmax law as SetRow). */
+   200→const OVERVIEW_COLS = "grid-cols-[36px_36px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(52px,64px)]";
+   201→
+   202→function overviewRestText(set: CardSet): string {
+   203→  const planned = set.restPlannedSec ?? null;
+   204→  const actual = set.restActualSec ?? null;
+   205→  if (planned == null || planned <= 0) return "–";
+   206→  if (actual != null) return `${planned}→${actual}`; // §3.3 “60→75” once performed
+   207→  return formatRestSec(planned);
+   208→}
+   209→
+   210→function OverviewSetTable({
+   211→  entry,
+   212→  unit,
+   213→  focusSetId,
+   214→  onJumpSet,
+   215→}: {
+   216→  entry: GroupCardEntry;
+   217→  unit?: string | null;
+   218→  focusSetId?: string | null;
+   219→  onJumpSet?: (setId: string) => void;
+   220→}) {
+   221→  if (entry.sets.length === 0) {
+   222→    return <p className="px-2 py-1 text-xs text-muted-foreground">No sets</p>;
+   223→  }
+   224→  return (
+   225→    <div
+   226→      {...tourAttrs({ id: "groupCard.overviewTable", label: "Set table", help: "Every set of this exercise — tap a row to make it the focus set.", order: 190 })}
+   227→      className="mx-1 my-1 overflow-hidden rounded-md border border-border/60"
+   228→    >
+   229→      <div
+   230→        data-row
+   231→        aria-hidden
+   232→        className={cn(
+   233→          "grid h-8 w-full items-center gap-1 overflow-hidden whitespace-nowrap bg-muted/40 px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground",
+   234→          OVERVIEW_COLS,
+   235→        )}
+   236→      >
+   237→        <span className="text-center">Set</span>
+   238→        <span className="text-center">Type</span>
+   239→        <span className="min-w-0 truncate">Reps</span>
+   240→        <span className="min-w-0 truncate text-right">Weight</span>
+   241→        <span className="min-w-0 truncate text-right">Rest</span>
+   242→      </div>
+   243→      {entry.sets.map((s) => {
+   244→        const isFocus = focusSetId != null && s.id === focusSetId;
+   245→        const typeMeta = s.setType ? SET_TYPE_META[s.setType as "NORMAL"] : null;
+   246→        return (
+   247→          <button
+   248→            key={s.id}
+   249→            type="button"
+   250→            data-row
+   251→            {...tourAttrs({ id: "groupCard.overviewRow", label: "Set row", help: "Tap to jump the focus to this set — logged rows show what you lifted.", order: 200 })}
+   252→            aria-label={`Set ${s.index}${s.done ? " logged" : " planned"}`}
+   253→            aria-current={isFocus ? "true" : undefined}
+   254→            className={cn(
+   255→              "relative grid h-8 w-full items-center gap-1 overflow-hidden whitespace-nowrap px-2 text-xs tabular-nums transition-colors hover:bg-accent/50",
+   256→              OVERVIEW_COLS,
+   257→              !s.done && "text-muted-foreground",
+   258→              s.done && "bg-emerald-500/5 text-foreground",
+   259→              isFocus && "bg-primary/5",
+   260→            )}
+   261→            style={isFocus ? { boxShadow: "inset 4px 0 0 0 var(--primary)" } : undefined}
+   262→            onClick={() => onJumpSet?.(s.id)}
+   263→          >
+   264→            <span className="flex min-w-0 items-center justify-center gap-0.5">
+   265→              {s.done ? <Check className="h-3 w-3 flex-none text-emerald-500" aria-hidden /> : null}
+   266→              <span className="truncate">{s.index}</span>
+   267→            </span>
+   268→            <span className="flex min-w-0 justify-center">
+   269→              {typeMeta ? (
+   270→                <span className={cn("flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold", typeMeta.className)} title={typeMeta.label}>
+   271→                  {typeMeta.letter}
+   272→                </span>
+   273→              ) : (
+   274→                <span className="text-muted-foreground/50">–</span>
+   275→              )}
+   276→            </span>
+   277→            <span className="min-w-0 truncate text-left">{s.reps != null ? trimNum(s.reps) : "–"}</span>
+   278→            <span className="min-w-0 truncate text-right">{s.weightKg != null ? `${trimNum(s.weightKg)}${unit ? ` ${unit}` : ""}` : "–"}</span>
+   279→            <span className="min-w-0 truncate text-right">{overviewRestText(s)}</span>
+   280→          </button>
+   281→        );
+   282→      })}
+   283→    </div>
+   284→  );
+   285→}
+   286→
+   287→function repsCellText(set: CardSet, fields: Array<"weight" | "reps" | "distance" | "timeSec">): string {
+   288→  // Part 9 §5: AMRAP prescribed sets spell out "AMRAP" (tap → Term definition).
+   289→  // Part 9 §8: performed AMRAP sets carry their actual reps → "AMRAP→{n}".
+   290→  const reps =
+   291→    set.setType === "AMRAP"
+   292→      ? set.reps == null
+   293→        ? "AMRAP"
+   294→        : `AMRAP→${set.reps}`
+   295→      : set.reps == null
+   296→        ? "∞"
+   297→        : String(set.reps);
+   298→  if (!fields.includes("weight")) {
+   299→    if (fields.includes("distance") && set.distanceM != null) return `${trimNum(set.distanceM)} m · ${reps}`;
+   300→    if (fields.includes("timeSec") && set.timeSec != null) return `${set.timeSec}s · ${reps}`;
+   301→    return reps;
+   302→  }
+   303→  const weight =
+   304→    set.weightKind === "COPY_LAST"
+   305→      ? "↺"
+   306→      : set.weightKind === "PERCENT_1RM" && set.pct != null
+   307→        ? `${trimNum(set.pct)}%`
+   308→        : set.weightKg != null
+   309→          ? trimNum(set.weightKg)
+   310→          : "↺";
+   311→  return `${weight}·${reps}`;
+   312→}
+   313→
+   314→// ---------- GroupCard ----------
+   315→
+   316→const CODE_ROW = "flex h-8 items-center gap-2 px-3";
+   317→const NAME_ROW = "flex h-10 items-center gap-1 px-3";
+   318→const NOTE_ROW = "flex h-8 items-center gap-2 px-3";
+   319→const REPS_ROW = "flex h-10 items-center gap-1 px-3";
+   320→const TEMPO_ROW = "flex h-8 items-center gap-2 px-3";
+   321→const REST_ROW = "flex h-10 items-center gap-2 px-3";
+   322→
+   323→export function GroupCard({
+   324→  mode,
+   325→  group,
+   326→  entries,
+   327→  onAction,
+   328→  visibleColumns,
+   329→  restExpanded = false,
+   330→  onToggleRest,
+   331→  menuItems,
+   332→  overview,
+   333→  className,
+   334→}: GroupCardProps) {
+   335→  const [tipOpen, setTipOpen] = useState<string | null>(null);
+   336→  const [noteOpen, setNoteOpen] = useState<string | null>(null);
+   337→  const hasActions = onAction != null;
+   338→  const barColour = group.colour ?? entries[0]?.exercise.categoryColour ?? "#f97316";
+   339→  const menu = hasActions ? (menuItems ?? menuForMode(mode)) : [];
+   340→  // Legacy Part 3 modes (template/preview/summary/edit-legacy) render through
+   341→  // their own SetRow list below — the Part 8 layout branches do not run.
+   342→  const isLegacyRows =
+   343→    mode === "template" || mode === "preview" || mode === "summary" || mode === "edit-legacy";
+   344→  const layoutMode: "view" | "read" | "edit" | "log" =
+   345→    mode === "view" || mode === "read" || mode === "edit" || mode === "log" ? mode : "read";
+   346→
+   347→  // Rest row hidden entirely when no entry carries rest data (§5: restNone
+   348→  // exercises always show their "Rest: none" row).
+   349→  const anyRest = entries.some((e) => e.restNone || e.sets.some((s) => s.restPlannedSec != null));
+   350→  const anyTempo = entries.some((e) => e.sets.some((s) => s.tempo != null && s.tempo !== ""));
+   351→
+   352→  const dispatch = (action: CardAction, entryIndex: number, exerciseId?: string) => {
+   353→    if (!onAction) return;
+   354→    // exerciseId-bearing actions get the concrete id injected here.
+   355→    const a =
+   356→      exerciseId && ("exerciseId" in action && (action as { exerciseId?: string }).exerciseId === "")
+   357→        ? ({ ...action, exerciseId } as CardAction)
+   358→        : action;
+   359→    onAction(a, entryIndex);
+   360→  };
+   361→
+   362→  return (
+   363→    <article
+   364→      className={cn("flex overflow-hidden rounded-lg border bg-card", className)}
+   365→      aria-label={group.label ? `${group.label} ${group.code}` : (entries[0]?.exercise.name ?? "Group")}
+   366→    >
+   367→      <div aria-hidden className="w-1 flex-none" style={{ backgroundColor: barColour }} />
+   368→      <div className="min-w-0 flex-1 py-1">
+   369→        {entries.map((entry, i) => {
+   370→          const fields = fieldsForType(entry.exercise.modality) as Array<"weight" | "reps" | "distance" | "timeSec">;
+   371→          const e = entry.exercise;
+   372→          const collapsed = layoutMode === "log" && entry.collapsed;
+   373→          const doneCount = entry.sets.filter((s) => s.done).length;
+   374→          const menuForEntry = menu.map((item) => ({
+   375→            ...item,
+   376→            action:
+   377→              "exerciseId" in item.action && (item.action as { exerciseId?: string }).exerciseId === ""
+   378→                ? ({ ...item.action, exerciseId: e.id } as CardAction)
+   379→                : item.action,
+   380→          }));
+   381→          return (
+   382→            <div key={e.id} className={cn("min-w-0", i > 0 && "mt-3")}>
+   383→              {/* 32px code row */}
+   384→              <div {...tourAttrs({ id: "groupCard.code", label: "Series code", help: "Group letter and position, e.g. A1.", order: 100 })} className={CODE_ROW}>
+   385→                <span className="text-xs font-bold tabular-nums leading-none text-muted-foreground">{entry.code || group.code}</span>
+   386→                {group.label ? (
+   387→                  <span className="ml-auto text-xs leading-none text-muted-foreground">
+   388→                    <Term id={group.label as "Superset" | "Triset" | "Giant set"}>{group.label}</Term>
+   389→                  </span>
+   390→                ) : null}
+   391→              </div>
+   392→
+   393→              {/* 40px name row — §3.3 overview: tappable (§3.4 jump-to-exercise:
+   394→                  focus jumps to this exercise's first unlogged set); the ⋯ menu
+   395→                  span stops propagation so it stays its own target. */}
+   396→              <div
+   397→                {...tourAttrs({ id: "groupCard.name", label: "Exercise name", help: "Exercise name; long-press options via the menu.", order: 110 })}
+   398→                className={cn(
+   399→                  NAME_ROW,
+   400→                  overview?.onJumpEntry && "cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+   401→                )}
+   402→                role={overview?.onJumpEntry ? "button" : undefined}
+   403→                tabIndex={overview?.onJumpEntry ? 0 : undefined}
+   404→                aria-label={overview?.onJumpEntry ? `Focus ${e.name} — jump to its next set` : undefined}
+   405→                onClick={overview?.onJumpEntry ? () => overview.onJumpEntry?.(i) : undefined}
+   406→                onKeyDown={
+   407→                  overview?.onJumpEntry
+   408→                    ? (ev) => {
+   409→                        if (ev.key === "Enter" || ev.key === " ") {
+   410→                          ev.preventDefault();
+   411→                          overview.onJumpEntry?.(i);
+   412→                        }
+   413→                      }
+   414→                    : undefined
+   415→                }
+   416→              >
+   417→                <h3 className="min-w-0 flex-1 truncate text-base font-semibold leading-none">{e.name}</h3>
+   418→                {entry.note != null ? (
+   419→                  <span className="flex flex-none items-center gap-1 text-xs leading-none text-muted-foreground" aria-label="Has a note">
+   420→                    <StickyNote className="h-3.5 w-3.5" aria-hidden />
+   421→                  </span>
+   422→                ) : null}
+   423→                {e.progressionDelta != null && e.progressionDelta !== 0 ? (
+   424→                  <span className="flex-none text-xs font-medium leading-none text-primary">
+   425→                    {e.progressionDeload ? "↓ deload" : `↑ +${trimNum(e.progressionDelta)} next`}
+   426→                  </span>
+   427→                ) : null}
+   428→                {collapsed || overview ? (
+   429→                  <span className="flex-none text-xs tabular-nums leading-none text-muted-foreground">{doneCount}/{entry.sets.length}</span>
+   430→                ) : null}
+   431→                {hasActions && menuForEntry.length > 0 ? (
+   432→                  <span className="flex flex-none" onClick={(ev) => ev.stopPropagation()}>
+   433→                    <DropdownMenu>
+   434→                      <DropdownMenuTrigger asChild>
+   435→                        <Button
+   436→                          type="button"
+   437→                          variant="ghost"
+   438→                          tour={{ id: "groupCard.menu", label: "Options", help: "Detail, history, graph, records, notes, replace or remove.", order: 120 }}
+   439→                          className="h-11 w-11 p-0"
+   440→                          aria-label={`Options for ${e.name}`}
+   441→                        >
+   442→                          <MoreVertical className="h-5 w-5" aria-hidden />
+   443→                        </Button>
+   444→                      </DropdownMenuTrigger>
+   445→                      <DropdownMenuContent align="end" className="w-44">
+   446→                        {menuForEntry.map((item) => (
+   447→                          <DropdownMenuItem
+   448→                            key={item.label}
+   449→                            onClick={() => dispatch(item.action, i)}
+   450→                            className={item.destructive ? "text-destructive focus:text-destructive" : undefined}
+   451→                          >
+   452→                            <item.icon className="h-4 w-4" aria-hidden />
+   453→                            {item.label}
+   454→                          </DropdownMenuItem>
+   455→                        ))}
+   456→                      </DropdownMenuContent>
+   457→                    </DropdownMenu>
+   458→                  </span>
+   459→                ) : null}
+   460→              </div>
+   461→
+   462→              {/* 📝 note row (§5.4) — 32px single line under the header; tap
+   463→                  expands the full text (prose block, exempt from nowrap). */}
+   464→              {entry.note ? (
+   465→                <>
+   466→                  <button
+   467→                    type="button"
+   468→                    {...tourAttrs({ id: "groupCard.note", label: "Note", help: "Your coaching note for this exercise; tap to expand.", order: 120 })}
+   469→                    aria-expanded={noteOpen === e.id}
+   470→                    aria-label={`Note for ${e.name}`}
+   471→                    onClick={() => setNoteOpen((cur) => (cur === e.id ? null : e.id))}
+   472→                    className={cn(NOTE_ROW, "w-full gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground")}
+   473→                  >
+   474→                    <StickyNote className="h-3.5 w-3.5 flex-none text-primary" aria-hidden />
+   475→                    <span className="truncate">{noteOpen === e.id ? "Hide note" : "Note"}</span>
+   476→                    <span className="min-w-0 flex-1 truncate text-muted-foreground/70">{entry.note}</span>
+   477→                    <ChevronDown className={cn("h-3.5 w-3.5 flex-none text-muted-foreground/60 transition-transform", noteOpen !== e.id && "-rotate-90")} aria-hidden />
+   478→                  </button>
+   479→                  {noteOpen === e.id ? (
+   480→                    <p className="mx-3 mb-1 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+   481→                      {entry.note}
+   482→                    </p>
+   483→                  ) : null}
+   484→                </>
+   485→              ) : null}
+   486→
+   487→              {/* 💡 trainer tip toggle (edit mode: drag handle replaces it) */}
+   488→              {mode === "edit" && entry.dragHandle != null ? (
+   489→                <div className="flex h-8 items-center px-3">{entry.dragHandle}</div>
+   490→              ) : entry.tip ? (
+   491→                <>
+   492→                  <button
+   493→                    type="button"
+   494→                    {...tourAttrs({ id: "groupCard.tip", label: "Trainer tip", help: "Expand this exercise's trainer tip.", order: 130 })}
+   495→                    aria-expanded={tipOpen === e.id}
+   496→                    aria-label={`Trainer tip for ${e.name}`}
+   497→                    onClick={() => setTipOpen((cur) => (cur === e.id ? null : e.id))}
+   498→                    className={cn(TEMPO_ROW, "w-full gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground")}
+   499→                  >
+   500→                    <Lightbulb className="h-4 w-4 flex-none text-amber-500" aria-hidden />
+   501→                    <span className="truncate">{tipOpen === e.id ? "Hide tip" : "Trainer tip"}</span>
+   502→                  </button>
+   503→                  {tipOpen === e.id ? (
+   504→                    <p className="mx-3 mb-1 line-clamp-3 rounded-md bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground transition-all duration-150">
+   505→                      {entry.tip}
+   506→                    </p>
+   507→                  ) : null}
+   508→                </>
+   509→              ) : null}
+   510→
+   511→              {/* mode bodies (§4.5: a consumer editor node replaces the
+   512→                  default reps/tempo/rest block — the builder's editor rows) */}
+   513→              {(mode === "view" || mode === "edit") && !collapsed ? (
+   514→                entry.editor != null ? (
+   515→                  entry.editor
+   516→                ) : (
+   517→                <>
+   518→                  <div {...tourAttrs({ id: "groupCard.reps", label: "Reps row", help: "Planned reps per set; ↺ copies last time, % is 1RM-based.", order: 140 })} className={REPS_ROW}>
+   519→                    <span className="flex-none text-xs font-medium text-muted-foreground">Reps:</span>
+   520→                    <span className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-sm font-medium tabular-nums leading-none">
+   521→                      {entry.sets.map((s) => (
+   522→                        <span key={s.id} className="flex-none whitespace-nowrap">
+   523→                          {s.setType === "AMRAP" ? (
+   524→                            <Term id="AMRAP" className="tabular-nums">{repsCellText(s, fields)}</Term>
+   525→                          ) : (
+   526→                            repsCellText(s, fields)
+   527→                          )}
+   528→                        </span>
+   529→                      ))}
+   530→                      {entry.sets.length === 0 ? <span className="text-muted-foreground">–</span> : null}
+   531→                    </span>
+   532→                  </div>
+   533→                  {anyTempo ? (
+   534→                    <div {...tourAttrs({ id: "groupCard.tempo", label: "Tempo row", help: "Planned tempo, e.g. 4/0/1/0 — eccentric, pause, concentric, pause.", order: 150 })} className={TEMPO_ROW}>
+   535→                      <Term id="Tempo" className="flex-none text-xs font-medium text-muted-foreground"><span className="text-xs font-medium text-muted-foreground">Tempo:</span></Term>
+   536→                      <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
+   537→                        {entry.sets.find((s) => s.tempo)?.tempo?.replace(/-/g, "/") ?? "–"}
+   538→                      </span>
+   539→                    </div>
+   540→                  ) : null}
+   541→                  {anyRest ? (
+   542→                    <button
+   543→                      type="button"
+   544→                      {...tourAttrs({ id: "groupCard.rest", label: "Rest row", help: "Planned rest between sets; tap to expand per-set seconds.", order: 160 })}
+   545→                      onClick={() => onToggleRest?.()}
+   546→                      aria-expanded={restExpanded}
+   547→                      className={cn(REST_ROW, "w-full gap-2 text-left")}
+   548→                    >
+   549→                      <Timer className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+   550→                      {entry.restNone ? (
+   551→                        <span className="truncate text-sm leading-none text-muted-foreground">Rest: none</span>
+   552→                      ) : restExpanded ? (
+   553→                        <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
+   554→                          {entry.sets.length}× · Rest sec: {entry.sets.map((s) => s.restPlannedSec ?? "–").join(" ")}
+   555→                        </span>
+   556→                      ) : (
+   557→                        <span className="text-sm leading-none text-muted-foreground">Rest {entry.sets[0]?.restPlannedSec ?? "–"}s</span>
+   558→                      )}
+   559→                      <ChevronDown className={cn("ml-auto h-4 w-4 flex-none text-muted-foreground transition-transform", !restExpanded && "-rotate-90")} aria-hidden />
+   560→                    </button>
+   561→                  ) : null}
+   562→                </>
+   563→                )
+   564→              ) : null}
+   565→
+   566→              {(mode === "read" || isLegacyRows) && mode !== "summary" ? (
+   567→                <div className="px-1 pb-1">
+   568→                  {entry.sets.map((s) => (
+   569→                    <SetRow key={s.id} mode={mode} exercise={e} set={s} visibleColumns={effectiveCols(e, visibleColumns)} />
+   570→                  ))}
+   571→                </div>
+   572→              ) : null}
+   573→
+   574→              {(mode === "log" || mode === "template" || mode === "edit-legacy") && !collapsed ? (
+   575→                <div className="px-1">
+   576→                  {overview ? (
+   577→                    /* §3.3 Overview: the compact Set|Type|Reps|Weight|Rest table
+   578→                       replaces the SetRow inputs + add-set (jump taps only). */
+   579→                    <OverviewSetTable
+   580→                      entry={entry}
+   581→                      unit={e.unit}
+   582→                      focusSetId={overview.focusSetId}
+   583→                      onJumpSet={overview.onJumpSet}
+   584→                    />
+   585→                  ) : (
+   586→                    <>
+   587→                      {anyTempo ? (
+   588→                        <div className={cn(TEMPO_ROW, "px-2")}>
+   589→                          <span className="flex-none text-xs font-medium text-muted-foreground">Tempo:</span>
+   590→                          <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
+   591→                            {entry.sets.find((s) => s.tempo)?.tempo?.replace(/-/g, "/") ?? "–"}
+   592→                          </span>
+   593→                        </div>
+   594→                      ) : null}
+   595→                      {entry.sets.map((s) => (
+   596→                        <SetRow
+   597→                          key={s.id}
+   598→                          mode={mode === "log" ? "log" : mode}
+   599→                          exercise={e}
+   600→                          set={s}
+   601→                          visibleColumns={effectiveCols(e, visibleColumns)}
+   602→                          current={entry.currentSetIndex === s.index - 1}
+   603→                          onAction={onAction != null ? (a) => dispatch(a, i) : undefined}
+   604→                        />
+   605→                      ))}
+   606→                      {hasActions ? (
+   607→                        <button
+   608→                          type="button"
+   609→                          data-row
+   610→                          {...tourAttrs({ id: "groupCard.addSet", label: "Add set", help: "Append another set to this exercise.", order: 170 })}
+   611→                          aria-label={`Add set to ${e.name}`}
+   612→                          className={cn(rowBase, "w-full gap-2 px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50")}
+   613→                          onClick={() => dispatch({ type: "add-set" }, i)}
+   614→                        >
+   615→                          <Plus className="h-4 w-4" aria-hidden />
+   616→                          Add set
+   617→                        </button>
+   618→                      ) : null}
+   619→                    </>
+   620→                  )}
+   621→                </div>
+   622→              ) : null}
+   623→
+   624→              {/* log mode collapsed tap target */}
+   625→              {layoutMode === "log" && collapsed && hasActions ? (
+   626→                <button
+   627→                  type="button"
+   628→                  {...tourAttrs({ id: "groupCard.expand", label: "Expand", help: "Show this exercise's sets.", order: 180 })}
+   629→                  aria-label={`Expand ${e.name}`}
+   630→                  className={cn(REST_ROW, "w-full px-3 text-left text-sm font-medium text-muted-foreground")}
+   631→                  onClick={() => dispatch({ type: "toggle-collapse" }, i)}
+   632→                >
+   633→                  <ChevronDown className="h-4 w-4 -rotate-90" aria-hidden />
+   634→                  Expand sets
+   635→                </button>
+   636→              ) : null}
+   637→
+   638→              {/* §8 per-entry footer — consumer-owned rows (performed data) */}
+   639→              {entry.footer != null ? <div className="mt-1">{entry.footer}</div> : null}
+   640→            </div>
+   641→          );
+   642→        })}
+   643→      </div>
+   644→    </article>
+   645→  );
+   646→}
+   647→
+   648→// ---------- helpers ----------
+   649→
+   650→function effectiveCols(exercise: CardExercise, global?: CardVisibleColumns): CardVisibleColumns {
+   651→  const base: CardVisibleColumns = global ?? { setType: true, rpe: true, tempo: true, rest: true };
+   652→  return {
+   653→    setType: base.setType,
+   654→    rpe: exercise.showRpe == null ? base.rpe : exercise.showRpe,
+   655→    tempo: exercise.showTempo == null ? base.tempo : exercise.showTempo,
+   656→    rest: exercise.showRest == null ? base.rest : exercise.showRest,
+   657→  };
+   658→}
+   659→
+   660→// ---------- GroupCardStack: groups + the between-groups divider (§2.2) ----------
+   661→
+   662→function divideChildren(children: ReactNode): ReactNode[] {
+   663→  const items = Children.toArray(children).filter(isValidElement);
+   664→  return items.map((child, i) => (
+   665→    <div key={child.key ?? String(i)} className="flex flex-col gap-4">
+   666→      {i > 0 ? <div aria-hidden className="h-px flex-none bg-muted/30" /> : null}
+   667→      {child}
+   668→    </div>
+   669→  ));
+   670→}
+   671→
+   672→/** 16px gap + 1px faded (30% muted) divider BETWEEN groups; none after last. */
+   673→export function GroupCardStack({ children, className }: { children: ReactNode; className?: string }) {
+   674→  return <div className={cn("flex flex-col gap-4", className)}>{divideChildren(children)}</div>;
+   675→}
+   676→
+   677→
+   678→// ---------- SoloCard: single-exercise shorthand (migration + singleton groups) ----------
+   679→
+   680→export interface SoloCardProps {
+   681→  mode: CardMode;
+   682→  exercise: CardExercise;
+   683→  sets: CardSet[];
+   684→  collapsed?: boolean;
+   685→  visibleColumns?: CardVisibleColumns;
+   686→  onAction?: (action: CardAction) => void;
+   687→  className?: string;
+   688→  /** ---- legacy GroupCard props (migration bridge; best-effort rendering) ---- */
+   689→  groupColour?: string;
+   690→  groupName?: string;
+   691→  groupCode?: string;
+   692→  hideHeader?: boolean;
+   693→  headerLeading?: ReactNode;
+   694→  metaExtra?: ReactNode;
+   695→  underHeader?: ReactNode;
+   696→  tempoPresets?: string[];
+   697→}
+   698→
+   699→/**
+   700→ * A GroupCard for one exercise (its own group of 1) — the migration bridge
+   701→ * for screens that render a single exercise and the canonical way to render
+   702→ * any ungrouped exercise. Legacy GroupCard props are accepted so the
+   703→ * Part 3 → Part 8 screen migration is a rename.
+   704→ */
+   705→export function SoloCard({
+   706→  mode,
+   707→  exercise,
+   708→  sets,
+   709→  collapsed,
+   710→  visibleColumns,
+   711→  onAction,
+   712→  className,
+   713→  groupColour,
+   714→  groupCode,
+   715→  underHeader,
+   716→}: SoloCardProps) {
+   717→  return (
+   718→    <GroupCard
+   719→      mode={mode}
+   720→      group={{ code: groupCode ?? "", label: "", colour: groupColour ?? exercise.categoryColour }}
+   721→      entries={[{ exercise, sets, code: groupCode ?? "", collapsed }]}
+   722→      onAction={onAction != null ? (a) => onAction(a) : undefined}
+   723→      visibleColumns={visibleColumns}
+   724→      className={className}
+   725→    />
+   726→  );
+   727→}
+   728→

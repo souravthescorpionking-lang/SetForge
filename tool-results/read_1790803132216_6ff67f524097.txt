@@ -1,0 +1,526 @@
+   530→   530→    try {
+   531→   531→      if (navigator.share) {
+   532→   532→        await navigator.share({ title: "SetForge session", text });
+   533→   533→      } else {
+   534→   534→        await navigator.clipboard.writeText(text);
+   535→   535→        toast.success("Session copied to clipboard");
+   536→   536→      }
+   537→   537→    } catch (e) {
+   538→   538→      if (e instanceof Error && e.name === "AbortError") return; // user dismissed the sheet
+   539→   539→      try {
+   540→   540→        await navigator.clipboard.writeText(text);
+   541→   541→        toast.success("Session copied to clipboard");
+   542→   542→      } catch {
+   543→   543→        toast.error("Could not share this session");
+   544→   544→      }
+   545→   545→    }
+   546→   546→  };
+   547→   547→
+   548→   548→  const deleteSession = async () => {
+   549→   549→    if (!workout) return;
+   550→   550→    const { id } = workout;
+   551→   551→    const fromKey = dayKey;
+   552→   552→    try {
+   553→   553→      await workoutsApi.remove(id);
+   554→   554→      invalidate.workout(fromKey);
+   555→   555→      toast.success("Session deleted", {
+   556→   556→        duration: 10_000,
+   557→   557→        action: {
+   558→   558→          label: "Undo",
+   559→   559→          onClick: () =>
+   560→   560→            void (async () => {
+   561→   561→              try {
+   562→   562→                await workoutLifecycleApi.restore(id);
+   563→   563→                invalidate.workout(fromKey);
+   564→   564→                toast.success("Session restored");
+   565→   565→              } catch (e) {
+   566→   566→                toast.error(errorMessage(e));
+   567→   567→              }
+   568→   568→            })(),
+   569→   569→        },
+   570→   570→      });
+   571→   571→      navigate("/logs");
+   572→   572→    } catch (e) {
+   573→   573→      toast.error(errorMessage(e));
+   574→   574→    }
+   575→   575→  };
+   576→   576→
+   577→   577→  const repeatSession = async () => {
+   578→   578→    if (!workout) return;
+   579→   579→    // today's live session — nothing to copy, just continue logging it
+   580→   580→    if (isLive) {
+   581→   581→      navigate("/session");
+   582→   582→      return;
+   583→   583→    }
+   584→   584→    const sourceKey = dayKey;
+   585→   585→    setRepeating(true);
+   586→   586→    try {
+   587→   587→      const target = await workoutsApi.createOrGet(todayKey());
+   588→   588→      await workoutsApi.copy(target.id, { fromDate: sourceKey });
+   589→   589→      invalidate.workout(todayKey());
+   590→   590→      invalidate.dashboard();
+   591→   591→      toast.success("Session repeated to today");
+   592→   592→      navigate("/session");
+   593→   593→    } catch (e) {
+   594→   594→      toast.error(errorMessage(e));
+   595→   595→    } finally {
+   596→   596→      setRepeating(false);
+   597→   597→    }
+   598→   598→  };
+   599→   599→
+   600→   600→  // ---------- per-exercise … menu dispatch ----------
+   601→   601→  const handleGroupAction =
+   602→   602→    (members: WorkoutExerciseDTO[]) =>
+   603→   603→    (action: CardAction, entryIndex: number): void => {
+   604→   604→      const we = members[entryIndex];
+   605→   605→      switch (action.type) {
+   606→   606→        case "replace": // §8 log-scoped replace — writes workoutsApi.updateExercise
+   607→   607→          if (we) openReplace(we);
+   608→   608→          break;
+   609→   609→        case "history":
+   610→   610→          if (we) openEditHistory(we);
+   611→   611→          break;
+   612→   612→        case "detail":
+   613→   613→          if (we) navigate(`/exercise-overview/${we.exerciseId}`);
+   614→   614→          break;
+   615→   615→        default:
+   616→   616→          break; // performed mode emits only the §8 … navigations
+   617→   617→      }
+   618→   618→    };
+   619→   619→
+   620→   620→  // ---------- render ----------
+   621→   621→  const notFound = workoutQuery.error instanceof ApiError && workoutQuery.error.status === 404;
+   622→   622→
+   623→   623→  return (
+   624→   624→    <Screen
+   625→   625→      topBar={
+   626→   626→        <TopBar
+   627→   627→          leading={<BackButton fallbackHash="#/logs" label="Back to Logs" />}
+   628→   628→          title={workout ? logName : "Log detail"}
+   629→   629→          actions={
+   630→   630→            workout ? (
+   631→   631→              <DropdownMenu>
+   632→   632→                <DropdownMenuTrigger asChild>
+   633→   633→                  <Button
+   634→   634→                    type="button"
+   635→   635→                    variant="ghost"
+   636→   636→                    size="icon"
+   637→   637→                    className="h-11 w-11 flex-none"
+   638→   638→                    aria-label="Session actions"
+   639→   639→                    tour={{ id: "logDetail.menu", label: "Menu", help: "Rearrange, replace, notes, save as session, move, share or delete.", order: 10 }}
+   640→   640→                  >
+   641→   641→                    <MoreVertical className="h-5 w-5" aria-hidden />
+   642→   642→                  </Button>
+   643→   643→                </DropdownMenuTrigger>
+   644→   644→                <DropdownMenuContent align="end" className="w-56">
+   645→   645→                  {isLive ? (
+   646→   646→                    <DropdownMenuItem onClick={() => navigate("/session")}>
+   647→   647→                      <PencilRuler className="h-4 w-4" aria-hidden /> Edit sets
+   648→   648→                    </DropdownMenuItem>
+   649→   649→                  ) : null}
+   650→   650→                  <DropdownMenuItem disabled={!online || savingSession} onClick={() => void saveAsSession()}>
+   651→   651→                    <BookmarkPlus className="h-4 w-4" aria-hidden /> Save as session
+   652→   652→                  </DropdownMenuItem>
+   653→   653→                  <DropdownMenuItem disabled={isRemoved} onClick={() => setMoveOpen(true)}>
+   654→   654→                    <ArrowRightLeft className="h-4 w-4" aria-hidden /> Move date
+   655→   655→                  </DropdownMenuItem>
+   656→   656→                  <DropdownMenuItem
+   657→   657→                    disabled={isRemoved || !online || exercises.length === 0}
+   658→   658→                    {...tourAttrs({ id: "logDetail.replace", label: "Replace exercise", help: "Swap an exercise inside this log; its sets are kept.", order: 60 })}
+   659→   659→                    onClick={() => openReplace(null)}
+   660→   660→                  >
+   661→   661→                    <Replace className="h-4 w-4" aria-hidden /> Replace exercise…
+   662→   662→                  </DropdownMenuItem>
+   663→   663→                  <DropdownMenuItem
+   664→   664→                    disabled={isRemoved || !online}
+   665→   665→                    {...tourAttrs({ id: "logDetail.rearrange", label: "Rearrange", help: "Reorder this log's exercises in the arrange editor.", order: 50 })}
+   666→   666→                    onClick={() => navigate(`/session/arrange?date=${dayKey}`)}
+   667→   667→                  >
+   668→   668→                    <ArrowDownUp className="h-4 w-4" aria-hidden /> Rearrange
+   669→   669→                  </DropdownMenuItem>
+   670→   670→                  <DropdownMenuItem
+   671→   671→                    disabled={isRemoved || !online}
+   672→   672→                    {...tourAttrs({ id: "logDetail.notes", label: "Notes", help: "Read or edit the note saved on this log.", order: 70 })}
+   673→   673→                    onClick={openNoteEditor}
+   674→   674→                  >
+   675→   675→                    <MessageSquareText className="h-4 w-4" aria-hidden /> Notes
+   676→   676→                  </DropdownMenuItem>
+   677→   677→                  <DropdownMenuItem onClick={() => void shareSession()}>
+   678→   678→                    <Share2 className="h-4 w-4" aria-hidden /> Share
+   679→   679→                  </DropdownMenuItem>
+   680→   680→                  <DropdownMenuItem
+   681→   681→                    className="text-destructive focus:text-destructive"
+   682→   682→                    onClick={() => {
+   683→   683→                      hapticWarning();
+   684→   684→                      setDeleteOpen(true);
+   685→   685→                    }}
+   686→   686→                  >
+   687→   687→                    <Trash2 className="h-4 w-4" aria-hidden /> Delete
+   688→   688→                  </DropdownMenuItem>
+   689→   689→                </DropdownMenuContent>
+   690→   690→              </DropdownMenu>
+   691→   691→            ) : null
+   692→   692→          }
+   693→   693→        />
+   694→   694→      }
+   695→   695→      bottomBar={
+   696→   696→        noteEditorOpen ? (
+   697→   697→          <BottomBar>
+   698→   698→            <div className="flex w-full gap-2">
+   699→   699→              <Button
+   700→   700→                type="button"
+   701→   701→                variant="outline"
+   702→   702→                className="h-11 min-w-0 flex-1 text-sm font-semibold"
+   703→   703→                disabled={noteBusy}
+   704→   704→                tour={{ skipTour: true, reason: "Dismissal-only secondary control of the note editor" }}
+   705→   705→                onClick={() => setNoteEditorOpen(false)}
+   706→   706→              >
+   707→   707→                Cancel
+   708→   708→              </Button>
+   709→   709→              <Button
+   710→   710→                type="button"
+   711→   711→                className="h-11 min-w-0 flex-1 text-sm font-bold"
+   712→   712→                disabled={noteBusy || !online}
+   713→   713→                aria-label="Save the session note"
+   714→   714→                tour={{ id: "logDetail.noteSave", label: "Save note", help: "Store this note on the log itself.", order: 120 }}
+   715→   715→                onClick={() => void saveNote()}
+   716→   716→              >
+   717→   717→                {noteBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+   718→   718→                Save note
+   719→   719→              </Button>
+   720→   720→            </div>
+   721→   721→          </BottomBar>
+   722→   722→        ) : replaceOpen ? (
+   723→   723→          <BottomBar>
+   724→   724→            <div className="flex w-full gap-2">
+   725→   725→              <Button
+   726→   726→                type="button"
+   727→   727→                variant="outline"
+   728→   728→                className="h-11 min-w-0 flex-1 text-sm font-semibold"
+   729→   729→                disabled={replaceBusy}
+   730→   730→                tour={{ skipTour: true, reason: "Dismissal-only secondary control of the replace flow" }}
+   731→   731→                onClick={closeReplace}
+   732→   732→              >
+   733→   733→                Cancel
+   734→   734→              </Button>
+   735→   735→              <Button
+   736→   736→                type="button"
+   737→   737→                className="h-11 min-w-0 flex-1 text-sm font-bold"
+   738→   738→                disabled={replaceBusy || replaceSelection == null || !online}
+   739→   739→                aria-label="Replace the exercise in this log"
+   740→   740→                tour={{ id: "logDetail.replaceApply", label: "Replace", help: "Swap the exercise in this log; its sets are kept.", order: 110 }}
+   741→   741→                onClick={() => void applyReplace()}
+   742→   742→              >
+   743→   743→                {replaceBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+   744→   744→                {replaceSelection ? `Replace with ${replaceSelection.name}` : "Replace exercise"}
+   745→   745→              </Button>
+   746→   746→            </div>
+   747→   747→          </BottomBar>
+   748→   748→        ) : workout ? (
+   749→   749→          <BottomBar>
+   750→   750→            <Button
+   751→   751→              type="button"
+   752→   752→              className="h-11 min-w-0 flex-1 gap-1.5 text-sm font-bold"
+   753→   753→              disabled={repeating || !online || isRemoved}
+   754→   754→              aria-label="Repeat this session"
+   755→   755→              tour={{ id: "logDetail.repeat", label: "Repeat session", help: "Copy this session's exercises and sets into today.", order: 20 }}
+   756→   756→              onClick={() => void repeatSession()}
+   757→   757→            >
+   758→   758→              <Repeat2 className="h-4 w-4" aria-hidden />
+   759→   759→              {repeating ? "Repeating…" : "Repeat this session"}
+   760→   760→            </Button>
+   761→   761→          </BottomBar>
+   762→   762→        ) : null
+   763→   763→      }
+   764→   764→    >
+   765→   765→      <ScrollBody>
+   766→   766→        {workoutQuery.isLoading ? (
+   767→   767→          <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading session">
+   768→   768→            <Skeleton className="h-24 rounded-lg" />
+   769→   769→            <Skeleton className="h-40 rounded-lg" />
+   770→   770→            <Skeleton className="h-40 rounded-lg" />
+   771→   771→          </div>
+   772→   772→        ) : workoutQuery.error ? (
+   773→   773→          <div
+   774→   774→            data-row
+   775→   775→            role="alert"
+   776→   776→            className={`${rowTall} gap-2 rounded-lg border border-destructive/40 bg-card px-4 text-sm text-destructive`}
+   777→   777→          >
+   778→   778→            <TriangleAlert className="h-4 w-4 flex-none" aria-hidden />
+   779→   779→            <span className="min-w-0 flex-1 truncate">
+   780→   780→              {notFound ? "This session doesn’t exist (or belongs to another account)." : errorMessage(workoutQuery.error)}
+   781→   781→            </span>
+   782→   782→            {notFound ? (
+   783→   783→              <Button
+   784→   784→                type="button"
+   785→   785→                variant="outline"
+   786→   786→                className="h-8 flex-none px-3 text-xs font-semibold"
+   787→   787→                aria-label="Back to Logs"
+   788→   788→                tour={{ id: "logDetail.backToLogs", label: "Back to logs", help: "Return to the workout logs list.", order: 40 }}
+   789→   789→                onClick={() => navigate("/logs")}
+   790→   790→              >
+   791→   791→                Back to logs
+   792→   792→              </Button>
+   793→   793→            ) : (
+   794→   794→              <button
+   795→   795→                type="button"
+   796→   796→                {...tourAttrs({ id: "logDetail.retry", label: "Retry", help: "Reload this logged session.", order: 30 })}
+   797→   797→                aria-label="Try again"
+   798→   798→                onClick={() => void workoutQuery.refetch()}
+   799→   799→                className="flex h-8 w-8 flex-none items-center justify-center rounded-md transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+   800→   800→              >
+   801→   801→                <RotateCw className="h-4 w-4" aria-hidden />
+   802→   802→              </button>
+   803→   803→            )}
+   804→   804→          </div>
+   805→   805→        ) : workout ? (
+   806→   806→          <div className="flex flex-col gap-4">
+   807→   807→            {isRemoved ? (
+   808→   808→              <div
+   809→   809→                data-row
+   810→   810→                className={`${rowTall} gap-2 rounded-lg border border-amber-500/40 bg-card px-3 text-sm text-amber-500`}
+   811→   811→              >
+   812→   812→                <TriangleAlert className="h-4 w-4 flex-none" aria-hidden />
+   813→   813→                <span className="min-w-0 flex-1 truncate">
+   814→   814→                  This session was removed — restore it from Settings → Hidden workouts.
+   815→   815→                </span>
+   816→   816→              </div>
+   817→   817→            ) : null}
+   818→   818→
+   819→   819→            {/* §8 header — start time · duration · difficulty · sourceLabel · muscles */}
+   820→   820→            <div className="flex flex-col gap-2">
+   821→   821→              <div data-row className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap">
+   822→   822→                <span className="flex-none text-sm font-semibold leading-none">
+   823→   823→                  {startedAtLabel(workout.startAt, formatDayLabel(dayKey))}
+   824→   824→                </span>
+   825→   825→                <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
+   826→   826→                <span className="flex-none text-xs leading-none tabular-nums text-muted-foreground">
+   827→   827→                  {formatDurationParts(durationSec)}
+   828→   828→                </span>
+   829→   829→              </div>
+   830→   830→              <div data-row className="flex h-8 w-full items-center gap-2 overflow-hidden whitespace-nowrap">
+   831→   831→                {workout.difficulty ? (
+   832→   832→                  <span
+   833→   833→                    aria-label={`Difficulty ${workout.difficulty.toLowerCase()}`}
+   834→   834→                    className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/10 px-2 text-[10px] font-bold uppercase leading-none text-primary"
+   835→   835→                  >
+   836→   836→                    {workout.difficulty}
+   837→   837→                  </span>
+   838→   838→                ) : null}
+   839→   839→                {workout.sourceLabel ? (
+   840→   840→                  <span className="min-w-0 flex-1 truncate text-xs leading-none text-muted-foreground">
+   841→   841→                    {workout.sourceLabel}
+   842→   842→                  </span>
+   843→   843→                ) : (
+   844→   844→                  <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
+   845→   845→                )}
+   846→   846→                {stats ? (
+   847→   847→                  <span className="flex-none text-xs leading-none tabular-nums text-muted-foreground">
+   848→   848→                    {stats.setCount} {stats.setCount === 1 ? "set" : "sets"}
+   849→   849→                    {stats.volume > 0
+   850→   850→                      ? ` · ${Math.round(stats.volume).toLocaleString()} kg`
+   851→   851→                      : stats.distance > 0
+   852→   852→                        ? ` · ${round2(stats.distance)} km`
+   853→   853→                        : ""}
+   854→   854→                  </span>
+   855→   855→                ) : null}
+   856→   856→              </div>
+   857→   857→              {muscles.length > 0 ? <MuscleChipRow muscles={muscles} /> : null}
+   858→   858→            </div>
+   859→   859→
+   860→   860→            {/* log-scoped replace flow (inline) */}
+   861→   861→            {replaceOpen ? (
+   862→   862→              <div className="flex flex-col gap-2 rounded-lg border bg-card p-2">
+   863→   863→                {replaceTarget == null ? (
+   864→   864→                  <>
+   865→   865→                    <SectionHeader label="Replace in this log" />
+   866→   866→                    {exercises.map((we) => (
+   867→   867→                      <button
+   868→   868→                        key={we.id}
+   869→   869→                        type="button"
+   870→   870→                        data-row
+   871→   871→                        {...tourAttrs({ id: "logDetail.replaceRow", label: "Exercise row", help: "Pick which exercise of this log to replace.", order: 80 })}
+   872→   872→                        aria-label={`Replace ${we.exercise.name} in this log`}
+   873→   873→                        onClick={() => {
+   874→   874→                          setReplaceTarget(we);
+   875→   875→                          setReplaceSelection(null);
+   876→   876→                        }}
+   877→   877→                        className="flex h-14 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+   878→   878→                      >
+   879→   879→                        <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">
+   880→   880→                          {we.exercise.name}
+   881→   881→                        </span>
+   882→   882→                        <span className="flex-none text-xs leading-none text-muted-foreground">
+   883→   883→                          {we.sets.length} {we.sets.length === 1 ? "set" : "sets"}
+   884→   884→                        </span>
+   885→   885→                        <ChevronRight className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
+   886→   886→                      </button>
+   887→   887→                    ))}
+   888→   888→                  </>
+   889→   889→                ) : suggestionsQuery.isLoading ? (
+   890→   890→                  <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading replacement suggestions">
+   891→   891→                    {[0, 1, 2].map((i) => (
+   892→   892→                      <Skeleton key={i} className="h-14 rounded-lg" />
+   893→   893→                    ))}
+   894→   894→                  </div>
+   895→   895→                ) : suggestionsQuery.error ? (
+   896→   896→                  <div data-row role="alert" className={`${rowTall} gap-2 px-2 text-sm text-destructive`}>
+   897→   897→                    <TriangleAlert className="h-4 w-4 flex-none" aria-hidden />
+   898→   898→                    <span className="min-w-0 flex-1 truncate">{errorMessage(suggestionsQuery.error)}</span>
+   899→   899→                  </div>
+   900→   900→                ) : (
+   901→   901→                  <>
+   902→   902→                    <SectionHeader label={`Replace ${replaceTarget.exercise.name} with`} />
+   903→   903→                    {(suggestionsQuery.data?.suggestions ?? []).length === 0 ? (
+   904→   904→                      <p className="px-1 py-2 text-sm text-muted-foreground">
+   905→   905→                        No suggestions — this exercise has no alternatives yet.
+   906→   906→                      </p>
+   907→   907→                    ) : (
+   908→   908→                      (suggestionsQuery.data?.suggestions ?? []).map((s) => {
+   909→   909→                        const selected = replaceSelection?.id === s.id;
+   910→   910→                        const musclesText = (s.primaryMuscles ?? []).map(muscleLabel).slice(0, 3).join(" · ");
+   911→   911→                        return (
+   912→   912→                          <button
+   913→   913→                            key={s.id}
+   914→   914→                            type="button"
+   915→   915→                            data-row
+   916→   916→                            role="radio"
+   917→   917→                            aria-checked={selected}
+   918→   918→                            {...tourAttrs({ id: "logDetail.replaceSuggest", label: "Suggestion row", help: "Pick the replacement exercise; sets are kept.", order: 90 })}
+   919→   919→                            aria-label={`Replace with ${s.name}`}
+   920→   920→                            onClick={() => setReplaceSelection(selected ? null : s)}
+   921→   921→                            className={cn(
+   922→   922→                              "flex h-14 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   923→   923→                              selected
+   924→   924→                                ? "border-primary/60 bg-primary/10"
+   925→   925→                                : "border-border hover:border-primary/40 hover:bg-accent/40",
+   926→   926→                            )}
+   927→   927→                          >
+   928→   928→                            <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{s.name}</span>
+   929→   929→                            <span className="max-w-[120px] flex-none truncate text-xs leading-none text-muted-foreground">
+   930→   930→                              {musclesText}
+   931→   931→                            </span>
+   932→   932→                            {selected ? <Check className="h-4 w-4 flex-none text-primary" aria-hidden /> : null}
+   933→   933→                          </button>
+   934→   934→                        );
+   935→   935→                      })
+   936→   936→                    )}
+   937→   937→                  </>
+   938→   938→                )}
+   939→   939→              </div>
+   940→   940→            ) : null}
+   941→   941→
+   942→   942→            {/* GroupCard ×N — performed view mode with §8 footers */}
+   943→   943→            {groups.length > 0 ? (
+   944→   944→              <GroupCardStack>
+   945→   945→                {groups.map((g) => {
+   946→   946→                  const wg = g.groupId ? groupById.get(g.groupId) : undefined;
+   947→   947→                  const colour = wg?.colour ?? g.members[0]?.exercise.category?.colour;
+   948→   948→                  return (
+   949→   949→                    <GroupCard
+   950→   950→                      key={g.key}
+   951→   951→                      mode="view"
+   952→   952→                      group={{ code: g.code, label: g.label, colour }}
+   953→   953→                      menuItems={LOG_MENU}
+   954→   954→                      entries={g.members.map((we, i) => ({
+   955→   955→                        exercise: toCardExercise(we, settings),
+   956→   956→                        sets: toPerformedCardSets(we.sets),
+   957→   957→                        code: memberCode(g.code, i),
+   958→   958→                        tip: we.exercise.trainerTip ?? null,
+   959→   959→                        footer: (
+   960→   960→                          <PerformedFooter
+   961→   961→                            we={we}
+   962→   962→                            settings={settings}
+   963→   963→                            isRemoved={isRemoved}
+   964→   964→                            onEditHistory={openEditHistory}
+   965→   965→                          />
+   966→   966→                        ),
+   967→   967→                      }))}
+   968→   968→                      visibleColumns={visibleColumns}
+   969→   969→                      onAction={handleGroupAction(g.members)}
+   970→   970→                    />
+   971→   971→                  );
+   972→   972→                })}
+   973→   973→              </GroupCardStack>
+   974→   974→            ) : (
+   975→   975→              <p className="px-1 text-sm text-muted-foreground">No exercises logged in this session.</p>
+   976→   976→            )}
+   977→   977→
+   978→   978→            {/* note row / inline note editor (log-scoped workout comment) */}
+   979→   979→            {noteEditorOpen ? (
+   980→   980→              <div className="flex flex-col gap-2 rounded-lg border bg-card p-2">
+   981→   981→                <SectionHeader label="Session note" />
+   982→   982→                <Textarea
+   983→   983→                  value={noteDraft}
+   984→   984→                  onChange={(e) => setNoteDraft(e.target.value)}
+   985→   985→                  placeholder="How did this session feel?"
+   986→   986→                  aria-label="Session note"
+   987→   987→                  maxLength={1000}
+   988→   988→                  {...tourAttrs({ id: "logDetail.noteEditor", label: "Note editor", help: "Write or update the note saved on this log.", order: 100 })}
+   989→   989→                  className="min-h-[88px] w-full resize-none text-sm"
+   990→   990→                />
+   991→   991→                <p className="px-1 text-[11px] leading-none text-muted-foreground">
+   992→   992→                  Saved on this log only — use Save note below.
+   993→   993→                </p>
+   994→   994→              </div>
+   995→   995→            ) : workout.comment?.trim() ? (
+   996→   996→              <button
+   997→   997→                type="button"
+   998→   998→                data-row
+   999→   999→                {...tourAttrs({ id: "logDetail.noteRow", label: "Note", help: "The note saved on this log; tap to edit it.", order: 160 })}
+  1000→  1000→                aria-label="Edit this session's note"
+  1001→  1001→                onClick={openNoteEditor}
+  1002→  1002→                className={`${rowTall} w-full gap-2 rounded-lg border bg-card px-3 text-left transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none`}
+  1003→  1003→              >
+  1004→  1004→                <MessageSquareText className="h-4 w-4 flex-none text-primary" aria-hidden />
+  1005→  1005→                <span className="flex-none text-sm text-muted-foreground">Note:</span>
+  1006→  1006→                <span className="min-w-0 flex-1 truncate text-sm" title={workout.comment}>
+  1007→  1007→                  {workout.comment}
+  1008→  1008→                </span>
+  1009→  1009→                <PencilRuler className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
+  1010→  1010→              </button>
+  1011→  1011→            ) : null}
+  1012→  1012→          </div>
+  1013→  1013→        ) : null}
+  1014→  1014→      </ScrollBody>
+  1015→  1015→
+  1016→  1016→      {/* move date — the one allowed non-destructive modal (shared picker) */}
+  1017→  1017→      {workout ? (
+  1018→  1018→        <DatePickerDialog
+  1019→  1019→          open={moveOpen}
+  1020→  1020→          onOpenChange={setMoveOpen}
+  1021→  1021→          initialKey={dayKey}
+  1022→  1022→          title="Move session"
+  1023→  1023→          description={`${logName} moves to a new date.`}
+  1024→  1024→          onSelect={(key) => void moveSession(key)}
+  1025→  1025→        />
+  1026→  1026→      ) : null}
+  1027→  1027→
+  1028→  1028→      {/* destructive confirm — delete (§6.9 remove semantics + Undo toast) */}
+  1029→  1029→      <AlertDialog open={deleteOpen} onOpenChange={(o) => !o && setDeleteOpen(false)}>
+  1030→  1030→        <AlertDialogContent>
+  1031→  1031→          <AlertDialogHeader>
+  1032→  1032→            <AlertDialogTitle>Delete this session?</AlertDialogTitle>
+  1033→  1033→            <AlertDialogDescription>
+  1034→  1034→              {`${logName} on ${formatDayLabel(dayKey)} will be removed from your logs. You can undo for a few seconds.`}
+  1035→  1035→            </AlertDialogDescription>
+  1036→  1036→          </AlertDialogHeader>
+  1037→  1037→          <AlertDialogFooter>
+  1038→  1038→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1039→  1039→            <AlertDialogAction
+  1040→  1040→              className="bg-destructive text-white hover:bg-destructive/90"
+  1041→  1041→              onClick={(e) => {
+  1042→  1042→                e.preventDefault();
+  1043→  1043→                setDeleteOpen(false);
+  1044→  1044→                void deleteSession();
+  1045→  1045→              }}
+  1046→  1046→            >
+  1047→  1047→              Delete
+  1048→  1048→            </AlertDialogAction>
+  1049→  1049→          </AlertDialogFooter>
+  1050→  1050→        </AlertDialogContent>
+  1051→  1051→      </AlertDialog>
+  1052→  1052→    </Screen>
+  1053→  1053→  );
+  1054→  1054→}
+  1055→  1055→

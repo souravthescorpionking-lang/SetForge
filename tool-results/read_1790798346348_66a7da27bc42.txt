@@ -1,0 +1,840 @@
+     1→// Workout domain service — day view, exercises, sets, groups, copy, move, reorder.
+     2→// Every method takes userId first; every query is user-scoped; PRs recompute in the same transaction.
+     3→import { db } from "@/lib/db";
+     4→import { uuid7 } from "@/lib/uuid7";
+     5→import { toDayUtc, addDays, todayDayUtc } from "@/lib/dates";
+     6→import { mapWorkout, mapSet, mapGroup, mapWorkoutSummary } from "../mappers";
+     7→import { badRequest, notFound } from "../http";
+     8→import type { Prisma } from "@prisma/client";
+     9→
+    10→export const workoutInclude = {
+    11→  exercises: {
+    12→    orderBy: { sortOrder: "asc" as const },
+    13→    include: {
+    14→      exercise: { include: { category: true } },
+    15→      sets: { orderBy: { sortOrder: "asc" as const } },
+    16→    },
+    17→  },
+    18→  groups: true,
+    19→  // ---- Part 9 §8: sourceLabel derivation for legacy rows ----
+    20→  sourceRoutine: { select: { name: true } },
+    21→  sourceDay: { select: { name: true } },
+    22→} satisfies Prisma.WorkoutInclude;
+    23→
+    24→type WorkoutFull = Prisma.WorkoutGetPayload<{ include: typeof workoutInclude }>;
+    25→
+    26→// ---------- PR recompute ----------
+    27→
+    28→/** Full PR recompute for one exercise (delete + rebuild from all sets). */
+    29→export async function recomputePRs(
+    30→  tx: Prisma.TransactionClient,
+    31→  userId: string,
+    32→  exerciseId: string,
+    33→): Promise<void> {
+    34→  const sets = await tx.trainingSet.findMany({
+    35→    where: {
+    36→      userId,
+    37→      workoutExercise: {
+    38→        exerciseId,
+    39→        workout: { removedAt: null }, // Part 8 §6.9: removed sessions excluded from PRs
+    40→      },
+    41→      weight: { not: null },
+    42→      reps: { not: null },
+    43→      isComplete: true, // only performed sets hold records
+    44→      isWarmup: false, // warm-up ramps are preparation, not performance
+    45→    },
+    46→    include: { workoutExercise: { include: { workout: true } } },
+    47→    orderBy: { createdAt: "asc" },
+    48→  });
+    49→  const best = new Map<number, { setId: string; weight: number; date: Date }>();
+    50→  for (const s of sets) {
+    51→    const reps = s.reps!;
+    52→    const weight = s.weight!;
+    53→    const date = s.workoutExercise.workout.date;
+    54→    const cur = best.get(reps);
+    55→    if (!cur || weight > cur.weight || (weight === cur.weight && date < cur.date)) {
+    56→      best.set(reps, { setId: s.id, weight, date });
+    57→    }
+    58→  }
+    59→  await tx.personalRecord.deleteMany({ where: { exerciseId } });
+    60→  for (const [reps, v] of best) {
+    61→    await tx.personalRecord.create({
+    62→      data: { id: uuid7(), userId, exerciseId, reps, weight: v.weight, setId: v.setId, date: v.date },
+    63→    });
+    64→  }
+    65→}
+    66→
+    67→async function isPRForReps(userId: string, exerciseId: string, reps: number, weight: number): Promise<boolean> {
+    68→  const existing = await db.personalRecord.findUnique({
+    69→    where: { exerciseId_reps: { exerciseId, reps } },
+    70→  });
+    71→  return !existing || weight > existing.weight;
+    72→}
+    73→
+    74→/** Set-mutation transaction budget: generous timeout for SQLite write-lock
+    75→ *  queues (burst of set PATCHes — e.g. apply-to-all — serialize on the lock). */
+    76→const TX_OPTIONS = { timeout: 15_000, maxWait: 5_000 } as const;
+    77→
+    78→// ---------- reads ----------
+    79→
+    80→export async function getWorkoutByDate(userId: string, dateInput: string | Date) {
+    81→  const date = toDayUtc(dateInput);
+    82→  // Part 8: a day may hold several sessions. The "day view" surfaces the ACTIVE
+    83→  // (unfinished, unremoved) session; otherwise the latest finished one.
+    84→  const w =
+    85→    (await db.workout.findFirst({
+    86→      where: { userId, date, removedAt: null, finishedAt: null },
+    87→      include: workoutInclude,
+    88→      orderBy: { createdAt: "desc" },
+    89→    })) ??
+    90→    (await db.workout.findFirst({
+    91→      where: { userId, date, removedAt: null },
+    92→      include: workoutInclude,
+    93→      orderBy: { createdAt: "desc" },
+    94→    }));
+    95→  return w ? mapWorkout(w) : null;
+    96→}
+    97→
+    98→/** Part 8 §3.10: the in-progress session (any date) — the Logging screen target. */
+    99→export async function getActiveSession(userId: string) {
+   100→  const w = await db.workout.findFirst({
+   101→    where: { userId, removedAt: null, finishedAt: null, startAt: { not: null } },
+   102→    include: workoutInclude,
+   103→    orderBy: { startAt: "desc" },
+   104→  });
+   105→  return w ? mapWorkout(w) : null;
+   106→}
+   107→
+   108→export async function getWorkout(userId: string, id: string) {
+   109→  const w = await db.workout.findFirst({ where: { id, userId }, include: workoutInclude });
+   110→  if (!w) throw notFound("Workout not found");
+   111→  return mapWorkout(w);
+   112→}
+   113→
+   114→export async function listWorkouts(
+   115→  userId: string,
+   116→  opts: { from?: string; to?: string; limit?: number; search?: string; dayId?: string },
+   117→) {
+   118→  const where: Prisma.WorkoutWhereInput = { userId, removedAt: null };
+   119→  if (opts.from || opts.to) {
+   120→    where.date = {
+   121→      ...(opts.from ? { gte: toDayUtc(opts.from) } : {}),
+   122→      ...(opts.to ? { lte: toDayUtc(opts.to) } : {}),
+   123→    };
+   124→  }
+   125→  // Part 9 §8: ?dayId= filter (History action on a day).
+   126→  if (opts.dayId) where.sourceDayId = opts.dayId;
+   127→  const rows = await db.workout.findMany({
+   128→    where,
+   129→    orderBy: { date: "desc" },
+   130→    take: opts.limit ?? 500,
+   131→    include: workoutInclude,
+   132→  });
+   133→  // Case-insensitive search across comment, exercise names and category names.
+   134→  // Part 9 §8: also matches the sourceLabel (program name / "On demand" / routine name).
+   135→  // Done in JS (not Prisma `contains`) so behaviour is identical on SQLite and
+   136→  // Postgres (Prisma has no `mode: insensitive` on SQLite).
+   137→  if (opts.search && opts.search.trim()) {
+   138→    const q = opts.search.trim().toLowerCase();
+   139→    return rows
+   140→      .filter(
+   141→        (w) =>
+   142→          w.comment?.toLowerCase().includes(q) ||
+   143→          (w.sourceLabel ?? "").toLowerCase().includes(q) ||
+   144→          w.sourceRoutine?.name.toLowerCase().includes(q) ||
+   145→          w.exercises.some(
+   146→            (we) =>
+   147→              we.exercise.name.toLowerCase().includes(q) ||
+   148→              we.exercise.category?.name.toLowerCase().includes(q),
+   149→          ),
+   150→      )
+   151→      .map(mapWorkoutSummary);
+   152→  }
+   153→  return rows.map(mapWorkoutSummary);
+   154→}
+   155→
+   156→/** Workout tree by a date range (calendar + history screens). */
+   157→export async function getWorkoutsBetween(userId: string, from: string | Date, to: string | Date) {
+   158→  const rows = await db.workout.findMany({
+   159→    where: { userId, removedAt: null, date: { gte: toDayUtc(from), lte: toDayUtc(to) } },
+   160→    orderBy: { date: "asc" },
+   161→    include: workoutInclude,
+   162→  });
+   163→  return rows.map(mapWorkout);
+   164→}
+   165→
+   166→// ---------- workout CRUD ----------
+   167→
+   168→export async function createOrGetWorkout(userId: string, dateInput: string | Date) {
+   169→  const date = toDayUtc(dateInput);
+   170→  // Part 8: days hold multiple sessions. "Get or create" continues the ACTIVE
+   171→  // (unfinished) session of that date when one exists; otherwise creates fresh.
+   172→  const existing = await db.workout.findFirst({
+   173→    where: { userId, date, removedAt: null, finishedAt: null },
+   174→    include: workoutInclude,
+   175→    orderBy: { createdAt: "desc" },
+   176→  });
+   177→  if (existing) return mapWorkout(existing);
+   178→  const created = await db.workout.create({
+   179→    data: { id: uuid7(), userId, date },
+   180→    include: workoutInclude,
+   181→  });
+   182→  return mapWorkout(created);
+   183→}
+   184→
+   185→export async function updateWorkout(
+   186→  userId: string,
+   187→  id: string,
+   188→  patch: { date?: string; comment?: string | null; startAt?: string | null; endAt?: string | null },
+   189→) {
+   190→  const w = await db.workout.findFirst({ where: { id, userId } });
+   191→  if (!w) throw notFound("Workout not found");
+   192→
+   193→  let date = w.date;
+   194→  if (patch.date !== undefined) {
+   195→    // Part 8: several sessions per day are allowed — moving dates no longer clashes.
+   196→    date = toDayUtc(patch.date);
+   197→  }
+   198→  const updated = await db.workout.update({
+   199→    where: { id },
+   200→    data: {
+   201→      date,
+   202→      ...(patch.comment !== undefined ? { comment: patch.comment } : {}),
+   203→      ...(patch.startAt !== undefined ? { startAt: patch.startAt ? new Date(patch.startAt) : null } : {}),
+   204→      ...(patch.endAt !== undefined ? { endAt: patch.endAt ? new Date(patch.endAt) : null } : {}),
+   205→    },
+   206→    include: workoutInclude,
+   207→  });
+   208→  return mapWorkout(updated);
+   209→}
+   210→
+   211→/** DELETE /api/workouts/:id — §6.9 single remove semantics (reason USER_DELETE) + PR recompute; Undo → restore. */
+   212→export async function deleteWorkout(userId: string, id: string) {
+   213→  const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
+   214→  if (!w) throw notFound("Workout not found");
+   215→  const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
+   216→  const now = new Date();
+   217→  await db.$transaction(async (tx) => {
+   218→    await tx.workout.update({ where: { id }, data: { removedAt: now, removeReason: "USER_DELETE" } });
+   219→    for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
+   220→  });
+   221→  return { ok: true, removedAt: now.toISOString(), removeReason: "USER_DELETE" };
+   222→}
+   223→
+   224→// ---------- Part 6: discard / restore / purge (§4.11 Finish ASK + §4.12) ----------
+   225→
+   226→/**
+   227→ * POST /api/workouts/:id/discard — session discard: sets removedAt (reason DISCARDED_SESSION), reverts
+   228→ * cursor/schedule effects best-effort, recomputes PRs. Hidden everywhere until
+   229→ * restored (10s client Undo window → restore).
+   230→ */
+   231→export async function discardWorkout(userId: string, id: string) {
+   232→  const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
+   233→  if (!w) throw notFound("Workout not found");
+   234→  if (w.removedAt) return { ok: true, removedAt: w.removedAt.toISOString(), removeReason: w.removeReason ?? "DISCARDED_SESSION" };
+   235→
+   236→  const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
+   237→  const now = new Date();
+   238→
+   239→  // Cursor revert: when this workout came from the active program's day and the
+   240→  // cursor has moved to (or past) the next day, pull it back to the source day.
+   241→  if (w.sourceRoutineId && w.sourceDayId) {
+   242→    const active = await db.activeRoutine.findFirst({ where: { userId, routineId: w.sourceRoutineId } });
+   243→    if (active) {
+   244→      const days = await db.routineDay.findMany({ where: { routineId: w.sourceRoutineId }, orderBy: { sortOrder: "asc" }, select: { id: true } });
+   245→      const sourceIndex = days.findIndex((d) => d.id === w.sourceDayId);
+   246→      if (sourceIndex >= 0 && active.cursorDayIndex !== sourceIndex) {
+   247→        await db.activeRoutine.update({
+   248→          where: { id: active.id },
+   249→          data: { cursorDayIndex: sourceIndex, lastAdvancedAt: null, lastAdvancedForDate: null },
+   250→        });
+   251→      }
+   252→    }
+   253→  }
+   254→
+   255→  // Schedule revert: linked DONE entries — past dates flip to MISSED (truthful),
+   256→  // today/future flip back to PLANNED — and every entry unlinks the workout.
+   257→  // Two collision cases need care (partial unique index: only ONE live PLANNED
+   258→  // entry per userId+date):
+   259→  //   • workout.scheduledStart === false → the DONE entry was auto-created by
+   260→  //     the start flow (nothing was planned); revert = soft-delete, not PLANNED.
+   261→  //   • another live PLANNED entry already occupies that date (the slot was
+   262→  //     re-taken while the workout was live) → revert = soft-delete.
+   263→  const linked = await db.scheduleEntry.findMany({ where: { userId, workoutId: id } });
+   264→  const todayUtc = toDayUtc(new Date());
+   265→  for (const entry of linked) {
+   266→    if (entry.status !== "DONE") continue;
+   267→    if (entry.date.getTime() < todayUtc.getTime()) {
+   268→      await db.scheduleEntry
+   269→        .update({
+   270→          where: { id: entry.id },
+   271→          data: { status: "MISSED", workoutId: null, missedAt: entry.missedAt ?? now },
+   272→        })
+   273→        .catch(() => undefined);
+   274→      continue;
+   275→    }
+   276→    const slotTaken =
+   277→      w.scheduledStart === false ||
+   278→      !!(await db.scheduleEntry.findFirst({
+   279→        where: { userId, date: entry.date, status: "PLANNED", deletedAt: null, NOT: { id: entry.id } },
+   280→        select: { id: true },
+   281→      }));
+   282→    if (slotTaken) {
+   283→      await db.scheduleEntry
+   284→        .update({ where: { id: entry.id }, data: { workoutId: null, deletedAt: now } })
+   285→        .catch(() => undefined);
+   286→    } else {
+   287→      await db.scheduleEntry
+   288→        .update({ where: { id: entry.id }, data: { status: "PLANNED", workoutId: null } })
+   289→        .catch(() => undefined);
+   290→    }
+   291→  }
+   292→
+   293→  await db.$transaction(async (tx) => {
+   294→    await tx.workout.update({ where: { id }, data: { removedAt: now, removeReason: "DISCARDED_SESSION" } });
+   295→    for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
+   296→  });
+   297→  return { ok: true, removedAt: now.toISOString(), removeReason: "DISCARDED_SESSION" };
+   298→}
+   299→
+   300→/** POST /api/workouts/:id/restore — clears removedAt/removeReason + PR recompute (§6.9). */
+   301→export async function restoreWorkout(userId: string, id: string) {
+   302→  const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
+   303→  if (!w) throw notFound("Workout not found");
+   304→  if (!w.removedAt) return { ok: true };
+   305→
+   306→  const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
+   307→  await db.$transaction(async (tx) => {
+   308→    await tx.workout.update({ where: { id }, data: { removedAt: null, removeReason: null } });
+   309→    for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
+   310→  });
+   311→  return { ok: true };
+   312→}
+   313→
+   314→/** Hard delete (Settings → Data → "Show discarded" → Delete permanently). */
+   315→export async function purgeWorkout(userId: string, id: string) {
+   316→  const w = await db.workout.findFirst({ where: { id, userId }, include: { exercises: { select: { exerciseId: true } } } });
+   317→  if (!w) throw notFound("Workout not found");
+   318→  const exerciseIds = [...new Set(w.exercises.map((e) => e.exerciseId))];
+   319→  await db.$transaction(async (tx) => {
+   320→    await tx.workout.delete({ where: { id } });
+   321→    for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
+   322→  });
+   323→  return { ok: true };
+   324→}
+   325→
+   326→/** GET removed workouts (§6.9 Backup & data → Removed items; 30-day auto-purge). */
+   327→export async function listRemovedWorkouts(userId: string) {
+   328→  const rows = await db.workout.findMany({
+   329→    where: { userId, removedAt: { not: null } },
+   330→    orderBy: { removedAt: "desc" },
+   331→    take: 200,
+   332→    include: { exercises: { select: { exerciseId: true } } },
+   333→  });
+   334→  return rows.map((w) => ({
+   335→    id: w.id,
+   336→    date: w.date.toISOString(),
+   337→    comment: w.comment ?? null,
+   338→    removedAt: w.removedAt?.toISOString() ?? null,
+   339→    removeReason: w.removeReason ?? null,
+   340→    exerciseCount: w.exercises.length,
+   341→  }));
+   342→}
+   343→
+   344→// ---------- workout exercises ----------
+   345→
+   346→export async function addWorkoutExercise(userId: string, workoutId: string, exerciseId: string) {
+   347→  const [workout, exercise] = await Promise.all([
+   348→    db.workout.findFirst({ where: { id: workoutId, userId } }),
+   349→    db.exercise.findFirst({ where: { id: exerciseId, userId } }),
+   350→  ]);
+   351→  if (!workout) throw notFound("Workout not found");
+   352→  if (!exercise) throw notFound("Exercise not found");
+   353→
+   354→  const count = await db.workoutExercise.count({ where: { workoutId } });
+   355→  const created = await db.workoutExercise.create({
+   356→    data: { id: uuid7(), userId, workoutId, exerciseId, sortOrder: count },
+   357→    include: { exercise: { include: { category: true } }, sets: true },
+   358→  });
+   359→  return { workoutExerciseId: created.id, exerciseId, sets: [] };
+   360→}
+   361→
+   362→export async function updateWorkoutExercise(
+   363→  userId: string,
+   364→  workoutId: string,
+   365→  weId: string,
+   366→  patch: { sortOrder?: number; groupId?: string | null; exerciseId?: string },
+   367→) {
+   368→  const we = await db.workoutExercise.findFirst({ where: { id: weId, userId, workoutId } });
+   369→  if (!we) throw notFound("Exercise not found in this workout");
+   370→  if (patch.groupId != null) {
+   371→    if (patch.groupId !== "") {
+   372→      const g = await db.workoutGroup.findFirst({ where: { id: patch.groupId, userId, workoutId } });
+   373→      if (!g) throw notFound("Group not found");
+   374→    }
+   375→  }
+   376→  // ---- Part 9 §8: log-scoped exercise swap (sets kept on the same rows) ----
+   377→  if (patch.exerciseId != null && patch.exerciseId !== we.exerciseId) {
+   378→    const exercise = await db.exercise.findFirst({ where: { id: patch.exerciseId, userId } });
+   379→    if (!exercise) throw notFound("Exercise not found");
+   380→    const oldExerciseId = we.exerciseId;
+   381→    const newExerciseId = patch.exerciseId;
+   382→    const updated = await db.$transaction(async (tx) => {
+   383→      const row = await tx.workoutExercise.update({
+   384→        where: { id: weId },
+   385→        data: { exerciseId: newExerciseId },
+   386→      });
+   387→      // the performed sets just moved between exercises — rebuild both PRs
+   388→      await recomputePRs(tx, userId, oldExerciseId);
+   389→      await recomputePRs(tx, userId, newExerciseId);
+   390→      return row;
+   391→    });
+   392→    return { ok: true, id: updated.id };
+   393→  }
+   394→  const updated = await db.workoutExercise.update({
+   395→    where: { id: weId },
+   396→    data: {
+   397→      ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+   398→      ...(patch.groupId !== undefined ? { groupId: patch.groupId === "" ? null : patch.groupId } : {}),
+   399→    },
+   400→  });
+   401→  return { ok: true, id: updated.id };
+   402→}
+   403→
+   404→export async function removeWorkoutExercise(userId: string, workoutId: string, weId: string) {
+   405→  const we = await db.workoutExercise.findFirst({
+   406→    where: { id: weId, userId, workoutId },
+   407→  });
+   408→  if (!we) throw notFound("Exercise not found in this workout");
+   409→  await db.$transaction(async (tx) => {
+   410→    await tx.workoutExercise.delete({ where: { id: weId } });
+   411→    await recomputePRs(tx, userId, we.exerciseId);
+   412→    // compact sort orders
+   413→    const rest = await tx.workoutExercise.findMany({ where: { workoutId }, orderBy: { sortOrder: "asc" } });
+   414→    for (let i = 0; i < rest.length; i++) {
+   415→      if (rest[i].sortOrder !== i) await tx.workoutExercise.update({ where: { id: rest[i].id }, data: { sortOrder: i } });
+   416→    }
+   417→  });
+   418→  return { ok: true };
+   419→}
+   420→
+   421→export async function reorderWorkoutExercises(userId: string, workoutId: string, ids: string[]) {
+   422→  const workout = await db.workout.findFirst({ where: { id: workoutId, userId } });
+   423→  if (!workout) throw notFound("Workout not found");
+   424→  await db.$transaction(
+   425→    ids.map((id, i) =>
+   426→      db.workoutExercise.updateMany({ where: { id, userId, workoutId }, data: { sortOrder: i } }),
+   427→    ),
+   428→  );
+   429→  return { ok: true };
+   430→}
+   431→
+   432→// ---------- sets ----------
+   433→
+   434→async function getWorkoutExerciseOwned(userId: string, workoutId: string, weId: string) {
+   435→  const we = await db.workoutExercise.findFirst({
+   436→    where: { id: weId, userId, workoutId },
+   437→    include: { workout: true, exercise: true },
+   438→  });
+   439→  if (!we) throw notFound("Exercise not found in this workout");
+   440→  return we;
+   441→}
+   442→
+   443→export type SetFieldsInput = {
+   444→  weight?: number | null;
+   445→  reps?: number | null;
+   446→  distance?: number | null;
+   447→  timeSec?: number | null;
+   448→  comment?: string | null;
+   449→  isComplete?: boolean;
+   450→  isWarmup?: boolean;
+   451→  // ---- Part 2 ----
+   452→  setType?: string;
+   453→  rpe?: number | null;
+   454→  tempo?: string | null;
+   455→  restPlannedSec?: number | null;
+   456→  restActualSec?: number | null;
+   457→  completedAt?: string | null;
+   458→};
+   459→
+   460→/** setType ⟺ isWarmup single source of truth: WARMUP type mirrors the legacy flag. */
+   461→function syncWarmup(input: SetFieldsInput): { setType?: string; isWarmup?: boolean } {
+   462→  if (input.setType !== undefined) {
+   463→    return { setType: input.setType, isWarmup: input.setType === "WARMUP" };
+   464→  }
+   465→  if (input.isWarmup !== undefined) {
+   466→    return { isWarmup: input.isWarmup, ...(input.isWarmup ? { setType: "WARMUP" } : {}) };
+   467→  }
+   468→  return {};
+   469→}
+   470→
+   471→/** When a set turns complete: stamp completedAt and derive restActualSec
+   472→ *  from the most recent earlier completed set in the same exercise. */
+   473→function completionTimestamps(
+   474→  now: Date,
+   475→  input: SetFieldsInput,
+   476→  prevCompletedAt: Date | null,
+   477→): { completedAt?: Date | null; restActualSec?: number | null } {
+   478→  if (input.isComplete === true) {
+   479→    const completedAt = input.completedAt ? new Date(input.completedAt) : now;
+   480→    const restActualSec =
+   481→      input.restActualSec != null
+   482→        ? input.restActualSec
+   483→        : prevCompletedAt
+   484→          ? Math.max(0, Math.round((completedAt.getTime() - prevCompletedAt.getTime()) / 1000))
+   485→          : null;
+   486→    return { completedAt, ...(restActualSec != null ? { restActualSec } : {}) };
+   487→  }
+   488→  if (input.isComplete === false) return { completedAt: null, restActualSec: null };
+   489→  return {};
+   490→}
+   491→
+   492→export async function createSet(
+   493→  userId: string,
+   494→  workoutId: string,
+   495→  weId: string,
+   496→  input: SetFieldsInput,
+   497→) {
+   498→  const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
+   499→  const settings = await db.userSettings.findUnique({ where: { userId } });
+   500→  const trackPR = settings?.trackPR ?? true;
+   501→
+   502→  const count = await db.trainingSet.count({ where: { workoutExerciseId: weId } });
+   503→  const warmupSync = syncWarmup(input);
+   504→  const effectiveType = warmupSync.setType ?? "NORMAL";
+   505→  const effectiveWarmup = warmupSync.isWarmup ?? effectiveType === "WARMUP";
+   506→  const newPr =
+   507→    trackPR &&
+   508→    !effectiveWarmup &&
+   509→    input.weight != null &&
+   510→    input.reps != null &&
+   511→    (await isPRForReps(userId, we.exerciseId, input.reps, input.weight));
+   512→
+   513→  // previous completed set in this exercise (for restActualSec)
+   514→  const prevCompleted = await db.trainingSet.findFirst({
+   515→    where: { workoutExerciseId: weId, isComplete: true, completedAt: { not: null } },
+   516→    orderBy: { completedAt: "desc" },
+   517→    select: { completedAt: true },
+   518→  });
+   519→  const stamps = completionTimestamps(new Date(), input, prevCompleted?.completedAt ?? null);
+   520→
+   521→  // Timeout headroom: concurrent set PATCHes (e.g. the §4.10d apply-to-all
+   522→  // fan-out) serialize on the SQLite write lock — the 5s default expires while
+   523→  // queued. 15s budget / 5s acquisition keeps every request green under burst.
+   524→  const created = await db.$transaction(
+   525→    async (tx) => {
+   526→      const set = await tx.trainingSet.create({
+   527→        data: {
+   528→          id: uuid7(),
+   529→          userId,
+   530→          workoutExerciseId: weId,
+   531→          weight: input.weight ?? null,
+   532→          reps: input.reps ?? null,
+   533→          distance: input.distance ?? null,
+   534→          timeSec: input.timeSec ?? null,
+   535→          comment: input.comment ?? null,
+   536→          isComplete: input.isComplete ?? false,
+   537→          isWarmup: effectiveWarmup,
+   538→          setType: effectiveType,
+   539→          rpe: input.rpe ?? null,
+   540→          tempo: input.tempo ?? null,
+   541→          restPlannedSec: input.restPlannedSec ?? null,
+   542→          ...(stamps.completedAt !== undefined ? { completedAt: stamps.completedAt } : {}),
+   543→          ...(stamps.restActualSec !== undefined ? { restActualSec: stamps.restActualSec } : {}),
+   544→          sortOrder: count,
+   545→        },
+   546→      });
+   547→      await recomputePRs(tx, userId, we.exerciseId);
+   548→      return set;
+   549→    },
+   550→    TX_OPTIONS,
+   551→  );
+   552→  return mapSet(created, newPr);
+   553→}
+   554→
+   555→export async function updateSet(
+   556→  userId: string,
+   557→  workoutId: string,
+   558→  weId: string,
+   559→  setId: string,
+   560→  input: SetFieldsInput,
+   561→) {
+   562→  const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
+   563→  const existing = await db.trainingSet.findFirst({ where: { id: setId, workoutExerciseId: weId } });
+   564→  if (!existing) throw notFound("Set not found");
+   565→
+   566→  const warmupSync = syncWarmup(input);
+   567→  // previous completed set BEFORE this one (sortOrder-based) for restActualSec
+   568→  let prevCompletedAt: Date | null = null;
+   569→  if (input.isComplete === true && !existing.completedAt) {
+   570→    const prev = await db.trainingSet.findFirst({
+   571→      where: { workoutExerciseId: weId, isComplete: true, completedAt: { not: null }, id: { not: setId } },
+   572→      orderBy: { completedAt: "desc" },
+   573→      select: { completedAt: true },
+   574→    });
+   575→    prevCompletedAt = prev?.completedAt ?? null;
+   576→  }
+   577→  const stamps = completionTimestamps(new Date(), input, prevCompletedAt);
+   578→
+   579→  const updated = await db.$transaction(
+   580→    async (tx) => {
+   581→      const set = await tx.trainingSet.update({
+   582→        where: { id: setId },
+   583→        data: {
+   584→          ...(input.weight !== undefined ? { weight: input.weight } : {}),
+   585→          ...(input.reps !== undefined ? { reps: input.reps } : {}),
+   586→          ...(input.distance !== undefined ? { distance: input.distance } : {}),
+   587→          ...(input.timeSec !== undefined ? { timeSec: input.timeSec } : {}),
+   588→          ...(input.comment !== undefined ? { comment: input.comment } : {}),
+   589→          ...(input.isComplete !== undefined ? { isComplete: input.isComplete } : {}),
+   590→          ...(input.isWarmup !== undefined ? { isWarmup: input.isWarmup } : {}),
+   591→          // ---- Part 2 ----
+   592→          ...(warmupSync.setType !== undefined ? { setType: warmupSync.setType } : {}),
+   593→          ...(warmupSync.isWarmup !== undefined ? { isWarmup: warmupSync.isWarmup } : {}),
+   594→          ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
+   595→          ...(input.tempo !== undefined ? { tempo: input.tempo } : {}),
+   596→          ...(input.restPlannedSec !== undefined ? { restPlannedSec: input.restPlannedSec } : {}),
+   597→          ...(input.restActualSec !== undefined ? { restActualSec: input.restActualSec } : {}),
+   598→          ...(stamps.completedAt !== undefined ? { completedAt: stamps.completedAt } : {}),
+   599→          ...(stamps.restActualSec !== undefined ? { restActualSec: stamps.restActualSec } : {}),
+   600→        },
+   601→      });
+   602→      await recomputePRs(tx, userId, we.exerciseId);
+   603→      return set;
+   604→    },
+   605→    TX_OPTIONS,
+   606→  );
+   607→  return mapSet(updated);
+   608→}
+   609→
+   610→export async function deleteSet(userId: string, workoutId: string, weId: string, setId: string) {
+   611→  const we = await getWorkoutExerciseOwned(userId, workoutId, weId);
+   612→  const existing = await db.trainingSet.findFirst({ where: { id: setId, workoutExerciseId: weId } });
+   613→  if (!existing) throw notFound("Set not found");
+   614→  await db.$transaction(
+   615→    async (tx) => {
+   616→      await tx.trainingSet.delete({ where: { id: setId } });
+   617→      await recomputePRs(tx, userId, we.exerciseId);
+   618→      const rest = await tx.trainingSet.findMany({ where: { workoutExerciseId: weId }, orderBy: { sortOrder: "asc" } });
+   619→      for (let i = 0; i < rest.length; i++) {
+   620→        if (rest[i].sortOrder !== i) await tx.trainingSet.update({ where: { id: rest[i].id }, data: { sortOrder: i } });
+   621→      }
+   622→    },
+   623→    TX_OPTIONS,
+   624→  );
+   625→  return { ok: true };
+   626→}
+   627→
+   628→export async function reorderSets(userId: string, workoutId: string, weId: string, ids: string[]) {
+   629→  await getWorkoutExerciseOwned(userId, workoutId, weId);
+   630→  await db.$transaction(
+   631→    ids.map((id, i) => db.trainingSet.updateMany({ where: { id, userId, workoutExerciseId: weId }, data: { sortOrder: i } })),
+   632→  );
+   633→  return { ok: true };
+   634→}
+   635→
+   636→// ---------- groups (supersets) ----------
+   637→
+   638→export async function createGroup(
+   639→  userId: string,
+   640→  workoutId: string,
+   641→  input: { name: string; colour?: string; exerciseIds?: string[] },
+   642→) {
+   643→  const workout = await db.workout.findFirst({ where: { id: workoutId, userId } });
+   644→  if (!workout) throw notFound("Workout not found");
+   645→  const group = await db.workoutGroup.create({
+   646→    data: { id: uuid7(), userId, workoutId, name: input.name, colour: input.colour ?? "#f97316" },
+   647→  });
+   648→  if (input.exerciseIds?.length) {
+   649→    await db.workoutExercise.updateMany({
+   650→      where: { id: { in: input.exerciseIds }, userId, workoutId },
+   651→      data: { groupId: group.id },
+   652→    });
+   653→  }
+   654→  return mapGroup(group);
+   655→}
+   656→
+   657→export async function updateGroup(userId: string, workoutId: string, groupId: string, patch: { name?: string; colour?: string }) {
+   658→  const g = await db.workoutGroup.findFirst({ where: { id: groupId, userId, workoutId } });
+   659→  if (!g) throw notFound("Group not found");
+   660→  const updated = await db.workoutGroup.update({
+   661→    where: { id: groupId },
+   662→    data: {
+   663→      ...(patch.name !== undefined ? { name: patch.name } : {}),
+   664→      ...(patch.colour !== undefined ? { colour: patch.colour } : {}),
+   665→    },
+   666→  });
+   667→  return mapGroup(updated);
+   668→}
+   669→
+   670→export async function deleteGroup(userId: string, workoutId: string, groupId: string) {
+   671→  const g = await db.workoutGroup.findFirst({ where: { id: groupId, userId, workoutId } });
+   672→  if (!g) throw notFound("Group not found");
+   673→  await db.workoutGroup.delete({ where: { id: groupId } }); // FK SetNull ungroups exercises
+   674→  return { ok: true };
+   675→}
+   676→
+   677→// ---------- copy / move ----------
+   678→
+   679→/** Copy sets from another workout (default: the most recent before the target date). */
+   680→export async function copyWorkout(
+   681→  userId: string,
+   682→  targetWorkoutId: string,
+   683→  input: { fromDate?: string; setIds?: string[] },
+   684→) {
+   685→  const target = await db.workout.findFirst({ where: { id: targetWorkoutId, userId }, include: workoutInclude });
+   686→  if (!target) throw notFound("Workout not found");
+   687→
+   688→  let source: WorkoutFull | null = null;
+   689→  if (input.fromDate) {
+   690→    source = await db.workout.findFirst({
+   691→      where: { userId, date: toDayUtc(input.fromDate), removedAt: null },
+   692→      include: workoutInclude,
+   693→      orderBy: { createdAt: "desc" },
+   694→    });
+   695→  } else {
+   696→    source = await db.workout.findFirst({
+   697→      where: { userId, date: { lt: target.date } },
+   698→      orderBy: { date: "desc" },
+   699→      include: workoutInclude,
+   700→    });
+   701→  }
+   702→  if (!source) throw notFound("No source workout found to copy");
+   703→
+   704→  const setFilter = input.setIds ? new Set(input.setIds) : null;
+   705→  const affected = new Set<string>();
+   706→
+   707→  // map source group name → target group
+   708→  const groupMap = new Map<string, string>();
+   709→  for (const g of source.groups) {
+   710→    const existing = target.groups.find((tg) => tg.name === g.name);
+   711→    if (existing) {
+   712→      groupMap.set(g.id, existing.id);
+   713→    } else {
+   714→      const created = await db.workoutGroup.create({
+   715→        data: { id: uuid7(), userId, workoutId: target.id, name: g.name, colour: g.colour },
+   716→      });
+   717→      groupMap.set(g.id, created.id);
+   718→    }
+   719→  }
+   720→
+   721→  let sortOrder = await db.workoutExercise.count({ where: { workoutId: target.id } });
+   722→  for (const swe of source.exercises) {
+   723→    const sets = setFilter ? swe.sets.filter((s) => setFilter.has(s.id)) : swe.sets;
+   724→    if (sets.length === 0) continue;
+   725→    affected.add(swe.exerciseId);
+   726→    // find-or-create target workout exercise
+   727→    let twe = await db.workoutExercise.findFirst({ where: { workoutId: target.id, exerciseId: swe.exerciseId } });
+   728→    if (!twe) {
+   729→      twe = await db.workoutExercise.create({
+   730→        data: {
+   731→          id: uuid7(),
+   732→          userId,
+   733→          workoutId: target.id,
+   734→          exerciseId: swe.exerciseId,
+   735→          sortOrder: sortOrder++,
+   736→          groupId: swe.groupId ? groupMap.get(swe.groupId) ?? null : null,
+   737→        },
+   738→      });
+   739→    } else if (swe.groupId && !twe.groupId) {
+   740→      await db.workoutExercise.update({ where: { id: twe.id }, data: { groupId: groupMap.get(swe.groupId) ?? null } });
+   741→    }
+   742→    let setOrder = await db.trainingSet.count({ where: { workoutExerciseId: twe.id } });
+   743→    for (const s of sets) {
+   744→      await db.trainingSet.create({
+   745→        data: {
+   746→          id: uuid7(),
+   747→          userId,
+   748→          workoutExerciseId: twe.id,
+   749→          weight: s.weight,
+   750→          reps: s.reps,
+   751→          distance: s.distance,
+   752→          timeSec: s.timeSec,
+   753→          comment: s.comment,
+   754→          isComplete: false,
+   755→          isWarmup: s.isWarmup,
+   756→          sortOrder: setOrder++,
+   757→        },
+   758→      });
+   759→    }
+   760→  }
+   761→  await db.$transaction(async (tx) => {
+   762→    for (const exerciseId of affected) await recomputePRs(tx, userId, exerciseId);
+   763→  });
+   764→  return getWorkout(userId, target.id);
+   765→}
+   766→
+   767→/** Move the whole workout (or selected exercises) to another date. */
+   768→export async function moveWorkout(
+   769→  userId: string,
+   770→  workoutId: string,
+   771→  input: { toDate: string; workoutExerciseIds?: string[] },
+   772→) {
+   773→  const source = await db.workout.findFirst({ where: { id: workoutId, userId }, include: workoutInclude });
+   774→  if (!source) throw notFound("Workout not found");
+   775→  const newDate = toDayUtc(input.toDate);
+   776→  if (newDate.getTime() === source.date.getTime() && !input.workoutExerciseIds?.length) {
+   777→    return getWorkout(userId, source.id); // no-op
+   778→  }
+   779→
+   780→  const movingAll = !input.workoutExerciseIds?.length;
+   781→  const movingIds = new Set(input.workoutExerciseIds ?? []);
+   782→
+   783→  // find-or-create target workout at newDate (active session first)
+   784→  let target = await db.workout.findFirst({
+   785→    where: { userId, date: newDate, removedAt: null, finishedAt: null },
+   786→    include: workoutInclude,
+   787→    orderBy: { createdAt: "desc" },
+   788→  });
+   789→  if (!target) {
+   790→    target = await db.workout.create({ data: { id: uuid7(), userId, date: newDate }, include: workoutInclude });
+   791→  } else if (target.id === source.id) {
+   792→    return updateWorkout(userId, source.id, { date: input.toDate });
+   793→  }
+   794→
+   795→  const toMove = source.exercises.filter((we) => movingAll || movingIds.has(we.id));
+   796→  let sortOrder = target.exercises.length;
+   797→  for (const swe of toMove) {
+   798→    await db.workoutExercise.update({ where: { id: swe.id }, data: { workoutId: target.id, sortOrder: sortOrder++, groupId: null } });
+   799→  }
+   800→  // copy groups of moved exercises into target
+   801→  const groupMap = new Map<string, string>();
+   802→  for (const g of source.groups) {
+   803→    const hasMoved = toMove.some((we) => we.groupId === g.id);
+   804→    if (!hasMoved) continue;
+   805→    const existing = target.groups.find((tg) => tg.name === g.name);
+   806→    const g2 = existing ?? (await db.workoutGroup.create({ data: { id: uuid7(), userId, workoutId: target.id, name: g.name, colour: g.colour } }));
+   807→    groupMap.set(g.id, g2.id);
+   808→  }
+   809→  for (const swe of toMove) {
+   810→    if (swe.groupId && groupMap.has(swe.groupId)) {
+   811→      await db.workoutExercise.update({ where: { id: swe.id }, data: { groupId: groupMap.get(swe.groupId)! } });
+   812→    }
+   813→  }
+   814→
+   815→  const remaining = await db.workoutExercise.count({ where: { workoutId: source.id } });
+   816→  if (remaining === 0) {
+   817→    await db.workout.delete({ where: { id: source.id } });
+   818→  } else {
+   819→    const rest = await db.workoutExercise.findMany({ where: { workoutId: source.id }, orderBy: { sortOrder: "asc" } });
+   820→    for (let i = 0; i < rest.length; i++) {
+   821→      if (rest[i].sortOrder !== i) await db.workoutExercise.update({ where: { id: rest[i].id }, data: { sortOrder: i } });
+   822→    }
+   823→  }
+   824→  return getWorkout(userId, target.id);
+   825→}
+   826→
+   827→// ---------- misc helpers used by other services ----------
+   828→
+   829→export async function previousWorkoutDate(userId: string, beforeDate?: string | Date): Promise<string | null> {
+   830→  const d = beforeDate ? toDayUtc(beforeDate) : todayDayUtc();
+   831→  const prev = await db.workout.findFirst({ where: { userId, date: { lt: d } }, orderBy: { date: "desc" } });
+   832→  return prev ? dayKeyIso(prev.date) : null;
+   833→}
+   834→
+   835→function dayKeyIso(d: Date): string {
+   836→  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+   837→}
+   838→
+   839→export type { WorkoutFull };
+   840→
