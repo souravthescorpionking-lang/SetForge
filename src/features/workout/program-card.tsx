@@ -15,9 +15,6 @@
 //   R4 32px  tagline muted single line (fallback: notes → day context).
 //   R5 40px  THE primary CTA of the screen — exactly one per state:
 //             in-progress   "Continue · {done}/{total} ✓"      → #/session
-//             starts-future "Starts in {n} days" (disabled-look, tappable →
-//                            toast "{name} starts {date}") — §10: joined
-//                            challenge before its start date, cursor locked.
 //             rest day      "Rest day — Mark off"              → cursor
 //                            advance (programsApi.markRestDone).
 //             following     "Start Day {n}"                     → start flow
@@ -28,10 +25,7 @@
 // State resolution (dashboard payload + the in-progress session, priorities):
 //   1. IN PROGRESS — an unfinished started session (any date) wins.
 //   2. NONE        — no followed program and nothing scheduled today.
-//   3. STARTS IN   — ActiveRoutine.startedAt in the FUTURE (programStartedAt
-//                    = the challenge startsOn): the cursor is locked until
-//                    then, so the card cannot start a day yet.
-//   4/5. FOLLOWING/REST — today's resolution already prefers a PLANNED
+//   3/4. FOLLOWING/REST — today's resolution already prefers a PLANNED
 //                    schedule entry over the cursor day (server-side).
 //
 // daysDone/tagline/phaseCount come from the screen's ["programs"] catalog rows
@@ -44,15 +38,18 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { tourAttrs } from "@/lib/tour/attrs";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
 import { qk, useInvalidate, useOnline } from "@/lib/client/query";
 import { programsApi } from "@/lib/client/api";
-import { dayKeyOf, formatDayLabel, parseDayKey } from "@/lib/client/format";
+import { dayKeyOf, parseDayKey } from "@/lib/client/format";
+import { DIFFICULTIES, DIFFICULTY_LABELS, type Difficulty } from "@/lib/constants";
+import { ActionList } from "@/components/shared/action-list";
 import { rowBase } from "@/lib/ui/tokens";
 import { errorMessage, useProgramRun } from "@/features/routines/screen-helpers";
+import { useChangeDifficulty } from "@/features/routines/use-change-difficulty";
 import type {
   DashboardDTO,
   ProgramSummaryDTO,
@@ -73,14 +70,6 @@ export type ProgramCardProps = {
 
 type CardModel =
   | { state: "none" }
-  | {
-      state: "startsIn";
-      programName: string;
-      routineId: string;
-      startKey: string;
-      daysUntil: number;
-      subtitle: string | null;
-    }
   | { state: "rest"; programName: string; routineId: string; subtitle: string | null }
   | {
       state: "following";
@@ -102,11 +91,6 @@ type CardModel =
       completed: number;
       total: number;
     };
-
-/** Days between two YYYY-MM-DD keys (b − a), stable UTC-midnight math. */
-function daysBetweenKeys(a: string, b: string): number {
-  return Math.round((parseDayKey(b).getTime() - parseDayKey(a).getTime()) / 86_400_000);
-}
 
 /** Up to 4 exercise names of a routine day, single-line, ellipsized by the row. */
 function dayExercisesLine(day: RoutineDayDTO | null): string {
@@ -171,24 +155,7 @@ function resolveCardModel(
   // ---- 2. NONE: no followed program and nothing scheduled today ----
   if (today.kind === "NONE" && !activeRoutine) return { state: "none" };
 
-  // ---- 3. STARTS IN {n} DAYS (§10/§11): the followed program's start date is
-  //      still in the future (joined a challenge before startsOn) — the
-  //      cursor is locked until then, so the card's CTA counts down instead. ----
-  if (activeRoutine) {
-    const startKey = dayKeyOf(activeRoutine.startedAt);
-    if (startKey > today.date) {
-      return {
-        state: "startsIn",
-        programName: activeRoutine.routineName,
-        routineId: activeRoutine.routineId,
-        startKey,
-        daysUntil: daysBetweenKeys(today.date, startKey),
-        subtitle: taglineOf(activeRoutine.routineId),
-      };
-    }
-  }
-
-  // ---- 4/5. FOLLOWING or REST — today already prefers a PLANNED schedule
+  // ---- 3/4. FOLLOWING or REST — today already prefers a PLANNED schedule
   //      entry over the cursor day (server-side resolution). ----
   const programName = today.routine?.name ?? activeRoutine?.routineName ?? "Program";
   const routineId = today.routine?.id ?? activeRoutine?.routineId ?? "";
@@ -254,6 +221,10 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
   const online = useOnline();
   const { run } = useProgramRun();
   const [busy, setBusy] = useState(false);
+
+  // §2 inline difficulty chip — the ONE shared change flow (same confirm modal
+  // + server action as the Programs SubBar; see use-change-difficulty.tsx).
+  const { difficulty, switching, confirm, request: changeDifficulty } = useChangeDifficulty();
 
   const model = useMemo(
     () => resolveCardModel(dashboard, activeWorkout, routine, programs),
@@ -336,12 +307,6 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
     setBusy(false);
   };
 
-  // §10/§11 — the card is about a program that has not started yet.
-  const announceStart = () => {
-    if (model.state !== "startsIn") return;
-    toast.info(`${model.programName} starts ${formatDayLabel(model.startKey)}`);
-  };
-
   const barColour =
     model.state === "inprogress" && activeWorkout ? activeWorkout.groups[0]?.colour ?? null : null;
 
@@ -367,7 +332,7 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
             {headerLabel}
           </p>
         </div>
-        {/* R2 (40px) — program name + "{daysDone} Days" accent pill */}
+        {/* R2 (40px) — program name · "{daysDone} Days" pill · difficulty chip (§2) */}
         <div data-row className={`${rowBase} flex-none gap-2 px-4`}>
           <p className="min-w-0 flex-1 truncate text-base font-semibold leading-none">
             {model.state === "none" ? "No program selected" : model.programName}
@@ -380,6 +345,35 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
               {daysDone} Days
             </span>
           ) : null}
+          <ActionList
+            label={`Difficulty — ${DIFFICULTY_LABELS[difficulty]}`}
+            items={DIFFICULTIES.map((d) => ({
+              id: d,
+              label: DIFFICULTY_LABELS[d as Difficulty],
+              checked: d === difficulty,
+              onSelect: () => changeDifficulty(d as Difficulty),
+            }))}
+            trigger={
+              <button
+                type="button"
+                {...tourAttrs({
+                  id: "workout.difficultyChip",
+                  label: "Difficulty chip",
+                  help: "Switch the program difficulty without leaving Home.",
+                  order: 10,
+                })}
+                disabled={switching}
+                className={cn(
+                  "flex h-8 max-w-[9.5rem] flex-none items-center gap-1 rounded-full border px-2.5 text-[11px] font-semibold leading-none",
+                  "text-muted-foreground transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  switching && "opacity-60",
+                )}
+              >
+                <span className="truncate">{DIFFICULTY_LABELS[difficulty]}</span>
+                <ChevronDown className="h-3.5 w-3.5 flex-none" aria-hidden />
+              </button>
+            }
+          />
         </div>
         {/* R3 (32px) — phase chips, only when the program has >1 phase */}
         {phaseCount > 1 && phases && phases.length > 1 ? (
@@ -423,16 +417,6 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
               onClick={() => navigate("/programs")}
             >
               Pick a program
-            </Button>
-          ) : model.state === "startsIn" ? (
-            <Button
-              type="button"
-              aria-disabled="true"
-              className="h-10 w-full text-sm font-semibold opacity-60"
-              tour={{ id: "workout.startsIn", label: "Starts soon", help: "The program begins on its start date — tap to see when.", order: 10 }}
-              onClick={announceStart}
-            >
-              {model.daysUntil === 1 ? "Starts in 1 day" : `Starts in ${model.daysUntil} days`}
             </Button>
           ) : model.state === "rest" ? (
             <Button
@@ -488,6 +472,8 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
             <ChevronRight className="h-4 w-4 flex-none" aria-hidden />
           </button>
         </div>
+        {/* §2 difficulty-change confirm — the shared useChangeDifficulty modal */}
+        {confirm ? <confirm.Dialog /> : null}
       </div>
     </section>
   );

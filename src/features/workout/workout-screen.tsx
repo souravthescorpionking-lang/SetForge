@@ -4,17 +4,15 @@
 // WorkoutScreen — #/workout (Part 8 §3.1 tab 1 · default route · Part 9 "Home").
 //
 //   TopBar (56)  : "Workout" · 📅 calendar action (→ #/calendar) · TopBarHelp
-//   ScrollBody   : ChallengeBanner (Part 9 §10 — active, not-joined challenge;
-//                  self-contained query, renders nothing otherwise)
-//                  + ProgramCard (Part 9 §11 — Current program card in
-//                  program-card.tsx) + 5 navigation rows (56px, rowBar, icon +
+//   ScrollBody   : ProgramCard (Part 9 §11 — Current program card in
+//                  program-card.tsx; Row2 carries the inline difficulty chip —
+//                  Part 10 §2) + 5 navigation rows (56px, rowBar, icon +
 //                  label left, count muted middle-right, chevron right):
 //                  Workout Logs · Programs · On Demand · Workout Library ·
 //                  Workout Builder.
 //
-// The program-card action is the ONE primary button of the screen; the banner's
-// Join is primary-TINTED and the five rows below are navigation, not competing
-// actions. Data: useDashboard (today's resolved day — a PLANNED schedule entry
+// The program-card action is the ONE primary button of the screen; the five
+// rows below are navigation, not competing actions. Data: useDashboard (today's resolved day — a PLANNED schedule entry
 // already overrides the cursor server-side), workoutsApi.active() (in-progress
 // session, any date), the routine detail (exercise names + day index/count),
 // and one programs list query (catalog rows for the card's tagline/daysDone/
@@ -49,7 +47,6 @@ import { qk, useDashboard, usePrograms } from "@/lib/client/query";
 import { routinesApi, workoutsApi, scheduleReconcileApi } from "@/lib/client/api";
 import { rowBar, rowTall } from "@/lib/ui/tokens";
 import { errorMessage } from "@/features/routines/screen-helpers";
-import { ChallengeBanner } from "./challenge-banner";
 import { ProgramCard, ProgramCardSkeleton } from "./program-card";
 
 interface NavRow {
@@ -190,9 +187,6 @@ export default function WorkoutScreen() {
       }
     >
       <ScrollBody>
-        {/* Part 9 §10 — challenge banner above the program card (renders
-            nothing while loading, errored, joined or dismissed). */}
-        <ChallengeBanner />
         {loading ? (
           <ProgramCardSkeleton />
         ) : error ? (

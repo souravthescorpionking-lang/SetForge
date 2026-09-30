@@ -32,31 +32,19 @@
 // Kept: Builder entry points (TopBar `+` + empty state), replace-free UX.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { BackButton } from "@/components/layout/back-button";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Hammer, Layers, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
-import { userApi } from "@/lib/client/api";
-import { qk, useDashboard, useInvalidate, usePrograms, useSession } from "@/lib/client/query";
+import { usePrograms } from "@/lib/client/query";
 import { DIFFICULTIES, DIFFICULTY_LABELS, type Difficulty } from "@/lib/constants";
+import { useChangeDifficulty } from "./use-change-difficulty";
 import type { ProgramSummaryDTO } from "@/lib/types";
-import { errorMessage } from "./screen-helpers";
 
 /** R2 fallback: first line of the routine notes when no tagline exists. */
 function taglineOf(program: ProgramSummaryDTO): string {
@@ -68,25 +56,10 @@ function taglineOf(program: ProgramSummaryDTO): string {
 
 export default function RoutinesScreen() {
   const navigate = useApp((s) => s.navigate);
-  const invalidate = useInvalidate();
-  const qc = useQueryClient();
-  const session = useApp((s) => s.session);
-  const setSession = useApp((s) => s.setSession);
 
-  // ---------- difficulty (["session"] query is the source of truth) ----------
-  const sessionQuery = useSession();
-  const storeDifficulty = session?.user.difficulty ?? null;
-  const serverDifficulty = (sessionQuery.data?.user?.difficulty ?? storeDifficulty ?? "INTERMEDIATE") as Difficulty;
-  const [optimisticDifficulty, setOptimisticDifficulty] = useState<Difficulty | null>(null);
-  const selectedDifficulty = optimisticDifficulty ?? serverDifficulty;
-
-  // reconcile: once the server cache carries the optimistic value, the overlay
-  // is redundant (same selection either way — no flicker).
-  useEffect(() => {
-    if (optimisticDifficulty != null && optimisticDifficulty === serverDifficulty) {
-      setOptimisticDifficulty(null);
-    }
-  }, [optimisticDifficulty, serverDifficulty]);
+  // ---------- §2 difficulty switch — the ONE shared flow (also used by the
+  // Home program-card chip; see use-change-difficulty.tsx) ----------
+  const { difficulty: selectedDifficulty, switching, confirm, request: onDifficultyTap } = useChangeDifficulty();
 
   // ---------- data ----------
   const catalogQuery = usePrograms("ROUTINE", selectedDifficulty);
@@ -94,50 +67,6 @@ export default function RoutinesScreen() {
     () => [...(catalogQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
     [catalogQuery.data],
   );
-
-  // the confirm copy depends on whether a program is currently followed (§2)
-  const dashboard = useDashboard();
-  const followed = dashboard.data?.active ?? null;
-
-  // ---------- ui state ----------
-  const [confirmDifficulty, setConfirmDifficulty] = useState<Difficulty | null>(null);
-  const [switching, setSwitching] = useState(false);
-
-  // ---------- §2 difficulty switch ----------
-  const applyDifficulty = async (next: Difficulty) => {
-    if (switching || next === serverDifficulty) return;
-    setSwitching(true);
-    setOptimisticDifficulty(next);
-    try {
-      const res = await userApi.setDifficulty(next);
-      // keep the shell's session copy in sync (app-wide user.difficulty)
-      if (session?.user) {
-        setSession({ ...session, user: { ...session.user, difficulty: res.difficulty } });
-      }
-      await qc.invalidateQueries({ queryKey: qk.session });
-      invalidate.programs(); // ["programs"] + ["dashboard"]
-      invalidate.schedule();
-      invalidate.programDetail();
-      if (res.variantKept) {
-        const kept = DIFFICULTY_LABELS[res.variantKept as Difficulty] ?? res.variantKept;
-        toast.info(`No ${DIFFICULTY_LABELS[next]} version. Kept ${kept}.`);
-      }
-    } catch (e) {
-      setOptimisticDifficulty(null);
-      toast.error(errorMessage(e));
-    } finally {
-      setSwitching(false);
-    }
-  };
-
-  const onDifficultyTap = (next: Difficulty) => {
-    if (switching || next === selectedDifficulty) return;
-    if (followed) {
-      setConfirmDifficulty(next); // §2: current program restarts — confirm first
-      return;
-    }
-    void applyDifficulty(next); // no active program → plain switch, no confirm
-  };
 
   // ---------- render ----------
   const empty = !catalogQuery.isLoading && programs.length === 0;
@@ -298,31 +227,8 @@ export default function RoutinesScreen() {
           programs.map((program) => renderCard(program))
         )}
 
-        {/* §2 destructive confirm: difficulty change with a followed program */}
-        <AlertDialog open={confirmDifficulty != null} onOpenChange={(o) => !o && setConfirmDifficulty(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Change difficulty</AlertDialogTitle>
-              <AlertDialogDescription>
-                From {DIFFICULTY_LABELS[serverDifficulty]} to{" "}
-                {DIFFICULTY_LABELS[confirmDifficulty ?? serverDifficulty]}. Current program restarts at Phase 1 Day 1.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault();
-                  const next = confirmDifficulty;
-                  setConfirmDifficulty(null);
-                  if (next) void applyDifficulty(next);
-                }}
-              >
-                Confirm
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* §2 destructive confirm — the shared useChangeDifficulty modal */}
+        {confirm ? <confirm.Dialog /> : null}
       </ScrollBody>
     </Screen>
   );

@@ -822,7 +822,7 @@ export const backupApi = {
   runNow: () => request<{ ok: true; run: BackupRunDTO }>("/api/backup/run-now", { method: "POST" }),
 };
 
-// ---------- Part 9: difficulty, variants, days, on-demand, challenges, account ----------
+// ---------- Part 9: difficulty, variants, days, on-demand, account ----------
 
 export const userApi = {
   /** PATCH /api/user/difficulty (§2) — global difficulty switch. */
@@ -940,32 +940,6 @@ export const scheduleReconcileApi = {
     request<{ missed: number; completed: number; checked: number }>("/api/schedule/reconcile-missed", {
       method: "POST",
     }),
-};
-
-export type ChallengeDTO = {
-  id: string;
-  name: string;
-  startsOn: string;
-  weeks: number;
-  isActive: boolean;
-  variantId: string;
-  programName: string;
-  userVariantId: string | null;
-  joined: boolean;
-};
-
-export const challengesApi = {
-  /** GET /api/challenges/active (§10). */
-  active: () => request<{ challenge: ChallengeDTO | null }>("/api/challenges/active"),
-  /** POST /api/challenges/:id/join (§10). */
-  join: (challengeId: string) =>
-    request<{ routineId: string; variantId: string | null; startsOn: string; weeks: number }>(
-      `/api/challenges/${challengeId}/join`,
-      { method: "POST" },
-    ),
-  /** DELETE /api/challenges/:id/dismiss (§10). */
-  dismiss: (challengeId: string) =>
-    request<{ ok: true }>(`/api/challenges/${challengeId}/dismiss`, { method: "DELETE" }),
 };
 
 export const supportApi = {

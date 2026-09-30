@@ -12,8 +12,6 @@
  *  3. DayFavorite backfill from the legacy RoutineDay.isFavorite flag.
  *  4. User.difficulty backfill from UserProfile.level (default INTERMEDIATE).
  *  5. Exercise.altGroup backfill for key movement families (§5.2 suggestions).
- *  6. One active Challenge seeded (global) if none exists — variant of the
- *     oldest user's "Push / Pull / Legs" INTERMEDIATE copy.
  */
 import { PrismaClient } from "@prisma/client";
 import { PROGRAM_TEMPLATES, templateVariants, durationBandFor } from "../src/server/seed";
@@ -318,46 +316,12 @@ async function ensureTemplatePrograms() {
   console.log(`[part9] missing template programs materialized: ${created}`);
 }
 
-async function seedChallenge() {
-  const existing = await db.challenge.findFirst({ where: { isActive: true } });
-  if (existing) {
-    console.log(`[part9] active challenge already present: ${existing.name}`);
-    return;
-  }
-  // Variant of the oldest user's "Push / Pull / Legs" INTERMEDIATE copy.
-  const routine = await db.routine.findFirst({
-    where: { name: "Push / Pull / Legs", kind: "ROUTINE" },
-    orderBy: { createdAt: "asc" },
-    include: { variants: true },
-  });
-  const variant = routine?.variants.find((v) => v.difficulty === "INTERMEDIATE") ?? routine?.variants[0];
-  if (!routine || !variant) {
-    console.log("[part9] no PPL routine found — challenge skipped (fresh DBs seed on first signup)");
-    return;
-  }
-  const startsOn = new Date();
-  startsOn.setUTCHours(0, 0, 0, 0);
-  startsOn.setUTCDate(startsOn.getUTCDate() + 3); // starts in 3 days
-  await db.challenge.create({
-    data: {
-      id: randomUUID(),
-      name: "Autumn Strength Reset",
-      startsOn,
-      weeks: 4,
-      programVariantId: variant.id,
-      isActive: true,
-    },
-  });
-  console.log(`[part9] challenge seeded: Autumn Strength Reset (routine ${routine.id}, variant ${variant.difficulty})`);
-}
-
 async function main() {
   await migrateRoutines();
   await ensureTemplatePrograms();
   await migrateFavorites();
   await migrateUserDifficulty();
   await migrateAltGroups();
-  await seedChallenge();
 }
 
 main()

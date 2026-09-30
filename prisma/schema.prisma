@@ -45,7 +45,13 @@ model User {
   dayFavorites      DayFavorite[]
   dayOverrides      DayOverride[]
   phaseOverrides    PhaseOverride[]
-  challengeDismisses ChallengeDismiss[]
+  // ---- Part 10 §1: profile fields (fitness level = difficulty, single source) ----
+  gender        String? // Gender: MALE | FEMALE | OTHER | UNSPECIFIED (Zod-validated; SQLite string enum)
+  birthYear     Int?
+  weighInDays   Json? // int[] 0..6 ISO weekday; null/empty = none (SQLite: Json, not list primitive)
+  stepGoal      Int      @default(10000)
+  avatarKey     String? // media adapter key
+  stepEntries   StepEntry[]
   supportTickets    SupportTicket[]
 }
 
@@ -117,7 +123,7 @@ model UserSettings {
   // ---- Part 6: feature expansion (defaults preserve Part 1-5 behaviour) ----
   guidedMode          Boolean @default(false) // guided set-by-set session pointer
   restDisplay         String  @default("BAR") // BAR | RING (RING adds in-flow RestRingBlock)
-  autoMoveNextSet     Boolean @default(false) // pointer/focus advances after rest
+  autoMoveNextSet     Boolean @default(true) // §10 autoAdvance: focus advances to next unlogged set after rest
   hapticsEnabled      Boolean @default(true)
   showVideoPanel      Boolean @default(true) // guided-mode per-exercise video block
   showMuscleChips     Boolean @default(true)
@@ -140,6 +146,11 @@ model UserSettings {
   showTours           Boolean @default(true) // auto-start screen tours + welcome tour
   showHints           Boolean @default(true) // contextual one-time hints
   replayToursOnUpdate Boolean @default(false) // auto-replay when a screen's tour version bumps
+  // ---- Part 10 §1: WorkoutSettings semantics (this per-user singleton IS the
+  // spec's WorkoutSettings — autoAdvance=autoMoveNextSet above, showTempo above;
+  // countdownSounds + videoSpeed are new) ----
+  countdownSounds Boolean @default(false) // 3-2-1 beeps + long tone at 0 while the live tab is visible
+  videoSpeed      Float   @default(1.0) // FocusCard video playback rate chip
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -272,6 +283,10 @@ model Workout {
   sourceLabel      String? // PROGRAM "{program} · Day {n}" · ON_DEMAND "On demand" · CUSTOM "Custom"/routine name
   difficulty       String? // user.difficulty captured at start; immutable
   durationSec      Int? // active seconds (set on finish; 0 for marked-off days)
+  // ---- Part 10 §1: finish metadata ----
+  markedComplete   Boolean @default(false) // exit-with-mark flag (§3.6)
+  totalVolume      Float? // Σ reps×weight kg computed on finish (§3.6/§6.2)
+  totalSets        Int? // completed set count computed on finish
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -394,6 +409,8 @@ model Routine {
   equipmentLevel String? // NONE | MINIMAL | GYM
   categories    Json? // string[] ⊆ WARMUP_REHAB|SPECIALIZATION|LIMITED_EQUIPMENT|LIMITED_TIME|COACH_FAVORITE
   isFeatured    Boolean @default(false) // Coach picks
+  // ---- Part 10 §4: provenance for custom workouts ----
+  source        String? // CUSTOM = user-built single workout ("Your workouts"); null = template/on-demand
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -751,7 +768,7 @@ model BackupRun {
   @@index([userId, at])
 }
 
-// ---------- Part 9 §1: programs, variants, phases, overrides, on-demand, challenges, support ----------
+// ---------- Part 9 §1: programs, variants, phases, overrides, on-demand, support ----------
 
 // Variant = Program × Difficulty. Owns daysPerWeek, equipment and the phase list.
 // One row per (routine, difficulty) — @@unique keeps the sibling lookup exact.
@@ -767,7 +784,6 @@ model ProgramVariant {
 
   phases      ProgramPhase[]
   activeFor   ActiveRoutine[]
-  challenges  Challenge[]
 
   @@unique([routineId, difficulty])
   @@index([routineId])
@@ -835,34 +851,6 @@ model DayFavorite {
   @@index([userId])
 }
 
-// Community challenge (§10 Home banner). Points at a variant; join = start flow.
-model Challenge {
-  id               String   @id
-  name             String
-  startsOn         DateTime // UTC midnight of the local start date
-  weeks            Int      @default(4)
-  programVariantId String
-  programVariant   ProgramVariant @relation(fields: [programVariantId], references: [id], onDelete: Cascade)
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  dismisses ChallengeDismiss[]
-
-  @@index([isActive])
-}
-
-model ChallengeDismiss {
-  id          String    @id
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  challengeId String
-  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  createdAt   DateTime  @default(now())
-
-  @@unique([userId, challengeId])
-}
-
 // Support tickets (§9 Message support; rate limit 5/day/user app-side).
 model SupportTicket {
   id        String   @id
@@ -873,6 +861,24 @@ model SupportTicket {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ---------- Part 10 §1: steps ----------
+
+// One row per (user, date). `date` is UTC midnight of the local day; steps are
+// whole numbers; source MANUAL for now (browser has no automatic sync).
+model StepEntry {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime // UTC midnight of the local day
+  steps     Int
+  source    String   @default("MANUAL") // MANUAL (auto sources future)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // System-level exercise catalog (not per user). Loaded from

@@ -1,5 +1,5 @@
 {
-  "version": "8c7de06e",
+  "version": "aac01db7",
   "screens": {
     "account-delete": {
       "title": "Delete account",
@@ -1375,34 +1375,6 @@
           "label": "Time ≥",
           "help": "Show workouts with a set at or above this duration.",
           "order": 120,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        }
-      ]
-    },
-    "challenge": {
-      "steps": [
-        {
-          "id": "challenge.dismiss",
-          "label": "Dismiss",
-          "help": "Hide this challenge — it stays hidden for your account.",
-          "order": 10,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "challenge.join",
-          "label": "Join challenge",
-          "help": "Start the challenge program at your difficulty on day one.",
-          "order": 20,
           "when": [
             "always"
           ],
@@ -6132,6 +6104,18 @@
           "scope": "component"
         },
         {
+          "id": "workout.difficultyChip",
+          "label": "Difficulty chip",
+          "help": "Switch the program difficulty without leaving Home.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "workout.markRest",
           "label": "Mark off",
           "help": "Complete today's rest day and advance the cursor.",
@@ -6147,18 +6131,6 @@
           "id": "workout.start",
           "label": "Start day",
           "help": "Create today's session from this day and jump into it.",
-          "order": 10,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "workout.startsIn",
-          "label": "Starts soon",
-          "help": "The program begins on its start date — tap to see when.",
           "order": 10,
           "when": [
             "always"
