@@ -1,11 +1,17 @@
 {
-  "version": "16a89524",
+  "version": "a1a1526e",
   "screens": {
     "account-delete": {
       "title": "Delete account",
       "purpose": "Permanently remove your account and data after a 30-day grace period.",
       "steps": [],
       "version": "382cdcc8"
+    },
+    "account-password": {
+      "title": "Change password",
+      "purpose": "Change your account password with a strength check — your session stays signed in.",
+      "steps": [],
+      "version": "3630b9c0"
     },
     "account-privacy": {
       "title": "Privacy policy",
@@ -106,6 +112,13 @@
       "steps": [],
       "version": "5f86276b"
     },
+    "calendar-day": {
+      "title": "Calendar day",
+      "purpose": "See one date's sessions: completed logs, scheduled plans, missed catch-ups and rest days.",
+      "emptyPurpose": "Nothing on this day yet — schedule a workout from the bottom bar.",
+      "steps": [],
+      "version": "826750d7"
+    },
     "calendar-filters": {
       "title": "Filters",
       "purpose": "Narrow the calendar and history lists by category, exercise and set conditions.",
@@ -118,6 +131,12 @@
       "emptyPurpose": "Log your first workout to light up the weekly dots and records.",
       "steps": [],
       "version": "74ad667e"
+    },
+    "dashboard-program": {
+      "title": "Program progress",
+      "purpose": "The followed program's progress: day, phase, start date, sets, volume, workouts and missed sessions.",
+      "steps": [],
+      "version": "2c13693e"
     },
     "day": {
       "title": "Day overview",
@@ -294,6 +313,18 @@
       "steps": [],
       "version": "d57698d7"
     },
+    "progress": {
+      "title": "Progress",
+      "purpose": "Your weigh-in hub: weight chart with 7-day average, progress photos by pose, and full history.",
+      "steps": [],
+      "version": "f237f200"
+    },
+    "progress-log": {
+      "title": "Log weigh-in",
+      "purpose": "Log a weigh-in for any past day — week strip, weight entry and optional progress photos.",
+      "steps": [],
+      "version": "828d5bc3"
+    },
     "schedule-pick": {
       "title": "Schedule workout",
       "purpose": "Pick the routine day or session to place on a chosen date.",
@@ -337,6 +368,12 @@
       "steps": [],
       "version": "e85ab438"
     },
+    "steps": {
+      "title": "Steps",
+      "purpose": "Daily step tracking: today's progress, manual add or set-total entries, the goal, and this week.",
+      "steps": [],
+      "version": "f0678b6d"
+    },
     "tempo": {
       "title": "Tempo",
       "purpose": "Pick the eccentric-pause-concentric-pause timing for every set.",
@@ -377,6 +414,242 @@
           "label": "Delete account",
           "help": "Soft-delete now; data is purged after the 30-day grace period.",
           "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "accountDetails": {
+      "steps": [
+        {
+          "id": "accountDetails.photo",
+          "label": "Change photo",
+          "help": "Set or remove your profile photo.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.name",
+          "label": "Name",
+          "help": "Change your display name.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.nameInput",
+          "label": "Name input",
+          "help": "Your display name.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.email",
+          "label": "Email",
+          "help": "Your sign-in email — read-only.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.nameSave",
+          "label": "Save name",
+          "help": "Save your display name.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.password",
+          "label": "Change password",
+          "help": "Set a new password with a strength check.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.gender",
+          "label": "Gender",
+          "help": "Set your gender — optional.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.birthYear",
+          "label": "Birth year",
+          "help": "Your birth year — age is derived from it.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.birthYearInput",
+          "label": "Birth year input",
+          "help": "The year you were born.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.birthYearSave",
+          "label": "Save birth year",
+          "help": "Save your birth year.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.weightLog",
+          "label": "Log weigh-in",
+          "help": "Log today's weigh-in in Progress.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.fitnessLevel",
+          "label": "Fitness level",
+          "help": "Changes your program difficulty everywhere.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.weighInDay",
+          "label": "Weigh-in day",
+          "help": "Pick the weekdays you weigh in.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.units",
+          "label": "Units",
+          "help": "Switch metric and imperial everywhere.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDetails.timezone",
+          "label": "Timezone",
+          "help": "Your day boundary for schedules and streaks.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "accountPassword": {
+      "steps": [
+        {
+          "id": "accountPassword.save",
+          "label": "Save password",
+          "help": "Verify your current password and set the new one.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountPassword.current",
+          "label": "Current password",
+          "help": "Confirm it's you with your existing password.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountPassword.next",
+          "label": "New password",
+          "help": "At least strength 3 on the meter below.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountPassword.confirm",
+          "label": "Confirm new password",
+          "help": "Repeat the new password exactly.",
+          "order": 50,
           "when": [
             "always"
           ],
@@ -1641,9 +1914,9 @@
           "scope": "component"
         },
         {
-          "id": "calendar.entryRow",
-          "label": "Session row",
-          "help": "Open this session's log or day overview.",
+          "id": "calendar.today",
+          "label": "Today",
+          "help": "Jump back to the current month and today's date.",
           "order": 80,
           "when": [
             "always"
@@ -1651,12 +1924,16 @@
           "hint": false,
           "placement": "auto",
           "scope": "component"
-        },
+        }
+      ]
+    },
+    "calendarDay": {
+      "steps": [
         {
-          "id": "calendar.schedule",
-          "label": "Schedule",
-          "help": "Pick a routine session for the selected day.",
-          "order": 90,
+          "id": "calendarDay.entryRow",
+          "label": "Session row",
+          "help": "Open this session's log.",
+          "order": 10,
           "when": [
             "always"
           ],
@@ -1665,10 +1942,10 @@
           "scope": "component"
         },
         {
-          "id": "calendar.dayMenu",
-          "label": "Day menu",
-          "help": "Start, move, skip or remove the scheduled session.",
-          "order": 100,
+          "id": "calendarDay.entryRow",
+          "label": "Session row",
+          "help": "Open this session's day overview.",
+          "order": 10,
           "when": [
             "always"
           ],
@@ -1677,10 +1954,10 @@
           "scope": "component"
         },
         {
-          "id": "calendar.reopen",
-          "label": "Reopen",
-          "help": "Put a done, missed or skipped session back on the plan.",
-          "order": 110,
+          "id": "calendarDay.missedRow",
+          "label": "Missed session row",
+          "help": "Tap to do it today, reschedule it, or dismiss the miss.",
+          "order": 20,
           "when": [
             "always"
           ],
@@ -1689,10 +1966,22 @@
           "scope": "component"
         },
         {
-          "id": "calendar.workoutRow",
-          "label": "Workout row",
-          "help": "Open this logged workout's detail.",
-          "order": 120,
+          "id": "calendarDay.menu",
+          "label": "Session options",
+          "help": "Unschedule this session from the day.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendarDay.schedule",
+          "label": "Schedule a workout",
+          "help": "Pick a program day, custom workout or on-demand session for this date.",
+          "order": 40,
           "when": [
             "always"
           ],
@@ -1865,10 +2154,94 @@
           "scope": "component"
         },
         {
+          "id": "dashboard.programCard",
+          "label": "Program card",
+          "help": "Your current program with days done and phase chips. Tap for full progress.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.continue",
+          "label": "Continue",
+          "help": "Jump back into the session you have in progress.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.markRest",
+          "label": "Mark off",
+          "help": "Complete today's rest day and advance the cursor.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.pickProgram",
+          "label": "Pick a program",
+          "help": "Browse the catalog and follow your first program.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "dashboard.retry",
           "label": "Retry",
           "help": "Reload the dashboard data.",
           "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.startDay",
+          "label": "Start day",
+          "help": "Create today's session from this day and jump into it.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.todayCalendar",
+          "label": "Calendar",
+          "help": "Open the month calendar.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.todayRow",
+          "label": "Today's session",
+          "help": "A session scheduled today. Tap to open its log, day or program.",
+          "order": 30,
           "when": [
             "always"
           ],
@@ -1901,9 +2274,33 @@
           "scope": "component"
         },
         {
+          "id": "dashboard.todaySchedule",
+          "label": "Schedule",
+          "help": "Pick a program day or session to schedule today.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "dashboard.records",
           "label": "Monthly records",
           "help": "Your top personal records set this month. Tap for the full leaderboard.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.statsSeeAll",
+          "label": "See all",
+          "help": "Open the Progress screen: weigh-in chart, history and photos.",
           "order": 50,
           "when": [
             "always"
@@ -1917,6 +2314,146 @@
           "label": "Start today's session",
           "help": "Continue or start today's session; picks a program when you have none.",
           "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.weightTile",
+          "label": "Weight tile",
+          "help": "Your latest weigh-in with its 7-day average. Tap for the full chart.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboard.stepsTile",
+          "label": "Steps tile",
+          "help": "Today's steps against your daily goal. Tap to log steps.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dashboardProgram": {
+      "steps": [
+        {
+          "id": "dashboardProgram.day",
+          "label": "Day",
+          "help": "The cursor's position and how many days are already done.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.phase",
+          "label": "Phase",
+          "help": "Which phase of the program the cursor is in.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.started",
+          "label": "Started",
+          "help": "When you followed this program.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.sets",
+          "label": "Sets logged",
+          "help": "Total performed sets across this program's finished workouts.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.volume",
+          "label": "Volume lifted",
+          "help": "Total weight moved (reps × weight) across finished workouts.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.workouts",
+          "label": "Workouts completed",
+          "help": "Finished workouts logged under this program.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.continue",
+          "label": "Continue",
+          "help": "Start the program's current day (or continue the session in progress).",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dashboardProgram.missed",
+          "label": "Missed",
+          "help": "Scheduled sessions that were missed under this program.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "datePicker": {
+      "steps": [
+        {
+          "id": "datePicker.quickJump",
+          "label": "Quick date chips",
+          "help": "Jump the picked date to yesterday, today or tomorrow.",
+          "order": 10,
           "when": [
             "always"
           ],
@@ -3893,6 +4430,30 @@
           "scope": "component"
         },
         {
+          "id": "logDetail.sessionToggle",
+          "label": "This session",
+          "help": "Show only this session's sets.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.compareToggle",
+          "label": "Compare",
+          "help": "Show this session side-by-side with your previous sessions.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "logDetail.noteSave",
           "label": "Save note",
           "help": "Store this note on the log itself.",
@@ -3907,7 +4468,7 @@
         {
           "id": "logDetail.editHistory",
           "label": "Edit history",
-          "help": "Open this exercise's past sessions and edit the sets inline.",
+          "help": "Turn this log's rows into editable sets — fix, delete or add, then Save.",
           "order": 130,
           "when": [
             "always"
@@ -3921,6 +4482,18 @@
           "label": "Rest row",
           "help": "Actual rest between sets; planned values fill the gaps.",
           "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.compareTable",
+          "label": "Compare table",
+          "help": "This session side-by-side with your previous sessions of the exercise — swipe sideways.",
+          "order": 150,
           "when": [
             "always"
           ],
@@ -3945,6 +4518,18 @@
           "label": "Note",
           "help": "The note saved on this log; tap to edit it.",
           "order": 160,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.saveHistory",
+          "label": "Save history",
+          "help": "Write your edits — totals, records and max weight recalculate.",
+          "order": 170,
           "when": [
             "always"
           ],
@@ -4105,10 +4690,34 @@
           "scope": "component"
         },
         {
+          "id": "more.progress",
+          "label": "Progress",
+          "help": "Weigh-ins, progress photos and history.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.steps",
+          "label": "Steps",
+          "help": "Log daily steps and track your goal.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "more.records",
           "label": "Records & stats",
           "help": "Open personal records, rolling stats and goals.",
-          "order": 30,
+          "order": 50,
           "when": [
             "always"
           ],
@@ -4120,7 +4729,7 @@
           "id": "more.tools",
           "label": "Tools",
           "help": "Open the 1RM, plates, pace and interval timer tools.",
-          "order": 40,
+          "order": 60,
           "when": [
             "always"
           ],
@@ -4132,7 +4741,7 @@
           "id": "more.dictionary",
           "label": "Dictionary",
           "help": "Open the training terms and methods glossary.",
-          "order": 50,
+          "order": 70,
           "when": [
             "always"
           ],
@@ -4144,7 +4753,7 @@
           "id": "more.settings",
           "label": "Settings",
           "help": "Open preferences, display and account settings.",
-          "order": 60,
+          "order": 80,
           "when": [
             "always"
           ],
@@ -4156,7 +4765,7 @@
           "id": "more.backup",
           "label": "Backup & data",
           "help": "Open settings to back up and manage your data.",
-          "order": 70,
+          "order": 90,
           "when": [
             "always"
           ],
@@ -4168,7 +4777,7 @@
           "id": "more.notifications",
           "label": "Manage notifications",
           "help": "Open settings to tune reminders and notification switches.",
-          "order": 90,
+          "order": 100,
           "when": [
             "always"
           ],
@@ -4180,7 +4789,7 @@
           "id": "more.subscription",
           "label": "Manage subscription",
           "help": "Your plan and billing status (Free plan, no billing wired).",
-          "order": 100,
+          "order": 110,
           "when": [
             "always"
           ],
@@ -4192,7 +4801,7 @@
           "id": "more.support",
           "label": "Message support",
           "help": "Send the team a message — up to 5 per day, replies by email.",
-          "order": 110,
+          "order": 120,
           "when": [
             "always"
           ],
@@ -4204,7 +4813,7 @@
           "id": "more.social",
           "label": "Social accounts",
           "help": "Linked sign-in providers for this account.",
-          "order": 120,
+          "order": 130,
           "when": [
             "always"
           ],
@@ -4216,7 +4825,7 @@
           "id": "more.invite",
           "label": "Invite friends",
           "help": "Share your SetForge link — or copy it to the clipboard.",
-          "order": 130,
+          "order": 140,
           "when": [
             "always"
           ],
@@ -4228,7 +4837,7 @@
           "id": "more.privacy",
           "label": "Privacy policy",
           "help": "How SetForge stores and protects your training data.",
-          "order": 140,
+          "order": 150,
           "when": [
             "always"
           ],
@@ -4240,7 +4849,7 @@
           "id": "more.terms",
           "label": "Terms",
           "help": "The terms of service for using SetForge.",
-          "order": 150,
+          "order": 160,
           "when": [
             "always"
           ],
@@ -4252,7 +4861,7 @@
           "id": "more.signOut",
           "label": "Sign out",
           "help": "End the session and clear offline data on this device.",
-          "order": 160,
+          "order": 170,
           "when": [
             "always"
           ],
@@ -4264,7 +4873,7 @@
           "id": "more.delete",
           "label": "Delete account",
           "help": "Soft-delete the account, anonymize data, purge after 30 days.",
-          "order": 170,
+          "order": 180,
           "when": [
             "always"
           ],
@@ -4276,7 +4885,7 @@
           "id": "more.help",
           "label": "Help & tours",
           "help": "Open help topics, shortcuts and screen tours.",
-          "order": 180,
+          "order": 190,
           "when": [
             "always"
           ],
@@ -5570,6 +6179,206 @@
         }
       ]
     },
+    "progress": {
+      "steps": [
+        {
+          "id": "progress.historyLog",
+          "label": "Log",
+          "help": "Log your first weigh-in.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.log",
+          "label": "Log weigh-in",
+          "help": "Log a weigh-in for any past day, with optional progress photos.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.logFirst",
+          "label": "Log",
+          "help": "Log your first weigh-in.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.photosLog",
+          "label": "Log",
+          "help": "Add photos with your next weigh-in.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.historyMenu",
+          "label": "Weigh-in options",
+          "help": "Delete this weigh-in entry.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.latest",
+          "label": "Latest weigh-in",
+          "help": "Your most recent weigh-in with its 7-day average. Tap to log another.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.photoTile",
+          "label": "Progress photo",
+          "help": "A progress photo for this pose. Tap to open the photo timeline.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progress.photosTimeline",
+          "label": "Photo timeline",
+          "help": "Open the full photo timeline and compare view.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "progressLog": {
+      "steps": [
+        {
+          "id": "progressLog.prevWeek",
+          "label": "Previous week",
+          "help": "Page the week strip back one week.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.nextWeek",
+          "label": "Next week",
+          "help": "Page the week strip forward one week.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.weekDay",
+          "label": "Week day",
+          "help": "Pick the weigh-in's day; future days can't be logged.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.chipToday",
+          "label": "Today chip",
+          "help": "Jump to today's weigh-in.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.chipYesterday",
+          "label": "Yesterday chip",
+          "help": "Jump to yesterday's weigh-in.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.weight",
+          "label": "Weight",
+          "help": "The weight you measured for the picked day.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.photoSlot",
+          "label": "Photo slot",
+          "help": "Attach a progress photo for this pose via camera or library.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "progressLog.save",
+          "label": "Save",
+          "help": "Store the weigh-in for the picked day (photos included).",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
     "restBar": {
       "steps": [
         {
@@ -5637,9 +6446,9 @@
           "scope": "component"
         },
         {
-          "id": "schedulePick.tabRoutines",
-          "label": "Routines tab",
-          "help": "Browse routines and pick one of their days.",
+          "id": "schedulePick.dayRow",
+          "label": "Program day row",
+          "help": "Schedule this program day on the picked date.",
           "order": 20,
           "when": [
             "always"
@@ -5649,9 +6458,9 @@
           "scope": "component"
         },
         {
-          "id": "schedulePick.tabSessions",
-          "label": "Sessions tab",
-          "help": "Browse sessions to schedule whole.",
+          "id": "schedulePick.customRow",
+          "label": "Your workout row",
+          "help": "Schedule a workout you built yourself.",
           "order": 30,
           "when": [
             "always"
@@ -5661,9 +6470,9 @@
           "scope": "component"
         },
         {
-          "id": "schedulePick.routineRow",
-          "label": "Routine row",
-          "help": "Expand to pick one of its days.",
+          "id": "schedulePick.search",
+          "label": "On-demand search",
+          "help": "Filter the on-demand catalog by name or exercise.",
           "order": 40,
           "when": [
             "always"
@@ -5673,22 +6482,10 @@
           "scope": "component"
         },
         {
-          "id": "schedulePick.dayRow",
-          "label": "Day row",
-          "help": "Schedule this day on the picked date.",
-          "order": 50,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
           "id": "schedulePick.sessionRow",
-          "label": "Session row",
-          "help": "Schedule this session on the picked date.",
-          "order": 60,
+          "label": "On-demand row",
+          "help": "Schedule an on-demand session on the picked date.",
+          "order": 50,
           "when": [
             "always"
           ],
@@ -6385,6 +7182,82 @@
           "label": "Account",
           "help": "Email, name, password and sign-out.",
           "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "steps": {
+      "steps": [
+        {
+          "id": "steps.today",
+          "label": "Today's steps",
+          "help": "Your step count today against the daily goal.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "steps.input",
+          "label": "Steps input",
+          "help": "The steps to add or set for today.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "steps.apply",
+          "label": "Apply steps",
+          "help": "Apply the entered steps with the selected mode.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "steps.goal",
+          "label": "Daily goal",
+          "help": "Your daily step goal — tap to change it.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "steps.goalInput",
+          "label": "Goal input",
+          "help": "Your daily step goal (1,000 – 100,000).",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "steps.goalSave",
+          "label": "Save goal",
+          "help": "Save the daily step goal.",
+          "order": 60,
           "when": [
             "always"
           ],

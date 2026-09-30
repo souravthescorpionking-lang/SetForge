@@ -244,6 +244,25 @@ export function computeWorkoutTotals(w: {
 }
 
 /**
+ * Part 10 §6.2: keep a FINISHED workout's totals truthful when its history is
+ * edited — every set mutation re-stamps totalVolume/totalSets through the SAME
+ * computeWorkoutTotals the finish path uses (§3.6). No-op on live workouts
+ * (the finish flow stamps totals there). Called inside the set transactions.
+ */
+async function refreshFinishedTotals(tx: Prisma.TransactionClient, workoutId: string): Promise<void> {
+  const w = await tx.workout.findUnique({
+    where: { id: workoutId },
+    include: { exercises: { include: { sets: true } } },
+  });
+  if (!w || w.finishedAt == null) return;
+  const totals = computeWorkoutTotals(w);
+  await tx.workout.update({
+    where: { id: workoutId },
+    data: { totalVolume: totals.totalVolume, totalSets: totals.totalSets },
+  });
+}
+
+/**
  * Schedule revert shared by discard (§6.9) and the §3.6 partial end: linked
  * DONE entries — past dates flip to MISSED (truthful), today/future flip back
  * to PLANNED — and every entry unlinks the workout.
@@ -577,6 +596,7 @@ export async function createSet(
         },
       });
       await recomputePRs(tx, userId, we.exerciseId);
+      await refreshFinishedTotals(tx, workoutId); // §6.2: finished logs keep totals truthful
       return set;
     },
     TX_OPTIONS,
@@ -632,6 +652,7 @@ export async function updateSet(
         },
       });
       await recomputePRs(tx, userId, we.exerciseId);
+      await refreshFinishedTotals(tx, workoutId); // §6.2: finished logs keep totals truthful
       return set;
     },
     TX_OPTIONS,
@@ -647,6 +668,7 @@ export async function deleteSet(userId: string, workoutId: string, weId: string,
     async (tx) => {
       await tx.trainingSet.delete({ where: { id: setId } });
       await recomputePRs(tx, userId, we.exerciseId);
+      await refreshFinishedTotals(tx, workoutId); // §6.2: finished logs keep totals truthful
       const rest = await tx.trainingSet.findMany({ where: { workoutExerciseId: weId }, orderBy: { sortOrder: "asc" } });
       for (let i = 0; i < rest.length; i++) {
         if (rest[i].sortOrder !== i) await tx.trainingSet.update({ where: { id: rest[i].id }, data: { sortOrder: i } });

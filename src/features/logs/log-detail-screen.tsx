@@ -22,19 +22,27 @@
 //                         type short W/N/D/F, AMRAP stays "AMRAP"
 //                      Rest expand (40px) — actual list "45s · 60s · —",
 //                         planned values fill the gaps
-//                      "Edit history" (40px) → #/session/exercise/{weId}?
-//                         date={log}&tab=history — the existing per-exercise
-//                         history editor, opened scrolled to this exercise
+//                      "Edit history" (40px) → §6.2 INLINE history editor: the
+//                         log's rows become editable SetRows in place (draft
+//                         state — nothing writes until Save), per-row Delete in
+//                         the ⋯ popover, Add set per exercise; BottomBar swaps
+//                         to Cancel · Save. Save writes the diffs (PATCH/DELETE/
+//                         POST per set) and the server re-stamps
+//                         totalVolume/totalSets (§6.2 refreshFinishedTotals) +
+//                         PRs + max logged. Cancel restores.
 //   BottomBar    : "Repeat this session" (primary) — swapped to Cancel/Apply
-//                  while the replace or notes editors are open (ONE primary).
+//                  while the replace or notes editors are open, or Cancel/Save
+//                  while the §6.2 history editor runs (ONE primary).
 //
 // Deviations documented in the worklog: WorkoutExercise carries no per-exercise
 // note field, so log-scoped "Notes" edits the WORKOUT comment (the schema's
-// only log-scoped note); "Rearrange"/"Edit history" reuse by-date flows, which
-// target the latest session of the log's date (this log on single-session days).
+// only log-scoped note); "Rearrange" reuses the by-date arrange flow, which
+// targets the latest session of the log's date (this log on single-session
+// days). Part 9's "Edit history" navigated to the training screen's history
+// tab; Part 10 §6.2 replaces that with the inline editor above.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Screen, TopBar, ScrollBody, BottomBar } from "@/components/layout";
 import { BackButton } from "@/components/layout/back-button";
@@ -88,11 +96,13 @@ import { qk, useInvalidate, useOnline } from "@/lib/client/query";
 import {
   ApiError,
   exerciseSuggestionsApi,
+  exercisesApi,
   sessionsApi,
   workoutLifecycleApi,
   workoutsApi,
+  type SetInput,
 } from "@/lib/client/api";
-import { dayKeyOf, formatDayLabel, formatDurationParts, round1, round2, todayKey } from "@/lib/client/format";
+import { dayKeyOf, formatDayLabel, formatDayShort, formatDurationParts, round1, round2, todayKey } from "@/lib/client/format";
 import { formatRestSec, MUSCLE_LABELS, muscleColour, type Muscle } from "@/lib/constants";
 import { rowTall } from "@/lib/ui/tokens";
 import { exerciseUnit } from "@/features/exercises/labels";
@@ -182,22 +192,188 @@ function SectionHeader({ label }: { label: string }) {
   );
 }
 
+// ---------- §6.1 compare columns ----------
+
+/** One compare column: this session or a prior session of the same exercise. */
+type CompareColumn = { key: string; header: string; sets: SetDTO[] };
+
+/** Cell text "{reps}×{weight}" ("8×85"); non-weight modalities keep the shape. */
+function compareCellText(set: SetDTO | undefined): string {
+  if (!set) return "—";
+  const reps = set.reps != null ? String(set.reps) : "—";
+  if (set.weight != null) return `${reps}×${round1(set.weight)}`;
+  if (set.distance != null) return `${reps}×${round2(set.distance)}km`;
+  if (set.timeSec != null) return `${reps}×${set.timeSec}s`;
+  return reps;
+}
+
+/**
+ * §6.1 Compare grid — the ONE allowed horizontal scroll: sticky 48px "Set"
+ * column + one 96px column per session (newest left), 32px header/cell rows,
+ * "—" gaps, bold row-best weight, 4px inset gradient shadows on the sides that
+ * overflow. Nowrap preserved (fixed tracks + truncate).
+ */
+function CompareTable({ columns }: { columns: CompareColumn[] }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  const rowCount = columns.reduce((n, c) => Math.max(n, c.sets.length), 0);
+
+  const measure = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setEdges({
+      left: el.scrollLeft > 0,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+    });
+  };
+  useEffect(measure, [columns.length, rowCount]);
+
+  return (
+    <div className="relative overflow-hidden rounded-lg border border-border/60 bg-card">
+      <div
+        ref={scrollRef}
+        onScroll={measure}
+        {...tourAttrs({ id: "logDetail.compareTable", label: "Compare table", help: "This session side-by-side with your previous sessions of the exercise — swipe sideways.", order: 150 })}
+        role="table"
+        aria-label="Session comparison"
+        className="overflow-x-auto"
+      >
+        <div
+          className="grid w-max"
+          style={{ gridTemplateColumns: `48px repeat(${columns.length}, 96px)` }}
+        >
+          {/* header row — 32px; the sticky Set column sits above scrolled cells */}
+          <div
+            data-row
+            aria-hidden
+            className="sticky left-0 z-10 flex h-8 items-center justify-center overflow-hidden whitespace-nowrap border-r border-border/60 bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+          >
+            Set
+          </div>
+          {columns.map((c, ci) => (
+            <div
+              key={c.key}
+              role="columnheader"
+              className={cn(
+                "flex h-8 items-center justify-center overflow-hidden whitespace-nowrap bg-muted/40 px-1 text-[11px] font-semibold leading-none tabular-nums",
+                ci === 0 ? "text-primary" : "text-muted-foreground",
+                ci === columns.length - 1 ? "" : "border-r border-border/40",
+              )}
+            >
+              <span className="truncate">{c.header}</span>
+            </div>
+          ))}
+
+          {/* body rows — 32px; bold marks the row's best weight */}
+          {Array.from({ length: rowCount }, (_, i) => {
+            const best = columns.reduce<number | null>((max, c) => {
+              const w = c.sets[i]?.weight;
+              return w != null && (max == null || w > max) ? w : max;
+            }, null);
+            return (
+              <div key={`row-${i}`} className="contents" role="row">
+                <div
+                  data-row
+                  className="sticky left-0 z-10 flex h-8 items-center justify-center overflow-hidden whitespace-nowrap border-r border-border/60 border-t border-border/30 bg-card text-xs leading-none tabular-nums text-muted-foreground"
+                >
+                  {i + 1}
+                </div>
+                {columns.map((c, ci) => {
+                  const set = c.sets[i];
+                  const isBest = best != null && set?.weight === best;
+                  return (
+                    <div
+                      key={c.key}
+                      role="cell"
+                      aria-label={`Set ${i + 1}${set ? ` — ${compareCellText(set)}` : " — no set"}${isBest ? " — best weight" : ""}`}
+                      className={cn(
+                        "flex h-8 items-center justify-center overflow-hidden whitespace-nowrap px-1 text-xs leading-none tabular-nums",
+                        ci === columns.length - 1 ? "" : "border-r border-border/40",
+                        "border-t border-border/30",
+                        set == null && "text-muted-foreground/50",
+                        isBest && "font-bold text-foreground",
+                        !isBest && set != null && "text-foreground/90",
+                      )}
+                    >
+                      <span className="truncate">{compareCellText(set)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* §6.1: 4px inset shadows on the overflowing sides (gradient masks) */}
+      {edges.left ? (
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-1 bg-gradient-to-r from-border to-transparent" />
+      ) : null}
+      {edges.right ? (
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-1 bg-gradient-to-l from-border to-transparent" />
+      ) : null}
+    </div>
+  );
+}
+
 // ---------- §8 per-exercise footer (max weight · set table · rest · history) ----------
 
 function PerformedFooter({
   we,
   settings,
   isRemoved,
+  workoutId,
+  workoutDate,
   onEditHistory,
 }: {
   we: WorkoutExerciseDTO;
   settings: SettingsDTO | null;
   isRemoved: boolean;
+  /** The log's own id/date — §6.1 excludes it from the prior-session columns. */
+  workoutId: string;
+  workoutDate: string;
   onEditHistory: (we: WorkoutExerciseDTO) => void;
 }) {
   const [restOpen, setRestOpen] = useState(false);
+  // §6.1 "This session | Compare" — compare is opt-in (history fetch is lazy)
+  const [compare, setCompare] = useState(false);
   const unit = exerciseUnit(we.exercise, settings);
   const sets = useMemo(() => [...we.sets].sort((a, b) => a.sortOrder - b.sortOrder), [we.sets]);
+
+  // §6.1 data: up to 3 prior FINISHED sessions of the same exercise, aligned
+  // by set index. Same query family as the live screen's History tab
+  // (qk.exerciseSessionHistory) — lazy: only fetched once Compare is on.
+  const historyQuery = useQuery({
+    queryKey: qk.exerciseSessionHistory(we.exerciseId),
+    queryFn: () => exercisesApi.history(we.exerciseId, 5, { finishedOnly: true }),
+    enabled: compare && !isRemoved,
+    staleTime: 60_000,
+  });
+
+  const columns = useMemo<CompareColumn[]>(() => {
+    const thisColumn: CompareColumn = {
+      key: `this-${we.id}`,
+      header: formatDayShort(dayKeyOf(workoutDate)),
+      sets,
+    };
+    if (!compare) return [thisColumn];
+    const seen = new Set<string>([workoutId]);
+    const prior: CompareColumn[] = [];
+    for (const r of historyQuery.data ?? []) {
+      if (seen.has(r.workoutId) || !(r.date < workoutDate)) continue; // strictly prior sessions
+      seen.add(r.workoutId);
+      prior.push({
+        key: r.workoutId,
+        header: formatDayShort(dayKeyOf(r.date)),
+        sets: [...r.sets].sort((a, b) => a.sortOrder - b.sortOrder),
+      });
+      if (prior.length === 3) break;
+    }
+    return [thisColumn, ...prior];
+  }, [compare, historyQuery.data, sets, we.id, workoutDate, workoutId]);
+
+  const noPriorSessions = compare && !historyQuery.isLoading && columns.length === 1;
 
   // Max weight: heaviest logged, non-warm-up set of THIS exercise in THIS log.
   // A set counts when it carries a weight value (performed or prefilled by the
@@ -230,8 +406,64 @@ function PerformedFooter({
         </span>
       </div>
 
-      {/* §8 set table — 32px header + 32px data rows */}
+      {/* §6.1 toggle row 32 — "This session | Compare" (segmented, small) */}
       {sets.length > 0 ? (
+        <div data-row className="flex h-8 w-full items-center gap-2 overflow-hidden whitespace-nowrap px-1">
+          <div
+            role="tablist"
+            aria-label="Set table view"
+            className="flex h-7 flex-none items-center rounded-lg border bg-card p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!compare}
+              {...tourAttrs({ id: "logDetail.sessionToggle", label: "This session", help: "Show only this session's sets.", order: 110 })}
+              aria-label="This session only"
+              onClick={() => setCompare(false)}
+              className={cn(
+                "flex h-6 items-center rounded-md px-2.5 text-xs font-semibold leading-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                !compare ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              This session
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={compare}
+              {...tourAttrs({ id: "logDetail.compareToggle", label: "Compare", help: "Show this session side-by-side with your previous sessions.", order: 120 })}
+              aria-label="Compare with previous sessions"
+              onClick={() => setCompare(true)}
+              className={cn(
+                "flex h-6 items-center rounded-md px-2.5 text-xs font-semibold leading-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                compare ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Compare
+            </button>
+          </div>
+          {noPriorSessions ? (
+            <span className="min-w-0 flex-1 truncate text-[10px] leading-none text-muted-foreground/70">
+              No prior sessions of this exercise yet
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* §8 set table — 32px header + 32px data rows (§6.1: compare swaps in
+          the horizontal session grid) */}
+      {sets.length > 0 ? (
+        compare ? (
+          historyQuery.isLoading ? (
+            <div className="flex flex-col gap-1" aria-busy="true" aria-label="Loading previous sessions">
+              <Skeleton className="h-8 rounded-lg" />
+              <Skeleton className="h-8 w-2/3 rounded-lg" />
+            </div>
+          ) : (
+            <CompareTable columns={columns} />
+          )
+        ) : (
         <div
           {...tourAttrs({ id: "logDetail.setTable", label: "Set table", help: "Performed sets: number, short type, reps and weight.", order: 150 })}
           className="overflow-hidden rounded-lg border border-border/60 bg-muted/15"
@@ -274,6 +506,7 @@ function PerformedFooter({
             );
           })}
         </div>
+        )
       ) : null}
 
       {/* Rest expand — actual list, planned fallback */}
@@ -301,12 +534,13 @@ function PerformedFooter({
         </button>
       ) : null}
 
-      {/* Edit history → the existing per-exercise history editor */}
+      {/* Edit history → the §6.2 INLINE history editor (editable SetRows in
+          place; BottomBar swaps to Cancel · Save) */}
       {!isRemoved ? (
         <button
           type="button"
           data-row
-          {...tourAttrs({ id: "logDetail.editHistory", label: "Edit history", help: "Open this exercise's past sessions and edit the sets inline.", order: 130 })}
+          {...tourAttrs({ id: "logDetail.editHistory", label: "Edit history", help: "Turn this log's rows into editable sets — fix, delete or add, then Save.", order: 130 })}
           aria-label={`Edit history for ${we.exercise.name}`}
           onClick={() => onEditHistory(we)}
           className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg px-2 text-left transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -352,6 +586,82 @@ const LOG_MENU: GroupMenuItem[] = [
   { icon: PencilRuler, label: "Edit history", action: { type: "history", exerciseId: "" } },
   { icon: History, label: "Exercise detail", action: { type: "detail", exerciseId: "" } },
 ];
+
+/** §6.2 history-editor menu — the log's rows are already editable, so the …
+ *  menu narrows to the safe navigations only. */
+const EDIT_MENU: GroupMenuItem[] = [
+  { icon: History, label: "Exercise detail", action: { type: "detail", exerciseId: "" } },
+];
+
+// ---------- §6.2 inline history editor (draft state — nothing writes pre-Save) ----------
+
+/** One editable set: base values at draft creation + the accumulated patch. */
+type DraftSet = {
+  id: string; // real TrainingSet id, or "tmp-{n}" for rows added this session
+  isNew: boolean; // Save → POST addSet
+  base: CardSet; // values when the draft was built (defaults for new rows)
+  patch: Partial<CardSet>; // accumulated edits (CardSet keys)
+};
+
+/** One exercise's editable rows + the real set ids removed this session. */
+type DraftExercise = {
+  weId: string;
+  removedIds: string[]; // Save → DELETE set
+  sets: DraftSet[];
+};
+
+/** CardSet patch → the API's SetInput (same mapping as the training screen). */
+function cardPatchToSetInput(patch: Partial<CardSet>): SetInput {
+  const out: SetInput = {};
+  if ("weightKg" in patch) out.weight = patch.weightKg ?? null;
+  if ("reps" in patch) out.reps = patch.reps ?? null;
+  if ("distanceM" in patch) out.distance = patch.distanceM ?? null;
+  if ("timeSec" in patch) out.timeSec = patch.timeSec ?? null;
+  if ("rpe" in patch) out.rpe = patch.rpe ?? null;
+  if ("tempo" in patch) out.tempo = patch.tempo ?? null;
+  if ("restPlannedSec" in patch) out.restPlannedSec = patch.restPlannedSec ?? null;
+  if ("setType" in patch) out.setType = patch.setType ?? "NORMAL";
+  if ("note" in patch) out.comment = patch.note ?? null;
+  if ("done" in patch) out.isComplete = !!patch.done;
+  return out;
+}
+
+/** A full merged CardSet → SetInput (new rows POST their complete values). */
+function cardSetToInput(s: CardSet, we: WorkoutExerciseDTO | undefined): SetInput {
+  const ex = we?.exercise;
+  return {
+    weight: s.weightKg ?? null,
+    reps: s.reps ?? null,
+    distance: s.distanceM ?? null,
+    timeSec: s.timeSec ?? null,
+    setType: s.setType ?? ex?.defaultSetType ?? "NORMAL",
+    rpe: s.rpe ?? ex?.defaultRpeTarget ?? null,
+    tempo: s.tempo ?? ex?.defaultTempo ?? null,
+    restPlannedSec: s.restPlannedSec ?? ex?.restSec ?? null,
+    isComplete: s.done ?? false,
+  };
+}
+
+function patchDraftSet(
+  draft: DraftExercise[],
+  weId: string,
+  setId: string,
+  fn: (s: DraftSet) => DraftSet,
+): DraftExercise[] {
+  return draft.map((de) => (de.weId !== weId ? de : { ...de, sets: de.sets.map((s) => (s.id === setId ? fn(s) : s)) }));
+}
+
+function removeDraftSet(draft: DraftExercise[], weId: string, setId: string): DraftExercise[] {
+  return draft.map((de) => {
+    if (de.weId !== weId) return de;
+    const target = de.sets.find((s) => s.id === setId);
+    return {
+      ...de,
+      sets: de.sets.filter((s) => s.id !== setId),
+      removedIds: target && !target.isNew && !de.removedIds.includes(setId) ? [...de.removedIds, setId] : de.removedIds,
+    };
+  });
+}
 
 // ---------- screen ----------
 
@@ -410,10 +720,146 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
     return m;
   }, [workout]);
 
-  // §8 "Edit history" → the existing per-exercise editor (training screen
-  // history tab) resolved BY DATE for this log's date, scrolled to this exercise.
-  const openEditHistory = (we: WorkoutExerciseDTO) => {
-    navigate(`/session/exercise/${we.id}?date=${dayKey}&tab=history`);
+  // §6.2 "Edit history" → the INLINE editor: the log's rows become editable
+  // SetRows in place (draft state); BottomBar swaps to Cancel · Save.
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState<DraftExercise[] | null>(null);
+  const [savingEdits, setSavingEdits] = useState(false);
+  const newSetSeq = useRef(0);
+
+  const weById = useMemo(() => new Map(exercises.map((we) => [we.id, we])), [exercises]);
+  const draftByWe = useMemo(() => new Map((draft ?? []).map((de) => [de.weId, de])), [draft]);
+
+  const openEditHistory = (_we: WorkoutExerciseDTO) => {
+    if (!workout || isRemoved || exercises.length === 0) return;
+    setDraft(
+      exercises.map((we) => ({
+        weId: we.id,
+        removedIds: [],
+        sets: [...we.sets]
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((s) => ({ id: s.id, isNew: false, base: toCardSet(s, 0), patch: {} })),
+      })),
+    );
+    setEditMode(true);
+  };
+
+  const cancelEdits = () => {
+    setEditMode(false);
+    setDraft(null);
+  };
+
+  // §6.2 draft actions (GroupCard log-mode dispatch — nothing writes yet)
+  const handleEditAction =
+    (we: WorkoutExerciseDTO | undefined) =>
+    (action: CardAction): void => {
+      if (!we || !draft) return;
+      switch (action.type) {
+        case "update-set":
+          setDraft((prev) =>
+            patchDraftSet(prev ?? [], we.id, action.setId, (s) => ({ ...s, patch: { ...s.patch, ...action.patch } })),
+          );
+          break;
+        case "remove-set":
+          setDraft((prev) => removeDraftSet(prev ?? [], we.id, action.setId));
+          break;
+        case "add-set": {
+          const ex = we.exercise;
+          const id = `tmp-${++newSetSeq.current}`;
+          const base: CardSet = {
+            id,
+            index: 0,
+            setType: ex.defaultSetType ?? "NORMAL",
+            weightKg: null,
+            reps: null,
+            distanceM: null,
+            timeSec: null,
+            rpe: ex.defaultRpeTarget ?? null,
+            tempo: ex.defaultTempo ?? null,
+            restPlannedSec: ex.restSec ?? null,
+            done: false,
+            selected: false,
+            isNewPr: false,
+          };
+          setDraft((prev) =>
+            (prev ?? []).map((de) => (de.weId !== we.id ? de : { ...de, sets: [...de.sets, { id, isNew: true, base, patch: {} }] })),
+          );
+          break;
+        }
+        case "toggle-done":
+          setDraft((prev) =>
+            patchDraftSet(prev ?? [], we.id, action.setId, (s) => {
+              const merged = { ...s.base, ...s.patch };
+              return { ...s, patch: { ...s.patch, done: !merged.done } };
+            }),
+          );
+          break;
+        case "copy-last":
+          setDraft((prev) => {
+            const de = (prev ?? []).find((d) => d.weId === we.id);
+            if (!de) return prev ?? [];
+            const idx = de.sets.findIndex((s) => s.id === action.setId);
+            if (idx < 0) return prev ?? [];
+            const src = [...de.sets.slice(0, idx)]
+              .reverse()
+              .find((s) => {
+                const m = { ...s.base, ...s.patch };
+                return m.weightKg != null || m.reps != null || m.distanceM != null || m.timeSec != null;
+              });
+            if (!src) {
+              toast.info("No earlier set to copy from");
+              return prev ?? [];
+            }
+            const m = { ...src.base, ...src.patch };
+            return patchDraftSet(prev ?? [], we.id, action.setId, (s) => ({
+              ...s,
+              patch: {
+                ...s.patch,
+                weightKg: m.weightKg ?? null,
+                reps: m.reps ?? null,
+                distanceM: m.distanceM ?? null,
+                timeSec: m.timeSec ?? null,
+                rpe: m.rpe ?? null,
+                tempo: m.tempo ?? null,
+                restPlannedSec: m.restPlannedSec ?? null,
+              },
+            }));
+          });
+          break;
+        default:
+          break; // the edit-mode ⋯ menu only navigates (EDIT_MENU)
+      }
+    };
+
+  // §6.2 Save — write the diffs; the server re-stamps totals (finished logs)
+  // + PRs per mutation, then the refetch refreshes max-logged + stats.
+  const saveEdits = async () => {
+    if (!workout || !draft || savingEdits || !online) return;
+    setSavingEdits(true);
+    try {
+      for (const de of draft) {
+        for (const id of de.removedIds) {
+          await workoutsApi.removeSet(workout.id, de.weId, id);
+        }
+        for (const s of de.sets) {
+          const merged: CardSet = { ...s.base, ...s.patch };
+          if (s.isNew) {
+            await workoutsApi.addSet(workout.id, de.weId, cardSetToInput(merged, weById.get(de.weId)));
+          } else if (Object.keys(s.patch).length > 0) {
+            await workoutsApi.updateSet(workout.id, de.weId, s.id, cardPatchToSetInput(s.patch));
+          }
+        }
+      }
+      invalidate.workout(dayKey);
+      invalidate.dashboard();
+      toast.success("History updated", { description: "Totals, records and max weight recalculated" });
+      setEditMode(false);
+      setDraft(null);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setSavingEdits(false);
+    }
   };
 
   // ---------- log-scoped replace flow (§5.2 pattern, writes the WORKOUT) ----------
@@ -625,9 +1071,9 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
       topBar={
         <TopBar
           leading={<BackButton fallbackHash="#/logs" label="Back to Logs" />}
-          title={workout ? logName : "Log detail"}
+          title={workout ? `${editMode ? "Editing — " : ""}${logName}` : "Log detail"}
           actions={
-            workout ? (
+            workout && !editMode ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -693,7 +1139,33 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
         />
       }
       bottomBar={
-        noteEditorOpen ? (
+        editMode && draft ? (
+          <BottomBar>
+            <div className="flex w-full gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 min-w-0 flex-1 text-sm font-semibold"
+                disabled={savingEdits}
+                tour={{ skipTour: true, reason: "Dismissal-only secondary control of the history editor" }}
+                onClick={cancelEdits}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="h-11 min-w-0 flex-1 text-sm font-bold"
+                disabled={savingEdits || !online}
+                aria-label="Save the edited history"
+                tour={{ id: "logDetail.saveHistory", label: "Save history", help: "Write your edits — totals, records and max weight recalculate.", order: 170 }}
+                onClick={() => void saveEdits()}
+              >
+                {savingEdits ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                Save
+              </Button>
+            </div>
+          </BottomBar>
+        ) : noteEditorOpen ? (
           <BottomBar>
             <div className="flex w-full gap-2">
               <Button
@@ -857,8 +1329,9 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
               {muscles.length > 0 ? <MuscleChipRow muscles={muscles} /> : null}
             </div>
 
-            {/* log-scoped replace flow (inline) */}
-            {replaceOpen ? (
+            {/* log-scoped replace flow (inline — unreachable while the §6.2
+                history editor owns the screen, gated for safety) */}
+            {!editMode && replaceOpen ? (
               <div className="flex flex-col gap-2 rounded-lg border bg-card p-2">
                 {replaceTarget == null ? (
                   <>
@@ -939,7 +1412,8 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
               </div>
             ) : null}
 
-            {/* GroupCard ×N — performed view mode with §8 footers */}
+            {/* GroupCard ×N — §6.2 edit mode renders editable SetRows in place
+                (draft state); view mode keeps the §8 performed footers */}
             {groups.length > 0 ? (
               <GroupCardStack>
                 {groups.map((g) => {
@@ -948,25 +1422,38 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
                   return (
                     <GroupCard
                       key={g.key}
-                      mode="view"
+                      mode={editMode ? "log" : "view"}
                       group={{ code: g.code, label: g.label, colour }}
-                      menuItems={LOG_MENU}
-                      entries={g.members.map((we, i) => ({
-                        exercise: toCardExercise(we, settings),
-                        sets: toPerformedCardSets(we.sets),
-                        code: memberCode(g.code, i),
-                        tip: we.exercise.trainerTip ?? null,
-                        footer: (
-                          <PerformedFooter
-                            we={we}
-                            settings={settings}
-                            isRemoved={isRemoved}
-                            onEditHistory={openEditHistory}
-                          />
-                        ),
-                      }))}
+                      menuItems={editMode ? EDIT_MENU : LOG_MENU}
+                      entries={g.members.map((we, i) => {
+                        const de = editMode ? draftByWe.get(we.id) : undefined;
+                        return {
+                          exercise: toCardExercise(we, settings),
+                          sets: de
+                            ? de.sets.map((s, si) => ({ ...s.base, ...s.patch, index: si + 1 }))
+                            : toPerformedCardSets(we.sets),
+                          code: memberCode(g.code, i),
+                          tip: we.exercise.trainerTip ?? null,
+                          // §6.2: per-row Delete in the ⋯ popover while editing
+                          allowRemoveSet: editMode,
+                          footer: editMode ? undefined : (
+                            <PerformedFooter
+                              we={we}
+                              settings={settings}
+                              isRemoved={isRemoved}
+                              workoutId={workoutId}
+                              workoutDate={workout.date}
+                              onEditHistory={openEditHistory}
+                            />
+                          ),
+                        };
+                      })}
                       visibleColumns={visibleColumns}
-                      onAction={handleGroupAction(g.members)}
+                      onAction={
+                        editMode
+                          ? (action, entryIndex) => handleEditAction(g.members[entryIndex])(action)
+                          : handleGroupAction(g.members)
+                      }
                     />
                   );
                 })}
@@ -975,7 +1462,10 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
               <p className="px-1 text-sm text-muted-foreground">No exercises logged in this session.</p>
             )}
 
-            {/* note row / inline note editor (log-scoped workout comment) */}
+            {/* note row / inline note editor (log-scoped workout comment —
+                hidden while the §6.2 history editor owns the screen) */}
+            {!editMode ? (
+              <>
             {noteEditorOpen ? (
               <div className="flex flex-col gap-2 rounded-lg border bg-card p-2">
                 <SectionHeader label="Session note" />
@@ -1008,6 +1498,8 @@ function LogDetailInner({ workoutId }: { workoutId: string }) {
                 </span>
                 <PencilRuler className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
               </button>
+            ) : null}
+              </>
             ) : null}
           </div>
         ) : null}

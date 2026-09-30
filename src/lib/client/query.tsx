@@ -51,6 +51,10 @@ export const qk = {
   // ---- Part 10 §4: custom workouts + canonical equipment ----
   customWorkouts: ["custom-workouts"] as const,
   equipment: ["equipment"] as const,
+  // ---- Part 10 §7–§9: program progress, steps, user account fields ----
+  programProgress: ["program-progress"] as const,
+  steps: (from: string, to: string) => ["steps", from, to] as const,
+  userAccount: ["user-account"] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -232,6 +236,13 @@ export function useInvalidate() {
       qc.invalidateQueries({ queryKey: qk.customWorkouts });
       qc.invalidateQueries({ queryKey: ["day"] });
     },
+    // ---- Part 10 §7–§9 ----
+    programProgress: () => {
+      qc.invalidateQueries({ queryKey: qk.programProgress });
+      qc.invalidateQueries({ queryKey: qk.dashboard });
+    },
+    steps: () => qc.invalidateQueries({ queryKey: ["steps"] }),
+    userAccount: () => qc.invalidateQueries({ queryKey: qk.userAccount }),
     all: () => qc.invalidateQueries(),
   };
 }

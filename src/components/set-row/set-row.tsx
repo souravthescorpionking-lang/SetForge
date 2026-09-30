@@ -1163,6 +1163,9 @@ export interface SetRowProps {
    *  inputs (Type · Reps · Weight · RPE stay in the grid at every width).
    *  Same ONE SetRow (L2) — presentation variant only, never a fork. */
   variant?: "default" | "focus";
+  /** Part 10 §6.2 (L2 extension): show the ⋯ “Remove set” action in log/edit
+   *  mode too (the log-detail history editor). Default: template mode only. */
+  allowRemoveSet?: boolean;
   className?: string;
 }
 
@@ -1177,6 +1180,7 @@ export function SetRow({
   current = false,
   fieldsOverride,
   variant = "default",
+  allowRemoveSet,
   className,
 }: SetRowProps) {
   const vw = useViewportWidth();
@@ -1246,7 +1250,7 @@ export function SetRow({
         showRpeEditor={rpeDropped}
         showTempoEditor={tempoDropped}
         showRestEditor={restDropped}
-        allowRemoveSet={mode === "template"}
+        allowRemoveSet={allowRemoveSet ?? mode === "template"}
         tempoPresets={tempoPresets}
         onAction={moreEditable ? onAction : undefined}
       />

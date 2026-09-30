@@ -21,19 +21,18 @@
 // Range & virtualization: the caller passes the §6 range (min(earliest
 // schedule entry, now-2 months) → now+3 months) — ~6 months ≈ 250 cells, so
 // plain rendering is smooth (the Part 3 list-view precedent: virtualisation
-// skipped by design at this size). Tap a day → the caller selects it; the
-// SelectedDayPanel renders inline AFTER the selected day's month via
-// `renderPanel`.
+// skipped by design at this size). Tap a day → the caller navigates to the
+// §5.1 day-detail route (#/calendar/{date}); the selection highlight stays.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { todayKey } from "@/lib/client/format";
 import { Check } from "lucide-react";
 import type { ProjectedDayDTO, ScheduleEntryDTO } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { monthCells, monthLabelLong, monthOf, weekdayLabels, type MonthAnchor } from "./month-utils";
+import { monthCells, monthLabelLong, weekdayLabels, type MonthAnchor } from "./month-utils";
 
 const MAX_DOTS = 3;
 
@@ -51,8 +50,6 @@ type Props = {
   selectedDay: string;
   loading: boolean;
   onSelect: (dayKey: string) => void;
-  /** Renders the SelectedDayPanel inline after the selected day's month. */
-  renderPanel?: (anchor: MonthAnchor) => ReactNode;
 };
 
 /** §6 dot for one schedule status (null = no dot: REST, future unknown). */
@@ -85,11 +82,9 @@ export function MonthView({
   selectedDay,
   loading,
   onSelect,
-  renderPanel,
 }: Props) {
   const labels = useMemo(() => weekdayLabels(weekStart), [weekStart]);
   const today = todayKey();
-  const selectedAnchor = useMemo(() => monthOf(selectedDay), [selectedDay]);
 
   if (loading && entriesByDay.size === 0) {
     return (
@@ -128,7 +123,6 @@ export function MonthView({
 
       {months.map((anchor) => {
         const cells = monthCells(anchor, weekStart);
-        const isPanelMonth = selectedAnchor.year === anchor.year && selectedAnchor.month === anchor.month;
         return (
           <section key={`${anchor.year}-${anchor.month}`} aria-label={monthLabelLong(anchor)}>
             {/* sticky month header — 40px data-row */}
@@ -222,8 +216,6 @@ export function MonthView({
                 );
               })}
             </div>
-
-            {isPanelMonth && renderPanel ? renderPanel(anchor) : null}
           </section>
         );
       })}

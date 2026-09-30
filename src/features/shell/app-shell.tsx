@@ -47,6 +47,7 @@ import AccountSocialScreen from "@/features/screens/account-social";
 import AccountDeleteScreen from "@/features/screens/account-delete";
 import AccountPrivacyScreen from "@/features/screens/account-privacy";
 import AccountTermsScreen from "@/features/screens/account-terms";
+import AccountPasswordScreen from "@/features/screens/account-password";
 import LibraryScreen from "@/features/screens/library";
 import LibraryEntryScreen from "@/features/screens/library-entry";
 import BuilderScreen from "@/features/screens/builder";
@@ -61,8 +62,14 @@ import FiltersEquipmentScreen from "@/features/screens/filters-equipment";
 import TempoScreen from "@/features/screens/tempo";
 import SetsEditorScreen from "@/features/screens/sets-editor";
 import CalendarScreen from "@/features/screens/calendar";
+import CalendarDayScreen from "@/features/screens/calendar-day";
 import CalendarFiltersScreen from "@/features/screens/calendar-filters";
 import SchedulePickScreen from "@/features/screens/schedule-pick";
+// ---- Part 10 §7–§9 screens ----
+import DashboardProgramScreen from "@/features/screens/dashboard-program";
+import ProgressScreen from "@/features/screens/progress";
+import ProgressLogScreen from "@/features/screens/progress-log";
+import StepsScreen from "@/features/screens/steps";
 import ExercisePickerScreen from "@/features/screens/picker";
 import ExerciseOverviewScreen from "@/features/screens/exercise-overview";
 import BodyScreen from "@/features/screens/body";
@@ -251,10 +258,22 @@ function renderScreen(route: Route): ReactNode {
     // ---- Calendar (via 📅) ----
     case "calendar":
       return <CalendarScreen />;
+    // ---- Part 10 §5.1: calendar day detail (full screen) ----
+    case "calendar-day":
+      return <CalendarDayScreen date={route.params.date} />;
     case "calendar-filters":
       return <CalendarFiltersScreen />;
     case "schedule-pick":
       return <SchedulePickScreen />;
+    // ---- Part 10 §7–§9: dashboard program progress · progress · steps ----
+    case "dashboard-program":
+      return <DashboardProgramScreen />;
+    case "progress":
+      return <ProgressScreen />;
+    case "progress-log":
+      return <ProgressLogScreen />;
+    case "steps":
+      return <StepsScreen />;
     // ---- Exercise picker / focus ----
     case "exercises":
       return <ExercisePickerScreen />;
@@ -296,6 +315,9 @@ function renderScreen(route: Route): ReactNode {
       return <AccountPrivacyScreen />;
     case "account-terms":
       return <AccountTermsScreen />;
+    // ---- Part 10 §9: password change ----
+    case "account-password":
+      return <AccountPasswordScreen />;
     case "dev":
       return <DevShowcaseScreen />;
   }

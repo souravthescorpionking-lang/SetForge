@@ -48,6 +48,7 @@ import { authApi, profileApi } from "@/lib/client/api";
 import { hapticSelection, hapticTap } from "@/lib/client/haptics";
 import { useApp } from "@/lib/client/store";
 import { PROFILE_GOALS, PROFILE_GOAL_LABELS, PROFILE_LEVELS } from "@/lib/constants";
+import { AccountDetailsSection } from "./account-details-section";
 import type { UserProfileDTO } from "@/lib/types";
 import { wipeLocalData } from "@/lib/client/offline";
 import { clearSwCaches } from "@/components/shared/pwa";
@@ -183,6 +184,8 @@ export default function ProfileScreen() {
           <p className="text-sm text-muted-foreground">Ready to forge.</p>
         </header>
 
+        <AccountDetailsSection />
+
         <ProfileSection
           profile={profile}
           loading={isLoading}
@@ -236,27 +239,9 @@ function ProfileSection({
     <section aria-label="Profile" className="flex flex-col gap-2">
       <SectionHeader title="Profile" />
 
-      <ProfileRow
-        label="Age"
-        value={profile.age != null ? `${profile.age} years` : null}
-        expanded={editing === "age"}
-        onToggle={() => toggle("age")}
-      />
-      {editing === "age" ? (
-        <StepperEditor
-          key={`age-${profile.age ?? "new"}`}
-          title="Age"
-          unitLabel="years"
-          min={AGE_MIN}
-          max={AGE_MAX}
-          initial={profile.age ?? 30}
-          formatValue={(n) => `${n}`}
-          ariaLabel="Age"
-          stepLabel="Age"
-          onSave={(n) => savePatch({ age: n })}
-          onCancel={() => setEditing(null)}
-        />
-      ) : null}
+      {/* Age / Weight / Level rows moved to Part 10 §9's AccountDetailsSection
+          (Birth year + derived age · read-only latest weigh-in · fitness level
+          = user.difficulty). Height / Goal / Days per week stay here. */}
 
       <ProfileRow
         label="Height"
@@ -282,53 +267,6 @@ function ProfileSection({
           max={imperial ? HEIGHT_IN_MAX : HEIGHT_CM_MAX}
           canonicalUnit="cm"
           onSave={(cm) => savePatch({ heightCm: cm })}
-          onCancel={() => setEditing(null)}
-        />
-      ) : null}
-
-      <ProfileRow
-        label="Weight"
-        value={
-          profile.weightKg == null ? null
-          : imperial ? `${Math.round(kgToLb(profile.weightKg))} lb · ${roundTo1(profile.weightKg)} kg`
-          : `${roundTo1(profile.weightKg)} kg`
-        }
-        expanded={editing === "weight"}
-        onToggle={() => toggle("weight")}
-      />
-      {editing === "weight" ? (
-        <MeasureEditor
-          key={`weight-${profile.weightKg ?? "new"}`}
-          title="Weight"
-          unitLabel={imperial ? "pounds" : "kg"}
-          placeholder={imperial ? "e.g. 180" : "e.g. 80"}
-          initialMetric={profile.weightKg}
-          imperial={imperial}
-          toDisplay={imperial ? kgToLb : identity}
-          toMetric={imperial ? lbToKg : identity}
-          min={imperial ? WEIGHT_LB_MIN : WEIGHT_KG_MIN}
-          max={imperial ? WEIGHT_LB_MAX : WEIGHT_KG_MAX}
-          canonicalUnit="kg"
-          onSave={(kg) => savePatch({ weightKg: kg })}
-          onCancel={() => setEditing(null)}
-        />
-      ) : null}
-
-      <ProfileRow
-        label="Level"
-        value={level ? LEVEL_LABELS[level] : null}
-        expanded={editing === "level"}
-        onToggle={() => toggle("level")}
-      />
-      {editing === "level" ? (
-        <ChoiceEditor
-          key={`level-${profile.level ?? "new"}`}
-          title="Experience level"
-          options={PROFILE_LEVELS.map((l) => ({ value: l, label: LEVEL_LABELS[l] }))}
-          selected={level}
-          onSelect={(v) => {
-            if (level !== v) void savePatch({ level: v });
-          }}
           onCancel={() => setEditing(null)}
         />
       ) : null}

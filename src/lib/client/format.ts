@@ -38,6 +38,13 @@ export function formatDayShort(key: string): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
+/** "Wednesday, Sep 30" — Part 10 §5.1 calendar day-detail TopBar heading
+ *  (long weekday · short month · day, UTC day-key semantics). */
+export function formatDayHeading(key: string): string {
+  const d = parseDayKey(key);
+  return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 export function formatMonthYear(date: Date): string {
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }

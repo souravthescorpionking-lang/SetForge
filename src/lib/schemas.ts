@@ -494,7 +494,13 @@ export const scheduleUpdateSchema = z.object({
 export const scheduleQuerySchema = z.object({
   from: isoDate.optional(),
   to: isoDate.optional(),
+  // ---- Part 10 §5.1: single-date fetch (calendar day route) — collapses the
+  // from/to window onto one day ----
+  date: isoDate.optional(),
 });
+// ---- Part 10 §5.1: day-detail entry actions (MISSED rows) ----
+export const scheduleRescheduleSchema = z.object({ date: isoDate });
+export const scheduleDismissSchema = z.object({});
 
 export const sessionFromWorkoutSchema = z.object({
   workoutId: z.string().min(1),
@@ -641,4 +647,39 @@ export const dayOverridePatchSchema = z.object({
 /** PUT /api/phases/:id/order { dayOrder } (§4 Program tab drag). */
 export const phaseOrderPutSchema = z.object({
   dayOrder: z.array(z.string().min(1)).min(1),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 10 §7–§9 — program progress, steps, user profile fields, password
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Gender values stored on User.gender (SQLite string enum). */
+export const GENDERS = ["MALE", "FEMALE", "OTHER", "UNSPECIFIED"] as const;
+export type Gender = (typeof GENDERS)[number];
+
+/** GET /api/steps?from=&to= — UTC-midnight day keys, ≤ 400 days apart. */
+export const stepsQuerySchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+
+/** POST /api/steps {date, steps, mode} — upsert by date; ADD adds, SET replaces. */
+export const stepsPostSchema = z.object({
+  date: isoDate,
+  steps: z.number().int().min(0).max(200_000),
+  mode: z.enum(["ADD", "SET"]).default("SET"),
+});
+
+/** PATCH /api/user/step-goal {stepGoal}. */
+export const stepGoalPatchSchema = z.object({
+  stepGoal: z.number().int().min(1_000).max(100_000),
+});
+
+/** PATCH /api/user/profile — User-level profile fields (§9). avatarKey null = remove. */
+export const userProfilePatchSchema = z.object({
+  name: z.string().trim().min(1).max(80).nullish(),
+  gender: z.enum(GENDERS).nullish(),
+  birthYear: z.number().int().min(1900).max(new Date().getUTCFullYear()).nullish(),
+  weighInDays: z.array(z.number().int().min(0).max(6)).max(7).nullish(),
+  avatarKey: z.string().min(1).max(300).nullish(),
 });

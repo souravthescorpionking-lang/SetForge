@@ -1,31 +1,35 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CalendarScreen — #/calendar (Part 9 §6 evolution of the p3-6 screen).
+// CalendarScreen — #/calendar (Part 9 §6 evolution of the p3-6 screen; Part 10
+// §5.1 moves the day detail to a FULL-SCREEN route).
 //
 //   TopBar (56)  : `◄ Sep 2026 ►` (scroll to the prev/next month; label tap =
-//                  jump to the current month) | List/Month segmented toggle
-//                  (48px, updates ?view=) | Filter icon-button (→
-//                  #/calendar/filters; orange dot while filters are active)
+//                  jump to the current month) · "Today" text button (§5.2 —
+//                  hidden while the current month is in view) | List/Month
+//                  segmented toggle (48px, updates ?view=) | Filter icon-button
+//                  (→ #/calendar/filters; orange dot while filters are active)
 //   SubBar (48)  : MONTH — the §6 legend row ("● Done · ○ Scheduled · ● Missed",
 //                  colour-coded, muted) · LIST — applied-filters ChipRow while
 //                  filters are active
 //   ScrollBody   : MONTH — §6 CONTINUOUS vertical months (range =
 //                  min(earliest schedule entry, now-2 months) → now+3 months;
-//                  sticky 40px month headers; 40px day cells with status dots;
-//                  SelectedDayPanel inline after the selected day's month)
-//                  LIST — month-grouped 56px rows; tap → ?view=month&date=…
+//                  sticky 40px month headers; 40px day cells with status dots.
+//                  §5.1: tapping a day cell NAVIGATES to #/calendar/{date} —
+//                  the inline SelectedDayPanel is retired (the selection
+//                  highlight stays; back returns with ?date= restored)
+//                  LIST — month-grouped 56px rows; tap → #/calendar/{date}
 //
 // On mount the §6 reconcile sweep runs (POST /api/schedule/reconcile-missed,
 // fire-and-forget) and invalidates ["schedule"] (+ dashboard) when it
 // resolves, so past PLANNED days without a workout settle to MISSED before
-// the grid reads them. (There is no separate Part 5 midnight/timezone refresh
-// hook client-side — the timezone rules run server-side on every schedule
-// read; grep "refresh" in features/calendar + lib/client confirms none.)
+// the grid reads them. (The §5.1 day route fetches its own data — the same
+// lazy derivation runs server-side on every read.)
 //
 // Route/query contract: #/calendar (?view=list|month — Month default;
-// ?date=YYYY-MM-DD selects the day). Filter state is shared with the filters
-// screen through filter-store (legacy sessionStorage persistence).
+// ?date=YYYY-MM-DD keeps the selected-day highlight). Filter state is shared
+// with the filters screen through filter-store (legacy sessionStorage
+// persistence).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useState } from "react";
@@ -43,7 +47,6 @@ import { replaceHash, useHashRoute } from "@/features/shell/router";
 import type { ProjectedDayDTO, ScheduleEntryDTO, WorkoutSummaryDTO } from "@/lib/types";
 import { MonthView, monthId } from "./month-view";
 import { ListView } from "./list-view";
-import { SelectedDayPanel } from "./selected-day-panel";
 import { FilterChipRow } from "./filter-chip-row";
 import { useCalendarFilters } from "./filter-store";
 import {
@@ -171,8 +174,11 @@ export default function CalendarScreen() {
   };
 
   const selectDay = (dayKey: string) => {
-    if (dayKey === selectedDay) return;
+    // §5.1: tap → the full-screen day route. replaceHash first records ?date=
+    // on THIS entry, so browser-back returns with the selection highlight
+    // restored (and the month scrolled to it).
     replaceHash(`#/calendar?view=month&date=${dayKey}`);
+    navigate(`/calendar/${dayKey}`);
   };
 
   // ---------- month scrolling (◄/► + jump-to-today + deep-link/list follow) ----------
@@ -202,10 +208,8 @@ export default function CalendarScreen() {
 
   const shiftMonth = (delta: number) => scrollToAnchor(shiftAnchor(anchor, delta));
 
-  /** List-view pick: select the day AND follow it into the month grid. */
+  /** List-view pick: opens the §5.1 day route (same as a month cell tap). */
   const pickFromList = (dayKey: string) => {
-    setScrollAnchor(monthOf(dayKey));
-    setAnchor(monthOf(dayKey));
     selectDay(dayKey);
   };
 
@@ -281,6 +285,20 @@ export default function CalendarScreen() {
           title={<span className="sr-only">Calendar</span>}
           actions={
             <>
+              {/* §5.2 quick jump — hidden while the current month is in view */}
+              {anchor.year !== todayAnchor.year || anchor.month !== todayAnchor.month ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 flex-none px-3 text-sm font-bold"
+                  aria-label="Jump to today"
+                  tour={{ id: "calendar.today", label: "Today", help: "Jump back to the current month and today's date.", order: 80 }}
+                  onClick={goToday}
+                >
+                  Today
+                </Button>
+              ) : null}
+
               {/* List/Month segmented toggle — 48px, updates ?view= */}
               <div
                 role="tablist"
@@ -385,13 +403,6 @@ export default function CalendarScreen() {
             selectedDay={selectedDay}
             loading={scheduleQuery.isLoading || workoutsQuery.isLoading}
             onSelect={selectDay}
-            renderPanel={() => (
-              <SelectedDayPanel
-                dayKey={selectedDay}
-                entries={entriesByDay.get(selectedDay) ?? []}
-                workouts={workoutsByDay.get(selectedDay) ?? []}
-              />
-            )}
           />
         ) : (
           <ListView

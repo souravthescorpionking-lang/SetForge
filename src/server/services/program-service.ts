@@ -1221,14 +1221,82 @@ export async function deleteSchedule(userId: string, id: string) {
   return { ok: true };
 }
 
-/** List entries in [from, to] with lazy status derivation + optional projection. */
-export async function listSchedule(userId: string, input: { from?: string; to?: string }) {
+// ---------- Part 10 §5.1: calendar day-detail entry actions ----------
+
+/**
+ * POST /api/schedule/:id/reschedule {date} — §5.1 MISSED action "Reschedule":
+ * moves the entry to a new date. A today/future target re-opens it as PLANNED
+ * (the slot is live again, missedAt cleared); a past target (§5.2 Yesterday
+ * chip) keeps the stored status — the lazy derivation settles it on read.
+ * 409 CONFLICT only when the target already carries a live PLANNED entry and
+ * the move would become PLANNED (idempotent for same-date no-ops).
+ */
+export async function rescheduleSchedule(userId: string, id: string, input: { date: string }) {
+  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: entryInclude });
+  if (!entry) throw notFound("Schedule entry not found");
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  const date = toDayUtc(input.date);
+  const targetKey = dayKey(date);
+  const reopens = compareDateKeys(targetKey, todayKey) >= 0;
+  if (reopens) {
+    const conflictEntry = await findPlannedConflict(userId, date, id);
+    if (conflictEntry) {
+      throw conflict("A workout is already planned for this date", {
+        date: input.date,
+        entryId: conflictEntry.id,
+        routineName: conflictEntry.routine.name,
+        dayName: conflictEntry.day?.name ?? null,
+      });
+    }
+  }
+  const updated = await db.scheduleEntry.update({
+    where: { id },
+    data: {
+      date,
+      ...(reopens ? { status: "PLANNED", missedAt: null } : {}),
+    },
+    include: entryInclude,
+  });
+  return mapScheduleEntry(updated);
+}
+
+/**
+ * POST /api/schedule/:id/dismiss — §5.1 MISSED action "Dismiss": soft-dismiss
+ * the missed entry (status SKIPPED — the calendar dot becomes the dashed
+ * "skipped" state and the day stops offering catch-up actions). Only MISSED
+ * entries (or stale past-PLANNED ones that would derive to MISSED) qualify.
+ */
+export async function dismissSchedule(userId: string, id: string) {
+  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: entryInclude });
+  if (!entry) throw notFound("Schedule entry not found");
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  const pastPlanned = entry.status === "PLANNED" && compareDateKeys(dayKey(entry.date), todayKey) < 0;
+  if (entry.status !== "MISSED" && !pastPlanned) {
+    throw badRequest("Only missed sessions can be dismissed");
+  }
+  const updated = await db.scheduleEntry.update({
+    where: { id },
+    data: { status: "SKIPPED" },
+    include: entryInclude,
+  });
+  return mapScheduleEntry(updated);
+}
+
+/** List entries in [from, to] with lazy status derivation + optional projection.
+ *  Part 10 §5.1: `date` collapses the window onto that single day (the calendar
+ *  day route's own fetch — same lazy MISSED derivation applies). */
+export async function listSchedule(
+  userId: string,
+  input: { from?: string; to?: string; date?: string },
+) {
   const settings = await getProgramSettings(userId);
   const todayKey = localDateKey(settings.timezone, new Date());
   await applyProgramRules(userId);
 
-  const to = input.to ?? addDaysKey(todayKey, 60);
-  const from = input.from ?? addDaysKey(todayKey, -60);
+  const to = input.date ?? input.to ?? addDaysKey(todayKey, 60);
+  const from = input.date ?? input.from ?? addDaysKey(todayKey, -60);
   const rows = await db.scheduleEntry.findMany({
     where: { userId, deletedAt: null, date: { gte: toDayUtc(from), lte: toDayUtc(to) } },
     include: {

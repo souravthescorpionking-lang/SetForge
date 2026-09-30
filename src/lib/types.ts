@@ -831,3 +831,52 @@ export type MediaUploadResultDTO = {
   url: string | null;
   thumbUrl: string | null;
 };
+
+// ===================== Part 10 §7–§9: progress, steps, account fields =====================
+
+/** GET /api/program/progress — the §7.1 rows (null payload when no program is followed). */
+export type ProgramProgressDTO = {
+  routineId: string;
+  name: string;
+  /** 1-based cursor position within the active variant's day domain. */
+  dayNumber: number;
+  dayCount: number;
+  /** 1-based phase of the cursor day (phaseCount ≥ 1; 1 for variant-less programs). */
+  phaseNumber: number;
+  phaseCount: number;
+  /** ISO timestamp of ActiveRoutine.startedAt. */
+  startedAt: string;
+  /** Completed day markers (persistent + finished workouts' sourceDayIds). */
+  daysDone: number;
+  setsLogged: number;
+  /** Σ reps×weight (kg) over finished workouts of this program (totalVolume where present). */
+  volumeKg: number;
+  workoutsCompleted: number;
+  /** ScheduleEntry rows with status MISSED for this routine. */
+  missed: number;
+};
+
+/** One StepEntry row (date is a UTC-midnight yyyy-mm-dd key). */
+export type StepEntryDTO = {
+  date: string;
+  steps: number;
+  source: string;
+};
+
+/** GET /api/steps — entries in range + the user's daily goal. */
+export type StepsResponseDTO = {
+  entries: StepEntryDTO[];
+  goal: number;
+};
+
+/** GET/PATCH /api/user/profile — User-level account fields (§9). */
+export type UserAccountDTO = {
+  name: string | null;
+  email: string;
+  gender: string | null;
+  birthYear: number | null;
+  weighInDays: number[];
+  avatarKey: string | null;
+  stepGoal: number;
+  difficulty: string;
+};

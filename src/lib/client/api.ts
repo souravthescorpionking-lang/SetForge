@@ -33,6 +33,10 @@ import type {
   ExerciseSuggestionDTO,
   CustomWorkoutRowDTO,
   EquipmentOptionDTO,
+  ProgramProgressDTO,
+  StepEntryDTO,
+  StepsResponseDTO,
+  UserAccountDTO,
 } from "@/lib/types";
 import type { Difficulty } from "@/lib/constants";
 
@@ -511,13 +515,20 @@ export type ScheduleListResult = {
 };
 
 export const scheduleApi = {
-  list: (params?: { from?: string; to?: string }) =>
+  list: (params?: { from?: string; to?: string; date?: string }) =>
     request<ScheduleListResult>(`/api/schedule${qs(params ?? {})}`),
   create: (data: ScheduleCreateInput) =>
     request<ScheduleEntryDTO>("/api/schedule", { method: "POST", body: body(data) }),
   update: (id: string, data: { date?: string; status?: "PLANNED" | "SKIPPED"; note?: string | null }) =>
     request<ScheduleEntryDTO>(`/api/schedule/${id}`, { method: "PUT", body: body(data) }),
   remove: (id: string) => request<{ ok: true }>(`/api/schedule/${id}`, { method: "DELETE" }),
+  // ---- Part 10 §5.1: calendar day-detail entry actions ----
+  /** MISSED "Reschedule" — moves the entry; today/future targets re-open PLANNED. */
+  reschedule: (id: string, date: string) =>
+    request<ScheduleEntryDTO>(`/api/schedule/${id}/reschedule`, { method: "POST", body: body({ date }) }),
+  /** MISSED "Dismiss" — soft-dismiss (status SKIPPED, dashed calendar dot). */
+  dismiss: (id: string) =>
+    request<ScheduleEntryDTO>(`/api/schedule/${id}/dismiss`, { method: "POST", body: body({}) }),
 };
 
 // ===================== Measurements =====================
@@ -704,9 +715,10 @@ export const dictionaryApi = {
 };
 
 export const mediaApi = {
-  upload: async (file: File): Promise<MediaUploadResultDTO> => {
+  upload: async (file: File, kind: "photos" | "avatar" = "photos"): Promise<MediaUploadResultDTO> => {
     const form = new FormData();
     form.append("file", file);
+    form.append("kind", kind);
     const res = await fetch("/api/media/upload", { method: "POST", body: form, credentials: "same-origin" });
     const json = (await res.json().catch(() => null)) as unknown;
     if (!res.ok) {
@@ -873,6 +885,42 @@ export const userApi = {
       "/api/user/difficulty",
       { method: "PATCH", body: body({ difficulty }) },
     ),
+};
+
+// ---------- Part 10 §7–§9: program progress, steps, user account fields ----------
+
+export const programProgressApi = {
+  /** GET /api/program/progress — §7.1 rows for the followed program. */
+  get: () => request<ProgramProgressDTO | null>("/api/program/progress"),
+};
+
+export const stepsApi = {
+  /** GET /api/steps?from=&to= — entries in range + the daily goal. */
+  list: (params: { from?: string; to?: string } = {}) =>
+    request<StepsResponseDTO>(`/api/steps${qs(params)}`),
+  /** POST /api/steps {date, steps, mode} — upsert by date (ADD adds, SET replaces). */
+  log: (data: { date: string; steps: number; mode: "ADD" | "SET" }) =>
+    request<{ date: string; steps: number; goal: number }>("/api/steps", {
+      method: "POST",
+      body: body(data),
+    }),
+};
+
+export const userAccountApi = {
+  /** GET /api/user/profile — User-level fields (§9 rows). */
+  get: () => request<UserAccountDTO>("/api/user/profile"),
+  /** PATCH /api/user/profile — name/gender/birthYear/weighInDays/avatarKey (§9). */
+  update: (patch: Partial<{ name: string | null; gender: string | null; birthYear: number | null; weighInDays: number[] | null; avatarKey: string | null }>) =>
+    request<UserAccountDTO>("/api/user/profile", { method: "PATCH", body: body(patch) }),
+  /** PATCH /api/user/step-goal {stepGoal} (§8.3). */
+  setStepGoal: (stepGoal: number) =>
+    request<{ stepGoal: number }>("/api/user/step-goal", {
+      method: "PATCH",
+      body: body({ stepGoal }),
+    }),
+  /** POST /api/user/password {currentPassword, newPassword} — keeps the current session. */
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    request<{ ok: true }>("/api/user/password", { method: "POST", body: body(data) }),
 };
 
 export const programStartApi = {

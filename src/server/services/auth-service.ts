@@ -1,6 +1,8 @@
 // Signup / login / logout / session / password-reset service.
+import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
+import { SESSION_COOKIE } from "@/lib/constants";
 import {
   hashPassword,
   verifyPassword,
@@ -296,6 +298,30 @@ export async function changePassword(userId: string, current: string, next: stri
   // invalidate all sessions (forces re-login)
   await db.session.deleteMany({ where: { userId } });
   console.log(`[auth] password changed: user ${userId}`);
+}
+
+/**
+ * Part 10 §9 — POST /api/user/password: same verification as changePassword,
+ * but the CURRENT session survives (other devices are signed out). The new
+ * password must differ from the current one.
+ */
+export async function changePasswordKeepSession(userId: string, current: string, next: string) {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user) throw unauthorized();
+  const verdict = await verifyPassword(current, user.passwordHash);
+  if (!verdict.ok) {
+    console.warn(`[auth] password change failed (wrong current password): user ${userId}`);
+    throw unauthorized("Current password is incorrect");
+  }
+  const same = await verifyPassword(next, user.passwordHash);
+  if (same.ok) throw badRequest("New password must be different from the current one");
+  await db.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(next) } });
+  // sign out every OTHER session — the current cookie keeps working
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  await db.session.deleteMany({ where: { userId, ...(token ? { token: { not: token } } : {}) } });
+  console.log(`[auth] password changed (session kept): user ${userId}`);
+  return { ok: true as const };
 }
 
 export async function deleteAccount(userId: string) {

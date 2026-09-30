@@ -25,6 +25,7 @@ import type {
   ProgramDetailDTO,
   ProgramDetailDayDTO,
   ProgramDetailPhaseDTO,
+  ProgramProgressDTO,
   ProgramSummaryDTO,
 } from "@/lib/types";
 import type { Prisma } from "@prisma/client";
@@ -372,4 +373,96 @@ export async function resetPhaseOrder(userId: string, phaseId: string) {
   await loadOwnedPhase(userId, phaseId);
   await db.phaseOverride.deleteMany({ where: { userId, phaseId } });
   return { ok: true as const };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 10 §7.1 — program progress (GET /api/program/progress)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** True weight×reps volume of one workout's performed, non-warm-up sets (kg). */
+function workoutVolume(w: {
+  exercises: Array<{ sets: Array<{ weight: number | null; reps: number | null; isWarmup: boolean; setType: string | null; isComplete: boolean }> }>;
+}): { sets: number; volume: number } {
+  let sets = 0;
+  let volume = 0;
+  for (const we of w.exercises) {
+    for (const s of we.sets) {
+      if (s.isWarmup || s.setType === "WARMUP") continue;
+      const performed = s.isComplete || s.weight != null || s.reps != null;
+      if (!performed) continue;
+      sets += 1;
+      if (s.weight != null && s.reps != null) volume += s.weight * s.reps;
+    }
+  }
+  return { sets, volume };
+}
+
+/**
+ * The §7.1 rows for the FOLLOWED program (null when none is followed):
+ * Day n/N + Phase p/P from the active variant's effective day domain ·
+ * Started = ActiveRoutine.startedAt · Sets/Volume/Workouts completed from the
+ * program's FINISHED workouts (totalVolume/totalSets where present, live
+ * compute otherwise) · Missed = MISSED schedule entries for the routine ·
+ * daysDone = persistent markers ∪ finished workouts' sourceDayIds.
+ */
+export async function getProgramProgress(userId: string): Promise<ProgramProgressDTO | null> {
+  const active = await db.activeRoutine.findUnique({
+    where: { userId },
+    include: { routine: { include: routineInclude }, variant: { include: { phases: { orderBy: { idx: "asc" } } } } },
+  });
+  if (!active) return null;
+
+  const days = await effectiveVariantDays(userId, active.routine, active.variantId ?? null);
+  const dayCount = Math.max(1, days.length);
+  const dayIndex = Math.min(Math.max(0, active.cursorDayIndex), dayCount - 1);
+  const cursorDay = days[dayIndex] ?? null;
+
+  // Phase of the cursor day within the active variant's phase order
+  // (variant-less programs are single-phase by definition).
+  const phases = active.variant?.phases ?? [];
+  const phaseCount = phases.length > 0 ? phases.length : 1;
+  const phaseNumber =
+    cursorDay?.phaseId && phases.some((p) => p.id === cursorDay.phaseId)
+      ? phases.findIndex((p) => p.id === cursorDay.phaseId) + 1
+      : (active.cursorPhaseIdx ?? 0) + 1;
+
+  const doneIds = await completedDayIds(userId, active.routineId, active.completedDayIds);
+
+  // Finished workouts of this program: totals columns where present (the §1
+  // backfill stamped every finished workout), live compute as the fallback.
+  const finished = await db.workout.findMany({
+    where: { userId, sourceRoutineId: active.routineId, finishedAt: { not: null }, removedAt: null },
+    include: { exercises: { include: { sets: true } } },
+  });
+  let setsLogged = 0;
+  let volumeKg = 0;
+  for (const w of finished) {
+    if (w.totalSets != null && w.totalVolume != null) {
+      setsLogged += w.totalSets;
+      volumeKg += w.totalVolume;
+      continue;
+    }
+    const live = workoutVolume(w);
+    setsLogged += live.sets;
+    volumeKg += live.volume;
+  }
+
+  const missed = await db.scheduleEntry.count({
+    where: { userId, routineId: active.routineId, status: "MISSED", deletedAt: null },
+  });
+
+  return {
+    routineId: active.routineId,
+    name: active.routine.name,
+    dayNumber: dayIndex + 1,
+    dayCount,
+    phaseNumber: Math.min(Math.max(1, phaseNumber), phaseCount),
+    phaseCount,
+    startedAt: active.startedAt.toISOString(),
+    daysDone: doneIds.size,
+    setsLogged,
+    volumeKg: Math.round(volumeKg * 10) / 10,
+    workoutsCompleted: finished.length,
+    missed,
+  };
 }

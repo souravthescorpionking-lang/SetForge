@@ -5,7 +5,87 @@
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
 import { startOnboardingTemplate } from "./onboarding-template";
-import type { UserProfileDTO } from "@/lib/types";
+import type { UserAccountDTO, UserProfileDTO } from "@/lib/types";
+
+/** User.weighInDays (Json int[] 0..6) → number[] (empty when unset/corrupt). */
+function weighInDaysOf(value: unknown): number[] {
+  const arr = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value.length > 0
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+  if (!Array.isArray(arr)) return [];
+  return [...new Set(arr.filter((v): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 6))].sort((a, b) => a - b);
+}
+
+function toAccountDTO(row: {
+  name: string | null;
+  email: string;
+  gender: string | null;
+  birthYear: number | null;
+  weighInDays: unknown;
+  avatarKey: string | null;
+  stepGoal: number;
+  difficulty: string;
+}): UserAccountDTO {
+  return {
+    name: row.name,
+    email: row.email,
+    gender: row.gender,
+    birthYear: row.birthYear,
+    weighInDays: weighInDaysOf(row.weighInDays),
+    avatarKey: row.avatarKey,
+    stepGoal: row.stepGoal,
+    difficulty: row.difficulty,
+  };
+}
+
+/** GET /api/user/profile — User-level account fields (Part 10 §9 rows). */
+export async function getUserAccount(userId: string): Promise<UserAccountDTO> {
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: {
+      name: true,
+      email: true,
+      gender: true,
+      birthYear: true,
+      weighInDays: true,
+      avatarKey: true,
+      stepGoal: true,
+      difficulty: true,
+    },
+  });
+  return toAccountDTO(user);
+}
+
+/** PATCH /api/user/profile — name/gender/birthYear/weighInDays/avatarKey (§9). */
+export async function updateUserAccount(
+  userId: string,
+  patch: {
+    name?: string | null;
+    gender?: string | null;
+    birthYear?: number | null;
+    weighInDays?: number[] | null;
+    avatarKey?: string | null;
+  },
+): Promise<UserAccountDTO> {
+  const data: Record<string, unknown> = {};
+  if (patch.name !== undefined) data.name = patch.name;
+  if (patch.gender !== undefined) data.gender = patch.gender;
+  if (patch.birthYear !== undefined) data.birthYear = patch.birthYear;
+  if (patch.weighInDays !== undefined) {
+    data.weighInDays = JSON.stringify(patch.weighInDays ?? []);
+  }
+  if (patch.avatarKey !== undefined) data.avatarKey = patch.avatarKey;
+  const user = await db.user.update({ where: { id: userId }, data });
+  return toAccountDTO(user);
+}
 
 function toDTO(row: {
   age: number | null; heightCm: number | null; weightKg: number | null;

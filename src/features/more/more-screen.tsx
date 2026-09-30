@@ -45,7 +45,9 @@ import {
   CreditCard,
   DatabaseBackup,
   FileText,
+  Footprints,
   LifeBuoy,
+  LineChart,
   LogOut,
   Ruler,
   Settings,
@@ -233,10 +235,48 @@ export default function MoreScreen() {
             type="button"
             data-row
             {...tourAttrs({
+              id: "more.progress",
+              label: "Progress",
+              help: "Weigh-ins, progress photos and history.",
+              order: 30,
+            })}
+            onClick={() => go("#/progress")}
+            className={ROW_CLASS}
+          >
+            <span className={ICON_TILE}>
+              <LineChart className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">Progress</span>
+            <ChevronRight className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+          </button>
+
+          <button
+            type="button"
+            data-row
+            {...tourAttrs({
+              id: "more.steps",
+              label: "Steps",
+              help: "Log daily steps and track your goal.",
+              order: 40,
+            })}
+            onClick={() => go("#/steps")}
+            className={ROW_CLASS}
+          >
+            <span className={ICON_TILE}>
+              <Footprints className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">Steps</span>
+            <ChevronRight className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
+          </button>
+
+          <button
+            type="button"
+            data-row
+            {...tourAttrs({
               id: "more.records",
               label: "Records & stats",
               help: "Open personal records, rolling stats and goals.",
-              order: 30,
+              order: 50,
             })}
             onClick={() => go("#/insights")}
             className={ROW_CLASS}
@@ -257,7 +297,7 @@ export default function MoreScreen() {
               id: "more.tools",
               label: "Tools",
               help: "Open the 1RM, plates, pace and interval timer tools.",
-              order: 40,
+              order: 60,
             })}
             onClick={() => go("#/tools")}
             className={ROW_CLASS}
@@ -276,7 +316,7 @@ export default function MoreScreen() {
               id: "more.dictionary",
               label: "Dictionary",
               help: "Open the training terms and methods glossary.",
-              order: 50,
+              order: 70,
             })}
             onClick={() => go("#/dictionary")}
             className={ROW_CLASS}
@@ -297,7 +337,7 @@ export default function MoreScreen() {
               id: "more.settings",
               label: "Settings",
               help: "Open preferences, display and account settings.",
-              order: 60,
+              order: 80,
             })}
             onClick={() => go("#/settings")}
             className={ROW_CLASS}
@@ -318,7 +358,7 @@ export default function MoreScreen() {
               id: "more.backup",
               label: "Backup & data",
               help: "Open settings to back up and manage your data.",
-              order: 70,
+              order: 90,
             })}
             onClick={() => go("#/settings")}
             className={ROW_CLASS}
@@ -342,7 +382,7 @@ export default function MoreScreen() {
               id: "more.notifications",
               label: "Manage notifications",
               help: "Open settings to tune reminders and notification switches.",
-              order: 90,
+              order: 100,
             })}
             onClick={() => go("#/settings")}
             className={ROW_CLASS}
@@ -363,7 +403,7 @@ export default function MoreScreen() {
               id: "more.subscription",
               label: "Manage subscription",
               help: "Your plan and billing status (Free plan, no billing wired).",
-              order: 100,
+              order: 110,
             })}
             onClick={() => go("#/account/subscription")}
             className={ROW_CLASS}
@@ -384,7 +424,7 @@ export default function MoreScreen() {
               id: "more.support",
               label: "Message support",
               help: "Send the team a message — up to 5 per day, replies by email.",
-              order: 110,
+              order: 120,
             })}
             onClick={() => go("#/account/support")}
             className={ROW_CLASS}
@@ -405,7 +445,7 @@ export default function MoreScreen() {
               id: "more.social",
               label: "Social accounts",
               help: "Linked sign-in providers for this account.",
-              order: 120,
+              order: 130,
             })}
             onClick={() => go("#/account/social")}
             className={ROW_CLASS}
@@ -426,7 +466,7 @@ export default function MoreScreen() {
               id: "more.invite",
               label: "Invite friends",
               help: "Share your SetForge link — or copy it to the clipboard.",
-              order: 130,
+              order: 140,
             })}
             onClick={() => void inviteFriends()}
             className={ROW_CLASS}
@@ -446,7 +486,7 @@ export default function MoreScreen() {
               id: "more.privacy",
               label: "Privacy policy",
               help: "How SetForge stores and protects your training data.",
-              order: 140,
+              order: 150,
             })}
             onClick={() => go("#/account/privacy")}
             className={ROW_CLASS}
@@ -467,7 +507,7 @@ export default function MoreScreen() {
               id: "more.terms",
               label: "Terms",
               help: "The terms of service for using SetForge.",
-              order: 150,
+              order: 160,
             })}
             onClick={() => go("#/account/terms")}
             className={ROW_CLASS}
@@ -488,7 +528,7 @@ export default function MoreScreen() {
               id: "more.signOut",
               label: "Sign out",
               help: "End the session and clear offline data on this device.",
-              order: 160,
+              order: 170,
             })}
             onClick={() => setSignOutOpen(true)}
             className={ROW_DESTRUCTIVE}
@@ -509,7 +549,7 @@ export default function MoreScreen() {
               id: "more.delete",
               label: "Delete account",
               help: "Soft-delete the account, anonymize data, purge after 30 days.",
-              order: 170,
+              order: 180,
             })}
             onClick={() => go("#/account/delete")}
             className={ROW_DESTRUCTIVE}
@@ -530,7 +570,7 @@ export default function MoreScreen() {
               id: "more.help",
               label: "Help & tours",
               help: "Open help topics, shortcuts and screen tours.",
-              order: 180,
+              order: 190,
             })}
             onClick={() => go("#/help")}
             className={ROW_CLASS}

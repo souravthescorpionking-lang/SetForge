@@ -1,16 +1,15 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DashboardScreen — #/dashboard (Part 8 §3.2, tab 2).
+// DashboardScreen — #/dashboard (Part 8 §3.2, tab 2; top half rebuilt Part 10 §7).
 //
 //   TopBar (56)   "Dashboard" | 📅 (→ #/calendar) | ? TopBarHelp
-//   ScrollBody    Today · Thu 26 Sep               32  section header
-//                 Today card                        (THE Workout-tab
-//                   ProgramCard — shared component, 5 states (Part 9 §11):
-//                   none → Pick a program · following → Start Day N ·
-//                   rest → Rest day — Mark off · starts-future → Starts in
-//                   {n} days · in-progress → Continue · 4/12 ✓)
-//                 Upcoming                          32
+//   ScrollBody    ProgramProgressCard (§7: R1 label · R2 name + daysDone pill ·
+//                 4px progress bar + phase chips · CTA row; tap → #/dashboard/program)
+//                 Today (§7: header + Calendar › · 56px rows per today
+//                 ScheduleEntry · empty → #/schedule/pick)
+//                 Stats (§7: Weight tile + Steps tile → #/progress · #/steps)
+//                 Upcoming                          32  (Part 5 content — kept)
 //                 Fri 27 · Pull day          PPL    48 ×4 (tap → #/calendar?date=…)
 //                 This week                         32
 //                 3 workouts · 34 sets · 6,200 kg    48
@@ -20,12 +19,8 @@
 //                 Records this month                32
 //                 Bench 100×5 · Deadlift 160×3 >    48
 //   BottomBar (56) [ Start today's session ]         primary — same logic as
-//                 the Today card primary: continue → start-day → on-demand → pick
+//                 the card CTA: continue → start-day → on-demand → pick
 //   NavBar renders automatically (Workout · Dashboard · More).
-//
-// "Today" is resolved server-side by useDashboard(): a PLANNED schedule entry
-// for today overrides the cursor day inside dashboard.today. Loading skeletons
-// match the final heights exactly — zero layout shift.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useCallback, useMemo, useState } from "react";
@@ -42,9 +37,11 @@ import { programsApi, routinesApi, workoutsApi } from "@/lib/client/api";
 import { parseDayKey, todayKey } from "@/lib/client/format";
 import { rowTall } from "@/lib/ui/tokens";
 import { errorMessage } from "@/features/routines/screen-helpers";
-import { ProgramCard, ProgramCardSkeleton } from "@/features/workout/program-card";
 import { cn } from "@/lib/utils";
-import type { DashboardDTO, DashboardUpcomingDayDTO } from "@/lib/types";
+import type { DashboardUpcomingDayDTO } from "@/lib/types";
+import { ProgramProgressCard, ProgramProgressCardSkeleton } from "./program-progress-card";
+import { TodaySection } from "./today-section";
+import { StatsTiles } from "./stats-tiles";
 import { WeekDots } from "./week-dots";
 import { BodyRow } from "./body-row";
 import { RecordsMonthRow } from "./records-month-row";
@@ -163,7 +160,6 @@ export default function DashboardScreen() {
   const weekStart = settings?.weekStart === 0 ? 0 : 1;
   // The server-resolved today date (user timezone) — client fallback while loading.
   const today = dash?.today.date ?? todayKey();
-  const todayLabel = useMemo(() => longDateLabel(today), [today]);
   const monthKey = today.slice(0, 7);
 
   // ---------- BottomBar primary — same logic as the Today card primary ----------
@@ -275,10 +271,9 @@ export default function DashboardScreen() {
       }
     >
       <ScrollBody>
-        {/* Today */}
-        <SectionHeader title={`Today · ${todayLabel}`} />
+        {/* §7.1 — Program progress card (tap → #/dashboard/program) */}
         {loading ? (
-          <ProgramCardSkeleton />
+          <ProgramProgressCardSkeleton />
         ) : error ? (
           <div
             data-row
@@ -298,8 +293,14 @@ export default function DashboardScreen() {
             </button>
           </div>
         ) : dash ? (
-          <ProgramCard dashboard={dash} activeWorkout={activeWorkout} routine={routineQuery.data} programs={programsQuery.data} />
+          <ProgramProgressCard dashboard={dash} activeWorkout={activeWorkout} routine={routineQuery.data} />
         ) : null}
+
+        {/* §7.2 — Today: today's scheduled sessions */}
+        <TodaySection today={today} />
+
+        {/* §7.3 — Stats tiles (Weight → #/progress · Steps → #/steps) */}
+        <StatsTiles today={today} />
 
         {/* Upcoming */}
         <SectionHeader title="Upcoming" />

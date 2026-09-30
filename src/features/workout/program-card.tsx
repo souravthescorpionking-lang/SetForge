@@ -34,26 +34,23 @@
 // first group colour (primary otherwise).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
-import { qk, useInvalidate, useOnline } from "@/lib/client/query";
+import { qk } from "@/lib/client/query";
 import { programsApi } from "@/lib/client/api";
-import { dayKeyOf, parseDayKey } from "@/lib/client/format";
 import { DIFFICULTIES, DIFFICULTY_LABELS, type Difficulty } from "@/lib/constants";
 import { ActionList } from "@/components/shared/action-list";
 import { rowBase } from "@/lib/ui/tokens";
-import { errorMessage, useProgramRun } from "@/features/routines/screen-helpers";
 import { useChangeDifficulty } from "@/features/routines/use-change-difficulty";
+import { resolveCardModel, useProgramCardActions } from "./program-card-model";
 import type {
   DashboardDTO,
   ProgramSummaryDTO,
-  RoutineDayDTO,
   RoutineDTO,
   WorkoutDTO,
 } from "@/lib/types";
@@ -68,143 +65,6 @@ export type ProgramCardProps = {
   programs: ProgramSummaryDTO[] | undefined;
 };
 
-type CardModel =
-  | { state: "none" }
-  | { state: "rest"; programName: string; routineId: string; subtitle: string | null }
-  | {
-      state: "following";
-      programName: string;
-      routineId: string;
-      routineName: string;
-      dayId: string | null;
-      dayName: string | null;
-      dayNumber: number | null;
-      dateKey: string;
-      isSession: boolean;
-      subtitle: string | null;
-    }
-  | {
-      state: "inprogress";
-      programName: string;
-      routineId: string | null;
-      subtitle: string;
-      completed: number;
-      total: number;
-    };
-
-/** Up to 4 exercise names of a routine day, single-line, ellipsized by the row. */
-function dayExercisesLine(day: RoutineDayDTO | null): string {
-  if (!day) return "…";
-  const names = [...day.exercises]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .slice(0, 4)
-    .map((re) => re.exercise.name);
-  return names.length > 0 ? names.join(" · ") : "No exercises planned";
-}
-
-/** Live exercise names of the in-progress session. */
-function workoutExercisesLine(workout: WorkoutDTO): string {
-  const names = [...workout.exercises]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .slice(0, 4)
-    .map((we) => we.exercise.name);
-  return names.length > 0 ? names.join(" · ") : "Session in progress";
-}
-
-function resolveCardModel(
-  dashboard: DashboardDTO,
-  activeWorkout: WorkoutDTO | null,
-  routine: RoutineDTO | undefined,
-  programs: ProgramSummaryDTO[] | undefined,
-): CardModel {
-  const { today, active: activeRoutine, todayWorkout } = dashboard;
-  const scheduled = today.scheduled; // today's PLANNED entry (server-resolved)
-  /** Catalog row of the routine the card is about (tagline/notes fallback). */
-  const rowOf = (id: string | null | undefined) =>
-    id ? (programs?.find((p) => p.id === id) ?? null) : null;
-  const taglineOf = (id: string | null | undefined) => {
-    const row = rowOf(id);
-    return row?.tagline ?? row?.notes ?? routine?.notes ?? null;
-  };
-
-  // ---- 1. IN PROGRESS: an unfinished started session (any date) wins ----
-  if (activeWorkout && activeWorkout.finishedAt == null && activeWorkout.removedAt == null) {
-    const isSession = activeWorkout.sourceType === "SESSION" || routine?.kind === "SESSION";
-    const routineName =
-      routine?.name ??
-      (today.routine?.id === activeWorkout.sourceRoutineId ? today.routine.name : null) ??
-      (activeWorkout.sourceType === "FREESTYLE" ? "Freestyle session" : "Workout");
-    // counts: server-computed todayWorkout when it IS this session, else payload
-    const tw = todayWorkout?.id === activeWorkout.id ? todayWorkout : null;
-    const total = tw
-      ? tw.setCount
-      : activeWorkout.exercises.reduce((n, e) => n + e.sets.length, 0);
-    const completed = tw
-      ? tw.completedCount
-      : activeWorkout.exercises.reduce((n, e) => n + e.sets.filter((s) => s.isComplete).length, 0);
-    return {
-      state: "inprogress",
-      programName: routineName,
-      routineId: activeWorkout.sourceRoutineId ?? null,
-      subtitle: workoutExercisesLine(activeWorkout),
-      completed,
-      total,
-    };
-  }
-
-  // ---- 2. NONE: no followed program and nothing scheduled today ----
-  if (today.kind === "NONE" && !activeRoutine) return { state: "none" };
-
-  // ---- 3/4. FOLLOWING or REST — today already prefers a PLANNED schedule
-  //      entry over the cursor day (server-side resolution). ----
-  const programName = today.routine?.name ?? activeRoutine?.routineName ?? "Program";
-  const routineId = today.routine?.id ?? activeRoutine?.routineId ?? "";
-  const isSession =
-    scheduled?.sourceType === "SESSION" ||
-    today.routine?.kind === "SESSION" ||
-    routine?.kind === "SESSION" ||
-    activeRoutine?.routineKind === "SESSION";
-
-  const wantDayId = today.day?.id ?? scheduled?.dayId ?? activeRoutine?.dayId ?? null;
-  let resolved: RoutineDayDTO | null = null;
-  if (routine) {
-    resolved =
-      (wantDayId ? routine.days.find((d) => d.id === wantDayId) ?? null : null) ??
-      routine.days.find((d) => (d.dayType ?? "WORKOUT") !== "REST") ??
-      null; // scheduled SESSION (no dayId) fallback
-  }
-  const dayName = today.day?.name ?? scheduled?.dayName ?? resolved?.name ?? null;
-  const dayNumber =
-    resolved != null && routine
-      ? routine.days.indexOf(resolved) + 1
-      : today.day && today.day.index >= 0 && today.day.count > 0
-        ? today.day.index + 1
-        : null;
-  const dayType = today.day?.dayType ?? resolved?.dayType ?? activeRoutine?.dayType ?? "WORKOUT";
-
-  if (dayType === "REST") {
-    return {
-      state: "rest",
-      programName,
-      routineId,
-      subtitle: taglineOf(routineId) ?? "Advances at midnight",
-    };
-  }
-
-  return {
-    state: "following",
-    programName,
-    routineId,
-    routineName: programName,
-    dayId: resolved?.id ?? wantDayId,
-    dayName,
-    dayNumber,
-    dateKey: today.date,
-    isSession,
-    subtitle: taglineOf(routineId) ?? (routine ? dayExercisesLine(resolved) : "…"),
-  };
-}
-
 /** ~184px loading skeleton — same footprint as the card's common case (no CLS). */
 export function ProgramCardSkeleton() {
   return (
@@ -217,10 +77,6 @@ export function ProgramCardSkeleton() {
 
 export function ProgramCard({ dashboard, activeWorkout, routine, programs }: ProgramCardProps) {
   const navigate = useApp((s) => s.navigate);
-  const invalidate = useInvalidate();
-  const online = useOnline();
-  const { run } = useProgramRun();
-  const [busy, setBusy] = useState(false);
 
   // §2 inline difficulty chip — the ONE shared change flow (same confirm modal
   // + server action as the Programs SubBar; see use-change-difficulty.tsx).
@@ -230,6 +86,9 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
     () => resolveCardModel(dashboard, activeWorkout, routine, programs),
     [dashboard, activeWorkout, routine, programs],
   );
+  // Shared actions (start-day / rest-day mark-off) — program-card-model.ts.
+  const actions = useProgramCardActions(model);
+  const busy = actions.busy;
 
   // ---- phase chips (§11): the catalog row carries phaseCount at the user's
   // difficulty; chip NAMES + the active-phase highlight need the DETAIL, so it
@@ -269,42 +128,13 @@ export function ProgramCard({ dashboard, activeWorkout, routine, programs }: Pro
   const headerLabel = scheduledOverride ? "Scheduled today" : "Current program";
 
   const startDay = async () => {
-    if (model.state !== "following" || busy || !model.routineId) return;
-    if (!online) {
-      toast.info("Starting a workout needs a connection");
-      return;
-    }
-    setBusy(true);
-    try {
-      const w = await programsApi.startDay(model.routineId, {
-        ...(model.dayId ? { dayId: model.dayId } : {}),
-        date: model.dateKey,
-      });
-      invalidate.workout();
-      invalidate.dashboard();
-      invalidate.schedule();
-      toast.success(`Started ${model.dayName ?? model.routineName}`, {
-        description: `${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} loaded`,
-      });
-      navigate("/session");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
+    await actions.startDay();
   };
 
-  // §11 rest-day CTA — the existing mark-rest-done cursor flow (offline-aware
-  // via useProgramRun: invalidates programs/schedule/dashboard, toasts errors).
+  // §11 rest-day CTA — the shared mark-rest-done cursor flow (program-card-model.ts:
+  // offline-aware, invalidates programs/schedule/dashboard, toasts errors).
   const markRestDone = async () => {
-    if (model.state !== "rest" || busy) return;
-    setBusy(true);
-    const res = await run(
-      () => programsApi.markRestDone(),
-      { path: "/api/programs/cursor/rest-done", method: "POST", label: "Rest day marked done" },
-    );
-    if (res) toast.success(`Rest done · ${res.day.name} up next`);
-    setBusy(false);
+    await actions.markRestDone();
   };
 
   const barColour =

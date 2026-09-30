@@ -105,6 +105,9 @@ export interface GroupCardEntry {
    *  owns the content — the card only anchors it below the mode bodies, so
    *  multi-exercise groups keep each exercise's rows attached to it. */
   footer?: ReactNode;
+  /** Part 10 §6.2 (L2 extension): per-row “Remove set” in the ⋯ popover for
+   *  log-mode entries (the log-detail history editor). Default off. */
+  allowRemoveSet?: boolean;
 }
 
 export interface GroupCardGroup {
@@ -600,6 +603,7 @@ export function GroupCard({
                           set={s}
                           visibleColumns={effectiveCols(e, visibleColumns)}
                           current={entry.currentSetIndex === s.index - 1}
+                          allowRemoveSet={entry.allowRemoveSet}
                           onAction={onAction != null ? (a) => dispatch(a, i) : undefined}
                         />
                       ))}

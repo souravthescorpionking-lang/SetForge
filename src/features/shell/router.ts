@@ -38,8 +38,13 @@
 //   #/filters/muscle · #/filters/equipment     → screens/filters-*          (—)   Part 10 §4.4 shared
 //   #/tempo/{reId}                             → screens/tempo              { reId }        Part 10 §4.6
 //   #/calendar                                 → screens/calendar           (—)   via 📅
+//   #/calendar/{yyyy-mm-dd}                    → screens/calendar-day       { date } Part 10 §5.1
 //   #/calendar/filters                         → screens/calendar-filters   (—)
 //   #/schedule/pick?date=YYYY-MM-DD            → screens/schedule-pick      (—)
+//   #/dashboard/program                        → screens/dashboard-program  (—)   Part 10 §7.1
+//   #/progress (+/log?date=)                   → screens/progress (+log)    (—)   Part 10 §8.1/§8.2
+//   #/steps                                    → screens/steps              (—)   Part 10 §8.3
+//   #/account/password                         → screens/account-password   (—)   Part 10 §9
 //   #/exercises                                → screens/picker             (—)   library picker
 //   #/exercise-overview/{id}                   → screens/exercise-overview  { exerciseId }
 //   #/body, #/body/compare, #/insights, #/tools, #/dictionary,
@@ -95,8 +100,14 @@ export type RouteName =
   | "filters-equipment"
   | "tempo"
   | "calendar"
+  | "calendar-day"
   | "calendar-filters"
   | "schedule-pick"
+  | "dashboard-program"
+  | "progress"
+  | "progress-log"
+  | "steps"
+  | "account-password"
   | "exercises"
   | "exercise-overview"
   | "body"
@@ -131,6 +142,8 @@ export type RouteParams = {
   workoutId?: string;
   /** #/library/{catalogKey} */
   catalogKey?: string;
+  /** #/calendar/{yyyy-mm-dd} — the Part 10 §5.1 day-detail route. */
+  date?: string;
 };
 
 type RouteMeta = { query: URLSearchParams; hash: string };
@@ -170,8 +183,15 @@ export type Route =
   | ({ name: "filters-equipment" } & RouteMeta)
   | ({ name: "tempo"; params: RouteParams & { reId: string } } & RouteMeta)
   | ({ name: "calendar" } & RouteMeta)
+  | ({ name: "calendar-day"; params: RouteParams & { date: string } } & RouteMeta)
   | ({ name: "calendar-filters" } & RouteMeta)
   | ({ name: "schedule-pick" } & RouteMeta)
+  // ---- Part 10 §7–§9: dashboard program progress · progress · steps · password ----
+  | ({ name: "dashboard-program" } & RouteMeta)
+  | ({ name: "progress" } & RouteMeta)
+  | ({ name: "progress-log" } & RouteMeta)
+  | ({ name: "steps" } & RouteMeta)
+  | ({ name: "account-password" } & RouteMeta)
   | ({ name: "exercises" } & RouteMeta)
   | ({ name: "exercise-overview"; params: RouteParams & { exerciseId: string } } & RouteMeta)
   | ({ name: "body" } & RouteMeta)
@@ -265,7 +285,19 @@ export function parseRoute(hash: string): Route | null {
       return segs.length <= 1 ? { name: "workout", ...meta } : null;
 
     case "dashboard":
-      return segs.length === 1 ? { name: "dashboard", ...meta } : null;
+      if (segs.length === 1) return { name: "dashboard", ...meta };
+      // Part 10 §7.1: program progress (#/dashboard/program).
+      if (segs.length === 2 && segs[1] === "program") return { name: "dashboard-program", ...meta };
+      return null;
+
+    // ---- Part 10 §8: progress (weigh-in) + steps ----
+    case "progress":
+      if (segs.length === 1) return { name: "progress", ...meta };
+      if (segs.length === 2 && segs[1] === "log") return { name: "progress-log", ...meta };
+      return null;
+
+    case "steps":
+      return segs.length === 1 ? { name: "steps", ...meta } : null;
 
     case "more":
       return segs.length === 1 ? { name: "more", ...meta } : null;
@@ -331,6 +363,8 @@ export function parseRoute(hash: string): Route | null {
       if (segs.length === 2 && segs[1] === "delete") return { name: "account-delete", ...meta };
       if (segs.length === 2 && segs[1] === "privacy") return { name: "account-privacy", ...meta };
       if (segs.length === 2 && segs[1] === "terms") return { name: "account-terms", ...meta };
+      // Part 10 §9: change password (#/account/password).
+      if (segs.length === 2 && segs[1] === "password") return { name: "account-password", ...meta };
       return null;
 
     case "library":
@@ -384,6 +418,10 @@ export function parseRoute(hash: string): Route | null {
     case "calendar":
       if (segs.length === 1) return { name: "calendar", ...meta };
       if (segs.length === 2 && segs[1] === "filters") return { name: "calendar-filters", ...meta };
+      // Part 10 §5.1: full-screen day detail (#/calendar/{yyyy-mm-dd}).
+      if (segs.length === 2 && /^\d{4}-\d{2}-\d{2}$/.test(segs[1])) {
+        return { name: "calendar-day", params: { date: segs[1] }, ...meta };
+      }
       return null;
 
     case "schedule":

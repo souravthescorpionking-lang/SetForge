@@ -33,10 +33,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { ApiError, scheduleApi } from "@/lib/client/api";
 import { useInvalidate, useOnline } from "@/lib/client/query";
 import { queueMutation } from "@/lib/client/offline";
-import { formatDayLabel } from "@/lib/client/format";
+import { addDaysKey, formatDayLabel } from "@/lib/client/format";
+import { tourAttrs } from "@/lib/tour/attrs";
 import type { ScheduleEntryDTO } from "@/lib/types";
 import { dateToLocalKey, keyToLocalDate } from "@/features/today/day-utils";
 import { errorMessage } from "@/features/routines/screen-helpers";
@@ -52,6 +54,53 @@ function invalidateScheduleQueries(): void {
 }
 
 // ---------- date picker dialog ----------
+
+/**
+ * §5.2 quick-jump chips — Yesterday · Today · Tomorrow. ONE shared component;
+ * rendered in the footer of every DatePickerDialog instance (and reusable by
+ * future picker modals — §8 weigh-in etc.). Emits LOCAL day keys, matching the
+ * Calendar's onSelect contract (dateToLocalKey).
+ */
+export function DatePickerChips({
+  selectedKey,
+  onPick,
+}: {
+  /** Currently highlighted key (chip match → primary styling). */
+  selectedKey?: string;
+  onPick: (dayKey: string) => void;
+}) {
+  const todayKey = dateToLocalKey(new Date());
+  const chips = [
+    { label: "Yesterday", key: addDaysKey(todayKey, -1) },
+    { label: "Today", key: todayKey },
+    { label: "Tomorrow", key: addDaysKey(todayKey, 1) },
+  ];
+  return (
+    <div role="group" aria-label="Quick date picks" className="flex w-full items-center gap-2 pt-1">
+      {chips.map((c) => {
+        const active = c.key === selectedKey;
+        return (
+          <button
+            key={c.label}
+            type="button"
+            aria-pressed={active}
+            {...tourAttrs({ id: "datePicker.quickJump", label: "Quick date chips", help: "Jump the picked date to yesterday, today or tomorrow.", order: 10 })}
+            aria-label={`Pick ${c.label.toLowerCase()}`}
+            className={cn(
+              "flex h-11 min-w-0 flex-1 items-center justify-center rounded-lg border text-sm font-semibold leading-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              active
+                ? "border-primary/60 bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground hover:bg-accent/40",
+            )}
+            onClick={() => onPick(c.key)}
+          >
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function DatePickerDialog({
   open,
@@ -71,6 +120,19 @@ export function DatePickerDialog({
   description?: string;
 }) {
   const today = keyToLocalDate(new Date().toISOString().slice(0, 10));
+  // §5.2: the highlighted day is LOCAL dialog state so the quick-jump chips and
+  // the calendar grid agree; every pick (chip or cell) commits via onSelect.
+  const [pickedKey, setPickedKey] = useState<string | null>(initialKey ?? null);
+  // The dialog stays mounted while closed — re-sync the highlight whenever it
+  // opens (callers reuse one instance across entries with different dates).
+  useEffect(() => {
+    if (open) setPickedKey(initialKey ?? null);
+  }, [open, initialKey]);
+  const commit = (key: string) => {
+    setPickedKey(key);
+    onSelect(key);
+    onOpenChange(false);
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-auto max-w-[calc(100vw-2rem)] p-4">
@@ -81,15 +143,15 @@ export function DatePickerDialog({
         <Calendar
           mode="single"
           weekStartsOn={1}
-          selected={initialKey ? keyToLocalDate(initialKey) : undefined}
-          defaultMonth={initialKey ? keyToLocalDate(initialKey) : today}
+          selected={pickedKey ? keyToLocalDate(pickedKey) : undefined}
+          defaultMonth={pickedKey ? keyToLocalDate(pickedKey) : today}
           disabled={{ before: today }}
           onSelect={(d) => {
             if (!d) return;
-            onSelect(dateToLocalKey(d));
-            onOpenChange(false);
+            commit(dateToLocalKey(d));
           }}
         />
+        <DatePickerChips selectedKey={pickedKey ?? undefined} onPick={commit} />
       </DialogContent>
     </Dialog>
   );
