@@ -1265,3 +1265,23 @@ Stage Summary:
 - Part 10 §0/§1/§2 complete and browser-verified. Committed 99362d6.
 - Foundations for the waves: ActionList primitive + useChangeDifficulty hook are ready for reuse (§4 tempo/speed pickers, §6 day-entry actions, §9 fitness level row).
 - Next: §3 live logging rebuild (subagent A) + §4 builder rebuild (subagent B) in parallel — both evolve existing screens, never fork (L2).
+
+---
+Task ID: 10-A-wave
+Agent: lead (Z.ai Code)
+Task: §3 live logging + §4 builder — two subagent waves (10-A1/10-A2 + finish runs), lead verification
+
+Work Log:
+- Both subagent pairs timed out on tool transport but executed server-side (recurring sandbox pattern); lead audited, verified, committed.
+- §3 shipped (src/features/session/): NEW focus-card.tsx (sticky FocusCard R1-R6: series label · A1, n/N sets, set type + target, Max logged from history, tempo row, focus SetRow w/ prefill, video + speed chip), end-workout-dialog.tsx (exact §3.6 copy + Mark-as-complete checkbox + 3-way end semantics), time.ts, countdown-audio.ts (Web Audio 3-2-1 beeps), use-workout-settings.ts, session-settings-screen.tsx + #/session/settings route; session-screen.tsx rebuilt: TopBar ✕+TOTAL TIME+⚙, SubBar Overview|Logs|History, sticky FocusCard, auto-advance in series order, localStorage focus persistence (sf-live-focus:{workoutId}), rest engine retained.
+- §3 APIs: PATCH /api/workout-settings (autoAdvance→autoMoveNextSet map), POST /api/workouts/[id]/end {markComplete} (n=0/off discard · n>0/off partial no-advance · on finish w/ totalVolume/totalSets/markedComplete), GET /api/exercises/[id]/history + /max.
+- §4 shipped (src/features/builder/): NEW build-screen.tsx (996 lines; draft via draft-store.ts Zustand + persisted edit modes; name/difficulty/duration+Estimate; series GroupCards edit variant w/ exercise-editor.tsx §4.5 blocks; §4.8 inline validation w/ scroll-to-first-error), add-exercise-screen.tsx (§4.3: search, Muscle/Equipment filter chips → shared #/filters/* routes w/ URL round-trip, k-label mapping, 4-per-series cap, first-time helper card), add-selected-screen.tsx, filters-muscle-screen.tsx (16 values), filters-equipment-screen.tsx (canonical 30 + search + All toggle), tempo-screen.tsx (#/tempo/{reId}) + draft-mode inline ActionList tempo, builder-screen.tsx hub → "Your workouts" (§4.1 cards 48+40 + ⋮ Edit/Duplicate/Delete + search + empty states; Create rows kept).
+- §4 APIs: GET /api/days?source=CUSTOM, POST /api/days/[id]/duplicate, GET /api/equipment, exercises list filters (muscles/equipment/q), Routine.source=CUSTOM through routine-service.
+- Lead browser verification (demo): §3 — total time ticking; Log set → ✓ + rest ring 2:59 + auto-advance to next set; Logs tab rows; History tab prior sessions ("Session Sep 29 · Set 1 · 8×85kg"); settings toggles persist across reload (Show tempo off → row hidden); End modal "2 of 11 sets logged. Total time 3:17:08." → Mark ON → finish + cursor advance + log detail shows "680 kg" totalVolume. §4 — hub empty state; build flow: name → add → filters round-trip ("Muscle · 2") → 3 selected → "Add as triset" → Triset A card w/ 3 exercises + tempo/tip/rest/set-table → reps validation blocks Save w/ helper → fill → Save → "Saved to your workouts" toast → #/days/{id} → list card "Chest, Back, Lats +1 · 5 min · 3 ex" → Duplicate (Copy appears) → Delete ×2 (confirm modal) → Discard-changes leave guard works. Superset label verified with 2. Tempo preset ActionList (3-0-1-0) applied to draft.
+- Battery: tsc 0 · lint 0 errors/102 warnings (pre-existing) · tour:gen clean (55 screens, 70 components — up from 48/61).
+- Committed 5795fc7 (lead checkpoint of the agents' output; verified after).
+
+Stage Summary:
+- §3 + §4 live and browser-verified end-to-end. Demo state: an in-progress leg-day session (agent testing), difficulty Intermediate, no leftover QA workouts.
+- Deviations recorded: tempo for DRAFT exercises uses inline ActionList (route #/tempo/{reId} exists for persisted); "Starts in N days" CTA removed with challenge (§0).
+- Next: Wave B — §5 calendar day detail + §6 log compare (10-B1) and §7 dashboard + §8 progress/steps + §9 profile (10-B2) in parallel; then §10 tour/§11 API audit/§12 polish; then §13 verify + §14 ship gate.
