@@ -1304,3 +1304,23 @@ Work Log:
 Stage Summary:
 - §5–§9 live and browser-verified. Committed 5b5abb5.
 - Remaining: §10 tour sweep (registry already regenerated per-section; final check), §11 API audit vs spec list, §12 polish pass (skeletons/empty/error states on new routes — largely inherited from agent patterns), §13 verify battery (scripts/qa/verify-part10.ts) + harness + E2E journeys, §14 ship gate items possible in sandbox, P5 audit doc, P7 report.
+
+---
+Task ID: 10-final
+Agent: lead (Z.ai Code)
+Task: Part 10 completion — §10 tour sweep, §11 API audit, §12 polish, §13 verify battery + harness + E2E, §14 ship gate, P5 audit + P7 report
+
+Work Log:
+- §10 tour: registry regenerated after every wave; final state 61 screens, 78 components, 4 welcome steps, zero warnings (rennumbered More rows to multiples of 10; fixed dynamic tour labels in progress-screen tabs).
+- §11 API audit: every §11 endpoint exists exactly or as the repo's named equivalent (weigh-ins = measurements records system; day create via routines+addDay path; sets under workouts/[id]/exercises/[weId]/sets). Zod + requireUser + owner scope everywhere (verify:arch + verify:ownership PASS).
+- §12 polish: spot-checked skeletons/empty/error/a11y patterns across all new screens — all present from agent patterns; fixed 3 L1 violations found by the harness (dashboard program card composite data-row → leaf rows only; stats tiles data-row removed (96px tiles aren't rows); steps goal nested data-row removed).
+- §13 verify: NEW scripts/qa/verify-part10.ts (wired as `bun run verify:part10`) — 13 unit groups ALL PASS: total-time derivation (mm:ss/h:mm:ss + stateless now−startAt) · focus-advance series order (superset/triset/giant round-robin + logged skip) · k→label mapping 0..6 + existing-series · 4-cap per series · tempo parse/format incl. x (found + fixed real bug: parseTempo rejected "x" — now parses to -1 sentinel) · builder validation matrix (name/duration 5-300/reps-or-AMRAP/estimate rounded to 5) · totalVolume mixed units (unlogged excluded, bodyweight 0, AMRAP counts) · history-column alignment ("—" fills + bold best) · future-date guard (local-day 23:59/00:01 boundary) · step ADD vs SET · difficulty↔fitness single-source (DIFFICULTIES = PROFILE_LEVELS vocabulary) · exit semantics decision table (n=0/off discard · n>0/off partial no-advance · on finish+advance) · password strength heuristic (weak <3 rejected, strong ≥3).
+- Layout harness: 22 routes PASS at 320/360/390/430 (#/session, #/session/settings, #/logs, #/programs, #/on-demand, #/library, #/builder, #/builder/session/new, #/filters/muscle, #/filters/equipment, #/calendar, #/calendar/{date}, #/days, #/more, #/progress, #/progress/log, #/steps, #/profile, #/account/password, #/workout, #/dashboard, #/dashboard/program).
+- Final battery: tsc 0 · lint 0 errors/107 warnings (pre-existing tour backlog) · tour:gen clean · verify:arch PASS · verify:formulas PASS · verify:part9 PASS · verify:part10 ALL PASS · PWA manifest/sw/offline all 200 · dev.log no 500s.
+- Docs: docs/spec/part-10-audit.md (requirement→code-path table for every §, ship-gate checklist, justified deviations); CHANGELOG.md Part 10 entry; README "Run in 3 commands" + demo credentials; plan.md fully ticked.
+- Dev server + watchdog restarted (recurring sandbox reaper); health 200 at end.
+
+Stage Summary:
+- Part 10 COMPLETE: §0–§14 all shipped and verified. Commits: 99362d6 (§0-2) · 5795fc7 (§3+§4) · 5b5abb5 (§5-9) · cb112c6 (§10-13) + docs commits.
+- Ship-gate deviations (justified in audit): no docker/Lighthouse/CI-file in sandbox (agent-browser E2E + harness substitute); no Dexie (offline = optimistic mutations + server-state reload persistence); SQLite dev (schema + idempotent migration SQL portable).
+- Known limitations: none blocking. Deferred items from Parts 8/9 unchanged (seed:stress, SyncConflict write-path, OS-notification permission flow).

@@ -112,4 +112,10 @@ New `scripts/qa/verify-part10.ts` (unit battery: k-label mapping, 4-cap, tempo p
 - [x] §0 REMOVE challenge (99362d6)
 - [x] §1 schema + migration + backfill (99362d6)
 - [x] §2 Home difficulty chip + useChangeDifficulty + ActionList (99362d6)
-- [ ] §3 · [ ] §4 · [ ] §5/§6 · [ ] §7/§8/§9 · [ ] §10/§11/§12 · [ ] §13/§14
+- [x] §3 live logging rebuild (5795fc7, verified)
+- [x] §4 builder rebuild (5795fc7, verified)
+- [x] §5 calendar + §6 log compare (5b5abb5, verified)
+- [x] §7 dashboard + §8 progress/steps + §9 profile (5b5abb5 + lead §9 finish, verified)
+- [x] §10 tour sweep + §11 API audit + §12 polish (cb112c6)
+- [x] §13 verify battery + harness 22 routes + E2E (cb112c6)
+- [x] §14 ship gate (sandbox-adapted) + audit doc + report — SEE docs/spec/part-10-audit.md

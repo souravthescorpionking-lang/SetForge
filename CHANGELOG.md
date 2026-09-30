@@ -1,5 +1,20 @@
 # Changelog
 
+## Part 10 — Fit for strangers (final feature part)
+
+- **§0**: Challenge feature removed (models, API, banner, client code — the one allowed drop).
+- **§1 schema**: User.{gender,birthYear,weighInDays,stepGoal,avatarKey}; Workout.{markedComplete,totalVolume,totalSets} (+startAt backfill); UserSettings += countdownSounds/videoSpeed (the spec's WorkoutSettings semantics; autoAdvance=autoMoveNextSet default true); StepEntry table; Routine.source=CUSTOM; idempotent migration + `bun run db:backfill`.
+- **§2**: Home program-card difficulty chip — ONE shared `useChangeDifficulty` flow (Programs SubBar + Home + Profile fitness level) + new `ActionList` primitive.
+- **§3 live logging rebuild**: TopBar total time (mm:ss/h:mm:ss) + ✕ end modal ("{n} of {N} sets logged. Total time {t}." + Mark-as-complete checkbox; n=0/off→discard · n>0/off→partial no-advance · on→finish) + ⚙ settings route; SubBar Overview|Logs|History; sticky FocusCard (series label · A1 · n/N · set type/target · Max logged · tempo · focus SetRow with prefill · video + speed chip); auto-advance in series order; countdown beeps; focus persistence across reload.
+- **§4 builder rebuild**: "Your workouts" hub (custom workouts list + Duplicate/Delete + search); #/builder/session/new draft build (name/difficulty/duration+Estimate); add-exercise flow (k-labels single/superset/triset/giant/5+, 4-per-series cap, shared muscle+equipment filter routes, first-time helper); §4.5 exercise editor (tempo/tip/rest same-per-set/none, AMRAP); #/tempo/{reId} picker; inline validation matrix + leave guard; save derives muscles/equipment/minutes.
+- **§5 calendar**: full-screen #/calendar/{date} day detail (COMPLETE→log · SCHEDULED + Unschedule · MISSED → Do it today/Reschedule/Dismiss · REST); Today quick-jump; picker footer chips Yesterday/Today/Tomorrow.
+- **§6 log detail**: This session | Compare toggle → horizontally scrollable session columns (fixed Set column, bold best weight, "—" gaps, inset shadows); edit history recomputes totals.
+- **§7 dashboard**: ProgramProgressCard + Today section + Stats tiles (Weight/Steps) above the kept Part 5 content; #/dashboard/program progress screen (7 rows + Continue).
+- **§8**: #/progress (Weigh-in|Photos|History) + #/progress/log (week strip with future guard, photo slots) + #/steps (ADD/SET modes, goal, week bars).
+- **§9 profile**: avatar upload, name/email/password (#/account/password with strength meter), gender, birth year + age, height, read-only weight + Log link, fitness level (=difficulty), weigh-in days, units, timezone.
+- **§10–12**: tour registry 61 screens/78 components zero warnings; API audit clean; polish (skeletons/empty/error states, a11y).
+- **§13 QA**: `bun run verify:part10` (13 unit groups); layout harness 22 routes PASS at 320/360/390/430; agent-browser E2E across every §; tsc/lint/tour/verify batteries green.
+
 ## Part 8 — Phone-only redesign + core feature upgrades
 
 - **Phone-only**: single centered 480px column; NavPane and every `lg:` branch deleted; NavBar = Workout · Dashboard · More; harness widths 320/360/390/430.

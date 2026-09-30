@@ -3,6 +3,17 @@
 Offline-first, multi-user workout tracker PWA. Log sets at one tap per cell, track PRs,
 body measurements and routines — with strict per-account data isolation.
 
+**Run in 3 commands** (bun ≥ 1.1):
+
+```bash
+bun install          # dependencies
+bun run db:push      # migrate SQLite (or DATABASE_URL=postgres://… for Postgres)
+bun run db:backfill  # Part 10 data backfill (idempotent)
+bun run dev          # http://localhost:3000
+```
+
+Demo account (seeded data): `demo@setforge.app` / `password123`.
+
 **Stack**: Next.js 16 (App Router) · TypeScript strict · Prisma (SQLite or Postgres) ·
 Tailwind CSS 4 + shadcn/ui · TanStack Query · Zod 4 · custom credentials auth.
 
