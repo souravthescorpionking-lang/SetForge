@@ -1,0 +1,1037 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// RoutineDetailScreen — #/programs/{id} (Part 9 §4 — PROGRAM DETAIL).
+     5→//
+     6→//   TopBar (56)  : BackButton → #/programs · program name · ⋮ (Edit in Builder
+     7→//                  · Schedule day… · Skip day · Jump to day… · Unfollow · Copy
+     8→//                  · Delete) · TopBarHelp
+     9→//   SubBar (48)  : tabs Overview | Program (segmented, two halves).
+    10→//   Header       : name (bold) · "{daysDone} Days" pill (accent, current
+    11→//                  only) · phase chips row (32px "P1 {name}" chips,
+    12→//                  horizontally scrollable — only when >1 phase). When the
+    13→//                  variant is missing at the user's difficulty a muted notice
+    14→//                  row names the shown fallback.
+    15→//   Overview tab : "Highlights" 40px rows (divider style, no card borders) —
+    16→//                  Days per week · Equipment "{n} items" (chevron → inline
+    17→//                  32px name rows) · one row per phase with "{min}-{max} min".
+    18→//                  "About": description prose (fallback tagline/notes; hidden
+    19→//                  when truly nothing) + per-phase "Phase {n} — {name}"
+    20→//                  overview prose blocks (whitespace-normal — prose is exempt
+    21→//                  from the nowrap law).
+    22→//   Program tab  : "Preview — Phase {n}" row (40) + ghost "Reset Order" (only
+    23→//                  when a PhaseOverride exists for the phase). Day rows 56:
+    24→//                  GripVertical handle · name · "Day {i}" · "{minutes} min"
+    25→//                  (estMinutes ?? phase minutesMax; REST rows render "Rest
+    26→//                  day" muted italic, no minutes, no tap). Long-press drag
+    27→//                  within the phase (dnd-kit) → PUT PhaseOverride →
+    28→//                  "Order saved". Tap a WORKOUT row → #/days/{id}.
+    29→//   BottomBar(56): current program → "Continue — Day {cursor+1}" (start-day
+    30→//                  flow → #/session; REST cursor day → "Train anyway") ·
+    31→//                  otherwise "Start program — Phase {selected+1}" (confirm
+    32→//                  "Replace current program?" when another program is
+    33→//                  followed) → POST start → #/workout + "Program started".
+    34→//
+    35→// Data: GET /api/programs/{id}?difficulty= (variant-aware detail DTO). The
+    36→// difficulty comes from the ["session"] query (same source of truth as the
+    37→// catalog), so a difficulty switch re-renders this screen at the new variant.
+    38→// Variant-less custom programs render the §4 layout over a single implicit
+    39→// phase (DTO fallbackVariant; no drag — PhaseOverride needs a real phase).
+    40→//
+    41→// Stripped vs Part 8 §3.5: day accordion + inline GroupCards (day detail now
+    42→// lives at #/days/{id}), SubBar meta line, day ⋮ menus (Schedule/Favourite/
+    43→// Mark off/History moved to §5), follow button (startProgram replaces it).
+    44→// Kept: ⋮ program menu, ?jump=1 deep link, day scheduling + conflict dialog,
+    45→// destructive confirms, Builder entry point.
+    46→// ─────────────────────────────────────────────────────────────────────────────
+    47→
+    48→import { useEffect, useMemo, useState, type ReactNode } from "react";
+    49→import { useQuery } from "@tanstack/react-query";
+    50→import { SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+    51→import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+    52→import { CSS } from "@dnd-kit/utilities";
+    53→import { Screen, TopBar, SubBar, ScrollBody, BottomBar, TopBarHelp } from "@/components/layout";
+    54→import { BackButton } from "@/components/layout/back-button";
+    55→import { tourAttrs } from "@/lib/tour/attrs";
+    56→import { Button } from "@/components/ui/button";
+    57→import {
+    58→  DropdownMenu,
+    59→  DropdownMenuContent,
+    60→  DropdownMenuItem,
+    61→  DropdownMenuTrigger,
+    62→} from "@/components/ui/dropdown-menu";
+    63→import {
+    64→  AlertDialog,
+    65→  AlertDialogAction,
+    66→  AlertDialogCancel,
+    67→  AlertDialogContent,
+    68→  AlertDialogDescription,
+    69→  AlertDialogFooter,
+    70→  AlertDialogHeader,
+    71→  AlertDialogTitle,
+    72→} from "@/components/ui/alert-dialog";
+    73→import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+    74→import {
+    75→  ArrowDownUp,
+    76→  CalendarClock,
+    77→  Check,
+    78→  ChevronDown,
+    79→  Copy,
+    80→  Dumbbell,
+    81→  GripVertical,
+    82→  Hammer,
+    83→  Loader2,
+    84→  Moon,
+    85→  MoreVertical,
+    86→  Play,
+    87→  SkipForward,
+    88→  StarOff,
+    89→  Trash2,
+    90→} from "lucide-react";
+    91→import { toast } from "sonner";
+    92→import { cn } from "@/lib/utils";
+    93→import { useApp } from "@/lib/client/store";
+    94→import { phaseOrderApi, programStartApi, programsApi, routinesApi } from "@/lib/client/api";
+    95→import { qk, useDashboard, useInvalidate, useOnline, useSession } from "@/lib/client/query";
+    96→import { useHashRoute } from "@/features/shell/router";
+    97→import { formatDayLabel, todayKey } from "@/lib/client/format";
+    98→import { DatePickerDialog, useScheduleCreate } from "@/features/schedule/schedule-shared";
+    99→import { DIFFICULTY_LABELS, EQUIPMENT_LABELS, type Difficulty, type Equipment } from "@/lib/constants";
+   100→import type {
+   101→  ProgramDetailDayDTO,
+   102→  ProgramDetailDTO,
+   103→  ProgramDetailPhaseDTO,
+   104→} from "@/lib/types";
+   105→import { errorMessage, useProgramRun, useRoutineRun } from "./screen-helpers";
+   106→import { useProgramExtras } from "./program-meta";
+   107→
+   108→// ─────────────────────────────────────────────────────────────────────────────
+   109→// SectionHeader — 32px uppercase label with a trailing hairline (NOT a row).
+   110→// ─────────────────────────────────────────────────────────────────────────────
+   111→
+   112→function SectionHeader({ label }: { label: string }) {
+   113→  return (
+   114→    <h2 className="flex h-8 flex-none items-center gap-2 overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+   115→      <span className="flex-none truncate">{label}</span>
+   116→      <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
+   117→    </h2>
+   118→  );
+   119→}
+   120→
+   121→/** Day minutes: estMinutes ?? phase minutesMax (both null → nothing). */
+   122→function minutesOf(day: ProgramDetailDayDTO, phase: ProgramDetailPhaseDTO): number | null {
+   123→  return day.estMinutes ?? phase.minutesMax ?? null;
+   124→}
+   125→
+   126→/** Non-draggable grip glyph (implicit phases — PhaseOverride needs a real phase row). */
+   127→function StaticGrip(): ReactNode {
+   128→  return (
+   129→    <span aria-hidden className="flex h-11 w-6 flex-none items-center justify-center text-muted-foreground/40">
+   130→      <GripVertical className="h-4 w-4" />
+   131→    </span>
+   132→  );
+   133→}
+   134→
+   135→// ─────────────────────────────────────────────────────────────────────────────
+   136→// ProgramDayRow — 56px: handle · name · "Day {i}" · "{minutes} min".
+   137→// REST rows render "Rest day" muted italic with no minutes and no tap.
+   138→// ─────────────────────────────────────────────────────────────────────────────
+   139→
+   140→function ProgramDayRow({
+   141→  day,
+   142→  index,
+   143→  minutes,
+   144→  handle,
+   145→  onOpen,
+   146→}: {
+   147→  day: ProgramDetailDayDTO;
+   148→  index: number;
+   149→  minutes: number | null;
+   150→  handle: ReactNode;
+   151→  onOpen: (dayId: string) => void;
+   152→}) {
+   153→  const isRest = (day.dayType ?? "WORKOUT") === "REST";
+   154→  return (
+   155→    <div
+   156→      data-row
+   157→      className="flex h-14 w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card pl-1 pr-3"
+   158→    >
+   159→      {handle}
+   160→      <div
+   161→        {...(isRest
+   162→          ? { "aria-label": `Day ${index + 1} — rest day` }
+   163→          : {
+   164→              role: "button",
+   165→              tabIndex: 0,
+   166→              "aria-label": `Open ${day.name}`,
+   167→              ...tourAttrs({ id: "programDetail.dayRow", label: "Day row", help: "Open the day to see its exercise groups.", order: 70 }),
+   168→            })}
+   169→        className={cn(
+   170→          "flex h-14 min-w-0 flex-1 items-center gap-2",
+   171→          !isRest && "cursor-pointer select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   172→        )}
+   173→        onClick={isRest ? undefined : () => onOpen(day.id)}
+   174→        onKeyDown={
+   175→          isRest
+   176→            ? undefined
+   177→            : (e) => {
+   178→                if (e.target !== e.currentTarget) return;
+   179→                if (e.key === "Enter" || e.key === " ") {
+   180→                  e.preventDefault();
+   181→                  onOpen(day.id);
+   182→                }
+   183→              }
+   184→        }
+   185→      >
+   186→        <span
+   187→          className={cn(
+   188→            "min-w-0 flex-1 truncate text-sm font-semibold leading-none",
+   189→            isRest && "font-normal italic text-muted-foreground",
+   190→          )}
+   191→        >
+   192→          {isRest ? "Rest day" : day.name}
+   193→        </span>
+   194→        <span className="flex-none text-xs font-semibold leading-none text-muted-foreground">Day {index + 1}</span>
+   195→        {!isRest && minutes != null ? (
+   196→          <span className="flex-none text-xs leading-none text-muted-foreground">{minutes} min</span>
+   197→        ) : null}
+   198→      </div>
+   199→    </div>
+   200→  );
+   201→}
+   202→
+   203→/** Sortable wrapper: owns the dnd handle node for a Program tab day row. */
+   204→function SortableProgramDayRow({
+   205→  day,
+   206→  index,
+   207→  minutes,
+   208→  onOpen,
+   209→}: {
+   210→  day: ProgramDetailDayDTO;
+   211→  index: number;
+   212→  minutes: number | null;
+   213→  onOpen: (dayId: string) => void;
+   214→}) {
+   215→  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: day.id });
+   216→  const handle = (
+   217→    <button
+   218→      type="button"
+   219→      {...attributes}
+   220→      {...listeners}
+   221→      {...tourAttrs({ id: "programDetail.dayDrag", label: "Day drag", help: "Long-press and drag to reorder days in this phase.", order: 80 })}
+   222→      aria-label={`Reorder ${day.name}`}
+   223→      className="flex h-11 w-6 flex-none touch-none items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+   224→    >
+   225→      <GripVertical className="h-4 w-4" aria-hidden />
+   226→    </button>
+   227→  );
+   228→  return (
+   229→    <div
+   230→      ref={setNodeRef}
+   231→      style={{ transform: CSS.Translate.toString(transform), transition }}
+   232→      className={cn("flex-none", isDragging && "z-20 opacity-80")}
+   233→    >
+   234→      <ProgramDayRow day={day} index={index} minutes={minutes} handle={handle} onOpen={onOpen} />
+   235→    </div>
+   236→  );
+   237→}
+   238→
+   239→// ─────────────────────────────────────────────────────────────────────────────
+   240→// RoutineDetailScreen — keyed by routineId so local UI state (tab, selected
+   241→// phase, dialogs) resets naturally on navigation.
+   242→// ─────────────────────────────────────────────────────────────────────────────
+   243→
+   244→export default function RoutineDetailScreen({ routineId }: { routineId: string }) {
+   245→  return <RoutineDetailInner key={routineId} routineId={routineId} />;
+   246→}
+   247→
+   248→function RoutineDetailInner({ routineId }: { routineId: string }) {
+   249→  const navigate = useApp((s) => s.navigate);
+   250→  const session = useApp((s) => s.session);
+   251→  const invalidate = useInvalidate();
+   252→  const online = useOnline();
+   253→  const { run } = useRoutineRun();
+   254→  const { run: programRun } = useProgramRun();
+   255→  const route = useHashRoute();
+   256→  const scheduleCreate = useScheduleCreate();
+   257→  const invalidateExtras = useProgramExtras();
+   258→
+   259→  // Long-press drag sensors (§4): hold ~180ms then drag; taps stay taps.
+   260→  const sensors = useSensors(
+   261→    useSensor(PointerSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+   262→    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+   263→  );
+   264→
+   265→  // ---------- data ----------
+   266→  // difficulty from the ["session"] query (source of truth; store bootstraps).
+   267→  const sessionQuery = useSession();
+   268→  const storeDifficulty = session?.user.difficulty ?? null;
+   269→  const difficulty = (sessionQuery.data?.user?.difficulty ?? storeDifficulty ?? "INTERMEDIATE") as Difficulty;
+   270→
+   271→  const { data: detailData, isLoading, error } = useQuery({
+   272→    queryKey: qk.programDetail(routineId, difficulty),
+   273→    queryFn: () => programsApi.detail(routineId, difficulty),
+   274→    retry: 1,
+   275→  });
+   276→  const detail: ProgramDetailDTO | null = detailData ?? null;
+   277→
+   278→  const resolvedVariant = detail ? (detail.variant ?? detail.fallbackVariant) : null;
+   279→  const variantMissing = !!detail && detail.variant == null && detail.variants.length > 0;
+   280→  const phases = useMemo(() => resolvedVariant?.phases ?? [], [resolvedVariant]);
+   281→  const phaseCount = phases.length;
+   282→  const equipment = useMemo(
+   283→    () => (resolvedVariant?.equipment ?? []).map((v) => EQUIPMENT_LABELS[v as Equipment] ?? v),
+   284→    [resolvedVariant],
+   285→  );
+   286→
+   287→  // follow state — the dashboard carries the active program
+   288→  const { data: dashboardData } = useDashboard();
+   289→  const active = dashboardData?.active ?? null;
+   290→  const followed = active && active.routineId === routineId ? active : null;
+   291→
+   292→  const hasWorkoutDay = phases.some((p) => p.days.some((d) => (d.dayType ?? "WORKOUT") !== "REST"));
+   293→
+   294→  // ---------- ui state ----------
+   295→  const [tab, setTab] = useState<"overview" | "program">("overview");
+   296→  const [equipmentOpen, setEquipmentOpen] = useState(false);
+   297→  const [selectedPhaseIdx, setSelectedPhaseIdx] = useState(0);
+   298→  const [deleteRoutineOpen, setDeleteRoutineOpen] = useState(false);
+   299→  const [unfollowOpen, setUnfollowOpen] = useState(false);
+   300→  const [startConfirmOpen, setStartConfirmOpen] = useState(false);
+   301→  const [scheduleDay, setScheduleDay] = useState<{ id: string; name: string } | null>(null);
+   302→  const [startBusy, setStartBusy] = useState(false);
+   303→  const [jumpOpen, setJumpOpen] = useState(
+   304→    () => route.query.get("jump") === "1" && route.name === "program-detail",
+   305→  );
+   306→
+   307→  // phase selection resets when the variant changes (difficulty switch)
+   308→  useEffect(() => {
+   309→    setSelectedPhaseIdx(0);
+   310→  }, [resolvedVariant?.id]);
+   311→  const phaseIdx = Math.min(selectedPhaseIdx, Math.max(0, phaseCount - 1));
+   312→  const phase = phases[phaseIdx] ?? null;
+   313→
+   314→  /** Cursor day when following (non-REST), else the first workout day of the variant. */
+   315→  const scheduleTargetDay = useMemo<{ id: string; name: string } | null>(() => {
+   316→    if (followed && (followed.dayType ?? "WORKOUT") !== "REST") {
+   317→      return { id: followed.dayId, name: followed.dayName };
+   318→    }
+   319→    for (const p of phases) {
+   320→      const d = p.days.find((x) => (x.dayType ?? "WORKOUT") !== "REST");
+   321→      if (d) return { id: d.id, name: d.name };
+   322→    }
+   323→    return null;
+   324→  }, [followed, phases]);
+   325→
+   326→  const flatDays = useMemo(() => phases.flatMap((p) => p.days), [phases]);
+   327→
+   328→  const openDay = (dayId: string) => navigate(`/days/${dayId}`);
+   329→
+   330→  // ---------- routine-level mutations (⋮ menu — kept from §3.5) ----------
+   331→  const copyRoutine = async () => {
+   332→    if (!detail) return;
+   333→    const ok = await run(() => routinesApi.copy(routineId), {
+   334→      path: `/api/routines/${routineId}/copy`,
+   335→      method: "POST",
+   336→      label: "Duplicate routine",
+   337→    });
+   338→    if (ok) toast.success(`Duplicated “${detail.name}”`);
+   339→  };
+   340→
+   341→  const removeRoutine = async () => {
+   342→    const ok = await run(() => routinesApi.remove(routineId), {
+   343→      path: `/api/routines/${routineId}`,
+   344→      method: "DELETE",
+   345→      label: `Deleted ${detail?.name ?? "routine"}`,
+   346→    });
+   347→    if (ok) {
+   348→      invalidate.programs();
+   349→      toast.success(`Deleted “${detail?.name ?? "routine"}”`);
+   350→      navigate("/programs");
+   351→    }
+   352→  };
+   353→
+   354→  const unfollowProgram = async () => {
+   355→    const res = await programRun(
+   356→      () => programsApi.unfollow(),
+   357→      { path: "/api/programs/follow", method: "DELETE", label: "Program unfollowed" },
+   358→    );
+   359→    if (res) {
+   360→      invalidateExtras(); // programs + dashboard + schedule + routines families
+   361→      invalidate.programDetail(routineId);
+   362→      toast.success(`Unfollowed ${detail?.name ?? "program"}`);
+   363→    }
+   364→  };
+   365→
+   366→  const jumpToDay = async (dayIndex: number) => {
+   367→    const res = await programRun(
+   368→      () => programsApi.jumpCursor(dayIndex),
+   369→      { path: "/api/programs/cursor/jump", method: "POST", body: { dayIndex }, label: "Cursor moved" },
+   370→    );
+   371→    if (res) toast.success(`Day ${res.dayIndex + 1} · ${res.day.name}`);
+   372→  };
+   373→
+   374→  const skipCursorDay = async () => {
+   375→    const res = await programRun(
+   376→      () => programsApi.skipCursorDay(),
+   377→      { path: "/api/programs/cursor/skip", method: "POST", label: "Day skipped" },
+   378→    );
+   379→    if (res) toast.success(`Skipped ${res.skipped.name} · ${res.day.name} up next`);
+   380→  };
+   381→
+   382→  const scheduleRoutineDay = (day: { id: string; name: string }, dateKey: string) => {
+   383→    if (!detail) return;
+   384→    void scheduleCreate.create({
+   385→      date: dateKey,
+   386→      routineId,
+   387→      dayId: day.id,
+   388→      toastLabel: `Scheduled ${detail.name} · ${day.name} for ${formatDayLabel(dateKey)}`,
+   389→    });
+   390→  };
+   391→
+   392→  // ---------- §4 start program / continue day ----------
+   393→  const startProgramFlow = async (phaseIdxToStart: number) => {
+   394→    if (startBusy) return;
+   395→    if (!online) {
+   396→      toast.info("Starting a program needs a connection");
+   397→      return;
+   398→    }
+   399→    setStartBusy(true);
+   400→    try {
+   401→      await programStartApi.start(routineId, phaseIdxToStart);
+   402→      invalidate.session();
+   403→      invalidate.programs(); // ["programs"] + ["dashboard"]
+   404→      invalidate.schedule();
+   405→      invalidate.routines();
+   406→      invalidate.programDetail(routineId);
+   407→      toast.success("Program started");
+   408→      navigate("/workout");
+   409→    } catch (e) {
+   410→      toast.error(errorMessage(e));
+   411→    } finally {
+   412→      setStartBusy(false);
+   413→    }
+   414→  };
+   415→
+   416→  const onStartClick = () => {
+   417→    if (active && active.routineId !== routineId) {
+   418→      setStartConfirmOpen(true); // destructive: replaces the current program
+   419→      return;
+   420→    }
+   421→    void startProgramFlow(phaseIdx);
+   422→  };
+   423→
+   424→  /** Existing logging flow: start-day → #/session (REST cursor → On Demand). */
+   425→  const continueDay = async () => {
+   426→    if (!followed || startBusy) return;
+   427→    if ((followed.dayType ?? "WORKOUT") === "REST") {
+   428→      navigate("/on-demand");
+   429→      return;
+   430→    }
+   431→    if (!online) {
+   432→      toast.info("Starting a workout needs a connection");
+   433→      return;
+   434→    }
+   435→    setStartBusy(true);
+   436→    try {
+   437→      const w = await programsApi.startDay(routineId, followed.dayId ? { dayId: followed.dayId } : {});
+   438→      invalidate.workout();
+   439→      invalidate.dashboard();
+   440→      invalidate.schedule();
+   441→      toast.success(`Started ${followed.dayName}`, {
+   442→        description: `${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} loaded`,
+   443→      });
+   444→      navigate("/session");
+   445→    } catch (e) {
+   446→      toast.error(errorMessage(e));
+   447→    } finally {
+   448→      setStartBusy(false);
+   449→    }
+   450→  };
+   451→
+   452→  // ---------- §4 phase order (drag → PhaseOverride; Reset Order) ----------
+   453→  const savePhaseOrder = async (target: ProgramDetailPhaseDTO, dayIds: string[]) => {
+   454→    if (!online) {
+   455→      toast.info("Reordering days needs a connection");
+   456→      return;
+   457→    }
+   458→    try {
+   459→      await phaseOrderApi.put(target.id, dayIds);
+   460→      await invalidate.programDetail(routineId);
+   461→      toast.success("Order saved");
+   462→    } catch (e) {
+   463→      toast.error(errorMessage(e));
+   464→    }
+   465→  };
+   466→
+   467→  const resetPhaseOrder = async (target: ProgramDetailPhaseDTO) => {
+   468→    if (!online) {
+   469→      toast.info("Resetting the order needs a connection");
+   470→      return;
+   471→    }
+   472→    try {
+   473→      await phaseOrderApi.reset(target.id);
+   474→      await invalidate.programDetail(routineId);
+   475→      toast.success("Order reset");
+   476→    } catch (e) {
+   477→      toast.error(errorMessage(e));
+   478→    }
+   479→  };
+   480→
+   481→  const onDragEnd = (target: ProgramDetailPhaseDTO) => (event: DragEndEvent) => {
+   482→    const { active, over } = event;
+   483→    if (!over || active.id === over.id) return;
+   484→    const ids = target.days.map((d) => d.id);
+   485→    const oldIndex = ids.indexOf(String(active.id));
+   486→    const newIndex = ids.indexOf(String(over.id));
+   487→    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+   488→    const next = arrayMove(target.days, oldIndex, newIndex).map((d) => d.id);
+   489→    void savePhaseOrder(target, next);
+   490→  };
+   491→
+   492→  // ---------- Overview data ----------
+   493→  const aboutText = useMemo(() => {
+   494→    const t = (detail?.description ?? "").trim();
+   495→    if (t) return t;
+   496→    const tagline = (detail?.tagline ?? "").trim();
+   497→    if (tagline) return tagline;
+   498→    return (detail?.notes ?? "").trim();
+   499→  }, [detail]);
+   500→  const aboutPhases = useMemo(
+   501→    () => phases.filter((p) => (p.overview ?? "").trim().length > 0),
+   502→    [phases],
+   503→  );
+   504→
+   505→  // ---------- render helpers ----------
+   506→  const renderHeader = () => (
+   507→    <>
+   508→      <div data-row className="flex h-12 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap pl-1">
+   509→        <h1 className="min-w-0 flex-1 truncate text-base font-bold leading-none">{detail?.name ?? "Program"}</h1>
+   510→        {detail?.isCurrent ? (
+   511→          <span
+   512→            className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/5 px-2 text-[10px] font-bold uppercase leading-none text-primary"
+   513→            aria-label={`${detail.daysDone} days completed`}
+   514→          >
+   515→            {detail.daysDone} Days
+   516→          </span>
+   517→        ) : null}
+   518→      </div>
+   519→      {variantMissing ? (
+   520→        <div
+   521→          data-row
+   522→          className="flex h-10 w-full flex-none items-center overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-xs text-muted-foreground"
+   523→        >
+   524→          <span className="truncate">
+   525→            Not available at {DIFFICULTY_LABELS[difficulty]} — showing the{" "}
+   526→            {DIFFICULTY_LABELS[(resolvedVariant?.difficulty ?? difficulty) as Difficulty] ?? "closest"} version
+   527→          </span>
+   528→        </div>
+   529→      ) : null}
+   530→      {phaseCount > 1 ? (
+   531→        <div
+   532→          data-row
+   533→          data-chip-scroller
+   534→          role="tablist"
+   535→          aria-label="Program phases"
+   536→          className="no-scrollbar flex h-8 w-full flex-none items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap"
+   537→        >
+   538→          {phases.map((p, i) => {
+   539→            const selected = i === phaseIdx;
+   540→            return (
+   541→              <button
+   542→                key={p.id}
+   543→                type="button"
+   544→                role="tab"
+   545→                aria-selected={selected}
+   546→                aria-label={`Phase ${i + 1}: ${p.name}`}
+   547→                {...tourAttrs({ id: "programDetail.phaseChip", label: "Phase chip", help: "Jump between the phases of this program.", order: 30 })}
+   548→                onClick={() => setSelectedPhaseIdx(i)}
+   549→                className={cn(
+   550→                  "flex h-8 flex-none items-center rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   551→                  selected
+   552→                    ? "border-primary/60 bg-primary/10 text-primary"
+   553→                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+   554→                )}
+   555→              >
+   556→                <span className="truncate">P{i + 1} {p.name}</span>
+   557→              </button>
+   558→            );
+   559→          })}
+   560→        </div>
+   561→      ) : null}
+   562→    </>
+   563→  );
+   564→
+   565→  const renderOverviewTab = () => (
+   566→    <>
+   567→      <SectionHeader label="Highlights" />
+   568→      <div className="flex flex-col">
+   569→        <div data-row className="flex h-10 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1 text-sm">
+   570→          <span className="min-w-0 flex-1 truncate">Days per week</span>
+   571→          <span className="flex-none font-semibold text-muted-foreground">{resolvedVariant?.daysPerWeek ?? "—"}</span>
+   572→        </div>
+   573→        {equipment.length > 0 ? (
+   574→          <>
+   575→            <button
+   576→              data-row
+   577→              type="button"
+   578→              aria-expanded={equipmentOpen}
+   579→              aria-label={`Equipment — ${equipment.length} items`}
+   580→              {...tourAttrs({ id: "programDetail.equipment", label: "Equipment", help: "Expand the equipment list for this program.", order: 40 })}
+   581→              onClick={() => setEquipmentOpen((o) => !o)}
+   582→              className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1 text-left text-sm transition-colors hover:bg-accent/40"
+   583→            >
+   584→              <span className="min-w-0 flex-1 truncate">Equipment</span>
+   585→              <span className="flex-none font-semibold text-muted-foreground">{equipment.length} items</span>
+   586→              <ChevronDown
+   587→                className={cn("h-4 w-4 flex-none text-muted-foreground transition-transform", equipmentOpen ? "" : "-rotate-90")}
+   588→                aria-hidden
+   589→              />
+   590→            </button>
+   591→            {equipmentOpen
+   592→              ? equipment.map((label) => (
+   593→                  <div
+   594→                    key={label}
+   595→                    data-row
+   596→                    className="flex h-8 items-center overflow-hidden whitespace-nowrap pl-4 pr-1 text-xs text-muted-foreground"
+   597→                  >
+   598→                    <span className="truncate">{label}</span>
+   599→                  </div>
+   600→                ))
+   601→              : null}
+   602→          </>
+   603→        ) : null}
+   604→        {phases.map((p, i) => (
+   605→          <div
+   606→            key={p.id}
+   607→            data-row
+   608→            className="flex h-10 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1 text-sm"
+   609→          >
+   610→            <span className="min-w-0 flex-1 truncate">
+   611→              Phase {i + 1} · {p.name}
+   612→            </span>
+   613→            {p.minutesMin != null && p.minutesMax != null ? (
+   614→              <span className="flex-none font-semibold text-muted-foreground">
+   615→                {p.minutesMin}-{p.minutesMax} min
+   616→              </span>
+   617→            ) : null}
+   618→          </div>
+   619→        ))}
+   620→      </div>
+   621→
+   622→      {aboutText ? (
+   623→        <>
+   624→          <SectionHeader label="About" />
+   625→          <p className="whitespace-normal px-1 text-sm leading-relaxed text-foreground">{aboutText}</p>
+   626→          {aboutPhases.map((p) => (
+   627→            <div key={p.id} className="flex flex-col gap-1">
+   628→              <p className="px-1 text-sm font-semibold leading-none">
+   629→                Phase {p.idx + 1} — {p.name}
+   630→              </p>
+   631→              <p className="whitespace-normal px-1 text-sm leading-relaxed text-muted-foreground">{p.overview}</p>
+   632→            </div>
+   633→          ))}
+   634→        </>
+   635→      ) : null}
+   636→    </>
+   637→  );
+   638→
+   639→  const renderProgramTab = () => (
+   640→    <>
+   641→      <div data-row className="flex h-10 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap px-1">
+   642→        <span className="min-w-0 flex-1 truncate text-sm font-bold leading-none">Preview — Phase {phaseIdx + 1}</span>
+   643→        {phase?.hasPhaseOverride ? (
+   644→          <button
+   645→            type="button"
+   646→            aria-label="Reset the day order for this phase"
+   647→            {...tourAttrs({ id: "programDetail.resetOrder", label: "Reset Order", help: "Restore the template day order for this phase.", order: 60 })}
+   648→            onClick={() => phase && void resetPhaseOrder(phase)}
+   649→            className="flex h-8 flex-none items-center rounded-md px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   650→          >
+   651→            Reset Order
+   652→          </button>
+   653→        ) : null}
+   654→      </div>
+   655→      {phase && phase.days.length > 0 ? (
+   656→        phase.isImplicit ? (
+   657→          // Implicit phase (variant-less custom program): no PhaseOverride target.
+   658→          <div className="flex flex-col gap-2">
+   659→            {phase.days.map((d, i) => (
+   660→              <ProgramDayRow
+   661→                key={d.id}
+   662→                day={d}
+   663→                index={i}
+   664→                minutes={minutesOf(d, phase)}
+   665→                handle={<StaticGrip />}
+   666→                onOpen={openDay}
+   667→              />
+   668→            ))}
+   669→          </div>
+   670→        ) : (
+   671→          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd(phase)}>
+   672→            <SortableContext items={phase.days.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+   673→              <div className="flex flex-col gap-2">
+   674→                {phase.days.map((d, i) => (
+   675→                  <SortableProgramDayRow key={d.id} day={d} index={i} minutes={minutesOf(d, phase)} onOpen={openDay} />
+   676→                ))}
+   677→              </div>
+   678→            </SortableContext>
+   679→          </DndContext>
+   680→        )
+   681→      ) : (
+   682→        <div className="flex h-[200px] flex-none flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+   683→          <p className="text-sm font-semibold">No days in this phase</p>
+   684→          <p className="max-w-[280px] text-center text-xs text-muted-foreground">
+   685→            Build this program&apos;s training days in the Builder.
+   686→          </p>
+   687→          <Button
+   688→            type="button"
+   689→            variant="outline"
+   690→            className="gap-1.5"
+   691→            tour={{ id: "programDetail.openBuilder", label: "Open Builder", help: "Open this program in the Builder to add days.", order: 130, when: ["empty"] }}
+   692→            onClick={() => navigate(`/builder/program/${routineId}`)}
+   693→          >
+   694→            <Hammer className="h-4 w-4" aria-hidden />
+   695→            Open in Builder
+   696→          </Button>
+   697→        </div>
+   698→      )}
+   699→    </>
+   700→  );
+   701→
+   702→  /** ?jump=1 deep link — REPLACES the tab content (kept from §3.5). */
+   703→  const renderJumpList = () => (
+   704→    <div className="flex flex-col gap-2" aria-label="Jump to day">
+   705→      <SectionHeader label="Jump to day" />
+   706→      {flatDays.map((day, index) => {
+   707→        const isRest = (day.dayType ?? "WORKOUT") === "REST";
+   708→        const isCurrent = !!followed && index === followed.cursorDayIndex;
+   709→        return (
+   710→          <button
+   711→            key={day.id}
+   712→            type="button"
+   713→            data-row
+   714→            aria-label={`Jump to Day ${index + 1} · ${day.name}`}
+   715→            aria-current={isCurrent ? "true" : undefined}
+   716→            {...tourAttrs({ id: "programDetail.jumpRow", label: "Day row", help: "Move the program cursor to this day.", order: 90 })}
+   717→            onClick={() => {
+   718→              setJumpOpen(false);
+   719→              void jumpToDay(index);
+   720→            }}
+   721→            className={cn(
+   722→              "flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-3 text-left text-sm transition-colors",
+   723→              isCurrent
+   724→                ? "border-primary/60 bg-primary/10"
+   725→                : "border-border bg-card hover:border-primary/40 hover:bg-accent/40",
+   726→              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   727→            )}
+   728→          >
+   729→            <span className="w-14 flex-none text-xs font-semibold text-muted-foreground">Day {index + 1}</span>
+   730→            {isRest ? (
+   731→              <Moon className="h-4 w-4 flex-none text-muted-foreground/70" aria-hidden />
+   732→            ) : (
+   733→              <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
+   734→            )}
+   735→            <span className={cn("min-w-0 flex-1 truncate font-medium", isRest && "text-muted-foreground")}>{day.name}</span>
+   736→            <span
+   737→              className={cn(
+   738→                "flex h-6 flex-none items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+   739→                isRest ? "border-border text-muted-foreground" : "border-primary/40 text-primary",
+   740→              )}
+   741→            >
+   742→              {isRest ? "Rest" : "Workout"}
+   743→            </span>
+   744→            {isCurrent ? <Check className="h-4 w-4 flex-none text-primary" aria-label="Current day" /> : null}
+   745→          </button>
+   746→        );
+   747→      })}
+   748→      <Button
+   749→        type="button"
+   750→        variant="outline"
+   751→        className="h-11 flex-none"
+   752→        tour={{ skipTour: true, reason: "Cancel row inside the jump-to-day list" }}
+   753→        onClick={() => setJumpOpen(false)}
+   754→      >
+   755→        Cancel
+   756→      </Button>
+   757→    </div>
+   758→  );
+   759→
+   760→  // ---------- render ----------
+   761→  return (
+   762→    <Screen
+   763→      topBar={
+   764→        <TopBar
+   765→          leading={<BackButton fallbackHash="#/programs" label="Back to Programs" />}
+   766→          title={detail ? detail.name : "Program"}
+   767→          actions={
+   768→            <>
+   769→              <DropdownMenu>
+   770→                <DropdownMenuTrigger asChild>
+   771→                  <Button
+   772→                    type="button"
+   773→                    variant="ghost"
+   774→                    size="icon"
+   775→                    className="h-11 w-11 flex-none"
+   776→                    aria-label="More actions"
+   777→                    tour={{ id: "programDetail.menu", label: "Program menu", help: "Edit in Builder, schedule, skip, jump, unfollow, copy or delete.", order: 50 }}
+   778→                  >
+   779→                    <MoreVertical className="h-5 w-5" aria-hidden />
+   780→                  </Button>
+   781→                </DropdownMenuTrigger>
+   782→                <DropdownMenuContent align="end" className="w-48">
+   783→                  <DropdownMenuItem onClick={() => navigate(`/builder/program/${routineId}`)}>
+   784→                    <Hammer className="h-4 w-4" aria-hidden /> Edit in Builder
+   785→                  </DropdownMenuItem>
+   786→                  <DropdownMenuItem
+   787→                    disabled={!scheduleTargetDay}
+   788→                    onClick={() => scheduleTargetDay && setScheduleDay(scheduleTargetDay)}
+   789→                  >
+   790→                    <CalendarClock className="h-4 w-4" aria-hidden /> Schedule day…
+   791→                  </DropdownMenuItem>
+   792→                  <DropdownMenuItem disabled={!followed} onClick={() => void skipCursorDay()}>
+   793→                    <SkipForward className="h-4 w-4" aria-hidden /> Skip day
+   794→                  </DropdownMenuItem>
+   795→                  <DropdownMenuItem disabled={!followed} onClick={() => setJumpOpen((o) => !o)}>
+   796→                    <ArrowDownUp className="h-4 w-4" aria-hidden /> Jump to day…
+   797→                  </DropdownMenuItem>
+   798→                  <DropdownMenuItem disabled={!followed} onClick={() => setUnfollowOpen(true)}>
+   799→                    <StarOff className="h-4 w-4" aria-hidden /> Unfollow
+   800→                  </DropdownMenuItem>
+   801→                  <DropdownMenuItem onClick={() => void copyRoutine()}>
+   802→                    <Copy className="h-4 w-4" aria-hidden /> Copy
+   803→                  </DropdownMenuItem>
+   804→                  <DropdownMenuItem
+   805→                    className="text-destructive focus:text-destructive"
+   806→                    onClick={() => setDeleteRoutineOpen(true)}
+   807→                  >
+   808→                    <Trash2 className="h-4 w-4" aria-hidden /> Delete
+   809→                  </DropdownMenuItem>
+   810→                </DropdownMenuContent>
+   811→              </DropdownMenu>
+   812→              <TopBarHelp />
+   813→            </>
+   814→          }
+   815→        />
+   816→      }
+   817→      subBar={
+   818→        <SubBar>
+   819→          <div
+   820→            data-row
+   821→            role="tablist"
+   822→            aria-label="Program views"
+   823→            className="grid h-10 w-full grid-cols-2 gap-1 overflow-hidden whitespace-nowrap rounded-lg border bg-card p-1"
+   824→          >
+   825→            {(["overview", "program"] as const).map((t) => {
+   826→              const selected = tab === t;
+   827→              return (
+   828→                <button
+   829→                  key={t}
+   830→                  type="button"
+   831→                  role="tab"
+   832→                  aria-selected={selected}
+   833→                  {...tourAttrs(
+   834→                    t === "overview"
+   835→                      ? { id: "programDetail.tabOverview", label: "Overview tab", help: "Highlights, equipment and the program's about text.", order: 10 }
+   836→                      : { id: "programDetail.tabProgram", label: "Program tab", help: "Preview and reorder the days of each phase.", order: 20 },
+   837→                  )}
+   838→                  onClick={() => setTab(t)}
+   839→                  className={cn(
+   840→                    "flex h-8 min-w-0 items-center justify-center rounded-md text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   841→                    selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+   842→                  )}
+   843→                >
+   844→                  <span className="truncate">{t === "overview" ? "Overview" : "Program"}</span>
+   845→                </button>
+   846→              );
+   847→            })}
+   848→          </div>
+   849→        </SubBar>
+   850→      }
+   851→      bottomBar={
+   852→        detail ? (
+   853→          <BottomBar>
+   854→            {followed ? (
+   855→              (followed.dayType ?? "WORKOUT") === "REST" ? (
+   856→                <Button
+   857→                  type="button"
+   858→                  className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   859→                  aria-label="Train anyway on this rest day"
+   860→                  tour={{ id: "programDetail.trainAnyway", label: "Train anyway", help: "Pick a ready session to train on a rest day.", order: 120 }}
+   861→                  onClick={() => navigate("/on-demand")}
+   862→                >
+   863→                  Train anyway
+   864→                </Button>
+   865→              ) : (
+   866→                <Button
+   867→                  type="button"
+   868→                  className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   869→                  disabled={startBusy}
+   870→                  aria-label={`Continue day ${followed.cursorDayIndex + 1} of ${followed.dayCount}`}
+   871→                  tour={{ id: "programDetail.continue", label: "Continue", help: "Start today's session and jump to the logger.", order: 110 }}
+   872→                  onClick={() => void continueDay()}
+   873→                >
+   874→                  {startBusy ? (
+   875→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   876→                  ) : (
+   877→                    <Play className="h-4 w-4" aria-hidden />
+   878→                  )}
+   879→                  Continue — Day {followed.cursorDayIndex + 1}
+   880→                </Button>
+   881→              )
+   882→            ) : hasWorkoutDay ? (
+   883→              <Button
+   884→                type="button"
+   885→                className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   886→                disabled={startBusy}
+   887→                aria-label={`Start this program at phase ${phaseIdx + 1}`}
+   888→                tour={{ id: "programDetail.start", label: "Start program", help: "Follow this program from the selected phase and build your schedule.", order: 100 }}
+   889→                onClick={onStartClick}
+   890→              >
+   891→                {startBusy ? (
+   892→                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   893→                ) : (
+   894→                  <Play className="h-4 w-4" aria-hidden />
+   895→                )}
+   896→                Start program — Phase {phaseIdx + 1}
+   897→              </Button>
+   898→            ) : (
+   899→              <Tooltip>
+   900→                <TooltipTrigger asChild>
+   901→                  <Button
+   902→                    type="button"
+   903→                    variant="outline"
+   904→                    disabled
+   905→                    className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   906→                    aria-label="Start program disabled — needs a workout day"
+   907→                    tour={{ skipTour: true, reason: "Disabled start; program has no workout day" }}
+   908→                  >
+   909→                    Start program
+   910→                  </Button>
+   911→                </TooltipTrigger>
+   912→                <TooltipContent>Needs at least one workout day</TooltipContent>
+   913→              </Tooltip>
+   914→            )}
+   915→          </BottomBar>
+   916→        ) : undefined
+   917→      }
+   918→    >
+   919→      <ScrollBody>
+   920→        {error ? (
+   921→          <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+   922→            <p className="text-sm font-semibold">Program not found</p>
+   923→            <Button
+   924→              type="button"
+   925→              variant="outline"
+   926→              tour={{ skipTour: true, reason: "Error-state back link for a missing program" }}
+   927→              onClick={() => navigate("/programs")}
+   928→            >
+   929→              Back to programs
+   930→            </Button>
+   931→          </div>
+   932→        ) : isLoading || !detail ? (
+   933→          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading program">
+   934→            <div className="h-12 animate-pulse rounded-lg bg-muted/40" />
+   935→            <div className="h-10 animate-pulse rounded-lg bg-muted/40" />
+   936→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   937→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   938→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   939→          </div>
+   940→        ) : (
+   941→          <>
+   942→            {renderHeader()}
+   943→            {jumpOpen && followed ? renderJumpList() : tab === "overview" ? renderOverviewTab() : renderProgramTab()}
+   944→
+   945→            {/* day scheduling (⋮ "Schedule day…") */}
+   946→            <DatePickerDialog
+   947→              open={scheduleDay != null}
+   948→              onOpenChange={(o) => !o && setScheduleDay(null)}
+   949→              initialKey={todayKey()}
+   950→              title={`Schedule ${scheduleDay?.name ?? "day"}`}
+   951→              description={`Which date should ${detail.name} · ${scheduleDay?.name ?? "this day"} land on?`}
+   952→              onSelect={(dayKey) => {
+   953→                const day = scheduleDay;
+   954→                setScheduleDay(null);
+   955→                if (day) scheduleRoutineDay(day, dayKey);
+   956→              }}
+   957→            />
+   958→            {scheduleCreate.conflictDialog}
+   959→          </>
+   960→        )}
+   961→      </ScrollBody>
+   962→
+   963→      {/* confirm-destructive: program delete */}
+   964→      <AlertDialog open={deleteRoutineOpen} onOpenChange={(o) => !o && setDeleteRoutineOpen(false)}>
+   965→        <AlertDialogContent>
+   966→          <AlertDialogHeader>
+   967→            <AlertDialogTitle>Delete program?</AlertDialogTitle>
+   968→            <AlertDialogDescription>
+   969→              “{detail?.name}” and its days will be removed. Logged workouts stay untouched. This cannot be undone.
+   970→            </AlertDialogDescription>
+   971→          </AlertDialogHeader>
+   972→          <AlertDialogFooter>
+   973→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   974→            <AlertDialogAction
+   975→              className="bg-destructive text-white hover:bg-destructive/90"
+   976→              onClick={(e) => {
+   977→                e.preventDefault();
+   978→                setDeleteRoutineOpen(false);
+   979→                void removeRoutine();
+   980→              }}
+   981→            >
+   982→              Delete program
+   983→            </AlertDialogAction>
+   984→          </AlertDialogFooter>
+   985→        </AlertDialogContent>
+   986→      </AlertDialog>
+   987→
+   988→      {/* confirm: unfollow the program */}
+   989→      <AlertDialog open={unfollowOpen} onOpenChange={(o) => !o && setUnfollowOpen(false)}>
+   990→        <AlertDialogContent>
+   991→          <AlertDialogHeader>
+   992→            <AlertDialogTitle>Unfollow {detail?.name ?? "this program"}?</AlertDialogTitle>
+   993→            <AlertDialogDescription>
+   994→              Your followed-program card and day rollover stop updating. Logged workouts stay untouched —
+   995→              you can follow again any time.
+   996→            </AlertDialogDescription>
+   997→          </AlertDialogHeader>
+   998→          <AlertDialogFooter>
+   999→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1000→            <AlertDialogAction
+  1001→              onClick={(e) => {
+  1002→                e.preventDefault();
+  1003→                setUnfollowOpen(false);
+  1004→                void unfollowProgram();
+  1005→              }}
+  1006→            >
+  1007→              Unfollow
+  1008→            </AlertDialogAction>
+  1009→          </AlertDialogFooter>
+  1010→        </AlertDialogContent>
+  1011→      </AlertDialog>
+  1012→
+  1013→      {/* §4 destructive confirm: replace the current program */}
+  1014→      <AlertDialog open={startConfirmOpen} onOpenChange={(o) => !o && setStartConfirmOpen(false)}>
+  1015→        <AlertDialogContent>
+  1016→          <AlertDialogHeader>
+  1017→            <AlertDialogTitle>Replace current program?</AlertDialogTitle>
+  1018→            <AlertDialogDescription>Your current program progress will restart.</AlertDialogDescription>
+  1019→          </AlertDialogHeader>
+  1020→          <AlertDialogFooter>
+  1021→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1022→            <AlertDialogAction
+  1023→              onClick={(e) => {
+  1024→                e.preventDefault();
+  1025→                setStartConfirmOpen(false);
+  1026→                void startProgramFlow(phaseIdx);
+  1027→              }}
+  1028→            >
+  1029→              Confirm
+  1030→            </AlertDialogAction>
+  1031→          </AlertDialogFooter>
+  1032→        </AlertDialogContent>
+  1033→      </AlertDialog>
+  1034→    </Screen>
+  1035→  );
+  1036→}
+  1037→

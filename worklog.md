@@ -1202,3 +1202,24 @@ Work Log:
 Stage Summary:
 - §6, §7, §8, §9 shipped and verified end-to-end. Known deviations: log-scoped Rearrange/Replace/Notes implemented pragmatically by 9-B2 (Rearrange → existing editor path; Replace → workout exerciseId swap API added; Notes → display path) — details in the log-detail screen header comment.
 - Remaining: §10 challenge banner + §11 home, §12 builder, §13/§14 audit, §15 full battery.
+
+---
+Task ID: 9-C-wave
+Agent: lead (Z.ai Code)
+Task: Wave C verification — §10 challenge banner + §11 home (9-C1), §12 builder (9-C2)
+
+Work Log:
+- Both Wave C subagents timed out on transport and died before verification (code complete, no worklog entries). Lead verified + fixed.
+- Dev server OOM-died during the wave → restarted (health 200); dev.log clean after.
+- tour:gen regenerated (48 screens, 62 components) after the agents' edits; tour:check in sync.
+- Fixed: home card "{daysDone} Days" pill showed "0 DAYS" on fresh programs → hidden when 0. False alarm investigated: program-editor line 384 "[manual" was an ANSI-escape display artifact, not broken code.
+- Normalized stale demo state before banner tests: removed orphaned PLANNED Leg Day entry for today; re-started PPL (variant INTERMEDIATE linked).
+- §10 verified: banner renders above program card ("CHALLENGE / Autumn Strength Reset / Starts Sat, Oct 3 · 4 weeks / [Join]"); ✕ dismiss → banner gone + ChallengeDismiss row (reset after); Join → toast "Joined Autumn Strength Reset" → ActiveRoutine = PPL INTERMEDIATE with programStartedAt = 2026-10-03 (challenge startsOn) + banner gone + home CTA "Starts in 3 days".
+- §11 verified: home card "CURRENT PROGRAM / Push / Pull / Legs / tagline / Starts in 3 days / See all"; in-progress "Continue 2/13" state preserved; tools list unchanged; reconcile-on-open fires on workout-screen mount.
+- §12 verified: builder editor variant tabs (Beg/Int/Adv; on-demand creation via PUT variants/{difficulty} — "Advanced variant created"); "+ Phase" creates phase in selected variant; "Workout day" add lands with the new phase's phaseId; day editor shows Minutes/Muscles(auto+chips)/Equipment(auto+chips); sets editor: "Rest: none" toggle persists restNone=true, "Save tip" persists tip, set ⋮ → "Make AMRAP set" persists setType=AMRAP+isAmrap=true (both in sync); publish route toggles isPublic true/false. NOTE: initial "variant not created" confusion was clicking the legacy Level row (Beg/Int/Adv) instead of the SubBar variant tabs (Beginner/Intermediate/Advanced) — both controls are intentional (level = legacy metadata; tabs = variants).
+- Harness GATE: PASS 320/360/390/430 on #/workout, #/builder, #/builder/program/{id}. tsc 0 src errors; lint 0 errors.
+- Cleaned agent leftovers (tmp-qa/, scripts/qa/tmp-seed-p9b2.ts). Committed c1781d8.
+
+Stage Summary:
+- §10, §11, §12 shipped and verified. All §1–§12 feature work complete.
+- Remaining: §13 final tour sweep, §14 API audit vs spec list, §15 unit checks + full E2E battery + audit doc + report.

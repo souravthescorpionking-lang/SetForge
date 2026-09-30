@@ -1,0 +1,2002 @@
+     1→// Programs, sessions, scheduling & dashboard (Part 5).
+     2→//
+     3→// The cursor is server state; every read runs the lazy rule engine
+     4→// (`applyProgramRules`) first so REST auto-advance, FINISH_OR_MIDNIGHT midnight
+     5→// catch-up and FIRST_SET all converge idempotently. Schedule status transitions
+     6→// are likewise derived on read and persisted opportunistically.
+     7→import { db } from "@/lib/db";
+     8→import { uuid7 } from "@/lib/uuid7";
+     9→import { dayKey, toDayUtc } from "@/lib/dates";
+    10→import { badRequest, conflict, notFound } from "../http";
+    11→import { estOneRmByMethod, roundToStep } from "@/lib/formulas";
+    12→import { generateWarmup, evaluateProgression, type WarmupScheme, type ProgressionRuleLike, type ProgressionStateLike } from "@/lib/grouping";
+    13→import { mapRoutine, mapScheduleEntry, mapWorkout } from "../mappers";
+    14→import type { Prisma, Routine, RoutineDay, ScheduleEntry, Workout } from "@prisma/client";
+    15→import {
+    16→  addDaysKey,
+    17→  advanceIndex,
+    18→  clampCursor,
+    19→  compareDateKeys,
+    20→  deriveEntryStatus,
+    21→  diffDateKeys,
+    22→  isFollowable,
+    23→  isValidSession,
+    24→  localDateKey,
+    25→  missedCutoffMs as missedCutoffMsFor,
+    26→  projectCursor,
+    27→  shouldAdvanceCursor,
+    28→  type ProgramDay,
+    29→} from "./program-rules";
+    30→import { recomputePRs, workoutInclude } from "./workout-service";
+    31→
+    32→// ---------- shared includes ----------
+    33→
+    34→const dayInclude = {
+    35→  exercises: {
+    36→    orderBy: { sortOrder: "asc" as const },
+    37→    include: { exercise: { include: { category: true } }, sets: { orderBy: { sortOrder: "asc" as const } } },
+    38→  },
+    39→} satisfies Prisma.RoutineDayInclude;
+    40→
+    41→const routineInclude = {
+    42→  days: { orderBy: { sortOrder: "asc" as const }, include: dayInclude },
+    43→  // ---- Part 9 §2: variant tree on every routine load ----
+    44→  variants: { include: { phases: { orderBy: { idx: "asc" as const } } } },
+    45→} satisfies Prisma.RoutineInclude;
+    46→
+    47→type DayFull = RoutineDay & Prisma.RoutineDayGetPayload<{ include: typeof dayInclude }>;
+    48→type RoutineFull = Routine & { days: DayFull[] } & Prisma.RoutineGetPayload<{ include: typeof routineInclude }>;
+    49→
+    50→const entryInclude = { routine: true, day: true } satisfies Prisma.ScheduleEntryInclude;
+    51→
+    52→// ---------- Part 9 §2: variant-aware day ordering ----------
+    53→
+    54→/**
+    55→ * Days of the ACTIVE variant, ordered (phase idx, day sortOrder).
+    56→ * variantId null → resolve the variant matching routine.difficulty, else the
+    57→ * first variant (legacy pre-Part9 rows self-heal here). No variants at all →
+    58→ * phaseless days, else every day (safety net for builder-created programs).
+    59→ */
+    60→export function variantDaysOf(routine: RoutineFull, variantId: string | null | undefined): DayFull[] {
+    61→  const variants = routine.variants ?? [];
+    62→  const chosen =
+    63→    (variantId ? variants.find((v) => v.id === variantId) : undefined) ??
+    64→    variants.find((v) => v.difficulty === (routine.difficulty ?? null)) ??
+    65→    variants[0];
+    66→  if (!chosen) {
+    67→    const phaseless = routine.days.filter((d) => d.phaseId == null);
+    68→    return phaseless.length > 0 ? phaseless : routine.days;
+    69→  }
+    70→  const phaseIdx = new Map(chosen.phases.map((p) => [p.id, p.idx]));
+    71→  return routine.days
+    72→    .filter((d) => d.phaseId != null && phaseIdx.has(d.phaseId))
+    73→    .sort(
+    74→      (a, b) =>
+    75→        (phaseIdx.get(a.phaseId!) ?? 0) - (phaseIdx.get(b.phaseId!) ?? 0) ||
+    76→        a.sortOrder - b.sortOrder,
+    77→    );
+    78→}
+    79→
+    80→/** Variant of a routine matching a difficulty (null → routine difficulty → first). Generic: keeps the phase payload when included. */
+    81→export function variantForDifficulty<T extends { id: string; difficulty: string }>(
+    82→  routine: { difficulty: string | null; variants: T[] },
+    83→  difficulty: string | null | undefined,
+    84→): T | null {
+    85→  const variants = routine.variants ?? [];
+    86→  if (variants.length === 0) return null;
+    87→  return (
+    88→    (difficulty ? variants.find((v) => v.difficulty === difficulty) : undefined) ??
+    89→    variants.find((v) => v.difficulty === (routine.difficulty ?? null)) ??
+    90→    variants[0]
+    91→  );
+    92→}
+    93→
+    94→/**
+    95→ * Effective variant day order = template order with per-user PhaseOverrides
+    96→ * applied (§4 Program tab drag). Used by the cursor, schedule generation and
+    97→ * every screen that lists a variant's days.
+    98→ */
+    99→export async function effectiveVariantDays(
+   100→  userId: string,
+   101→  routine: RoutineFull,
+   102→  variantId: string | null | undefined,
+   103→): Promise<DayFull[]> {
+   104→  const days = variantDaysOf(routine, variantId);
+   105→  const chosen =
+   106→    (variantId ? routine.variants.find((v) => v.id === variantId) : undefined) ??
+   107→    variantForDifficulty(routine, null);
+   108→  if (!chosen) return days;
+   109→  const overrides = await db.phaseOverride.findMany({
+   110→    where: { userId, phaseId: { in: chosen.phases.map((p) => p.id) } },
+   111→  });
+   112→  if (overrides.length === 0) return days;
+   113→  const orderMap = new Map(
+   114→    overrides.map((o) => {
+   115→      let ids: string[] = [];
+   116→      try {
+   117→        ids = Array.isArray(o.dayOrder) ? (o.dayOrder as string[]) : JSON.parse(String(o.dayOrder));
+   118→      } catch {
+   119→        ids = [];
+   120→      }
+   121→      return [o.phaseId, ids.filter((x) => typeof x === "string")];
+   122→    }),
+   123→  );
+   124→  const byPhase = new Map<string, DayFull[]>();
+   125→  for (const p of chosen.phases) byPhase.set(p.id, []);
+   126→  const orphan: DayFull[] = [];
+   127→  for (const d of days) {
+   128→    if (d.phaseId && byPhase.has(d.phaseId)) byPhase.get(d.phaseId)!.push(d);
+   129→    else orphan.push(d);
+   130→  }
+   131→  const out: DayFull[] = [];
+   132→  for (const p of chosen.phases) {
+   133→    const list = byPhase.get(p.id)!;
+   134→    const order = orderMap.get(p.id);
+   135→    if (order && order.length > 0) {
+   136→      const pos = new Map(order.map((id, i) => [id, i]));
+   137→      list.sort((a, b) => (pos.get(a.id) ?? list.length) - (pos.get(b.id) ?? list.length) || a.sortOrder - b.sortOrder);
+   138→    }
+   139→    out.push(...list);
+   140→  }
+   141→  return [...orphan, ...out].filter((d) => days.includes(d));
+   142→}
+   143→
+   144→// ---------- settings / today ----------
+   145→
+   146→async function getProgramSettings(userId: string) {
+   147→  const s = await db.userSettings.findUnique({ where: { userId } });
+   148→  if (!s) throw notFound("Settings not found");
+   149→  return {
+   150→    timezone: s.timezone || "UTC",
+   151→    autoAdvanceRest: s.autoAdvanceRest,
+   152→    scheduleMovesCursor: s.scheduleMovesCursor,
+   153→    advanceTrigger: s.advanceTrigger,
+   154→    showProjectedDays: s.showProjectedDays,
+   155→    weeklyWorkoutTarget: s.weeklyWorkoutTarget,
+   156→  };
+   157→}
+   158→
+   159→// ---------- lazy rule engine ----------
+   160→
+   161→function toProgramDay(d: RoutineDay): ProgramDay {
+   162→  return { id: d.id, name: d.name, dayType: d.dayType ?? "WORKOUT" };
+   163→}
+   164→
+   165→/**
+   166→ * "Real logged data" = the user actually touched the workout:
+   167→ * a completed set, a stamped completedAt, or a set with values whose
+   168→ * updatedAt > createdAt (user edit — template prefills are untouched).
+   169→ */
+   170→export function workoutHasLoggedData(w: {
+   171→  exercises: Array<{ sets: Array<{ isComplete: boolean; completedAt: Date | null; weight: number | null; reps: number | null; distance: number | null; timeSec: number | null; createdAt: Date; updatedAt: Date }> }>;
+   172→}): boolean {
+   173→  return w.exercises.some((e) =>
+   174→    e.sets.some(
+   175→      (s) =>
+   176→        s.isComplete ||
+   177→        s.completedAt != null ||
+   178→        ((s.weight != null || s.reps != null || s.distance != null || s.timeSec != null) &&
+   179→          s.updatedAt.getTime() > s.createdAt.getTime()),
+   180→    ),
+   181→  );
+   182→}
+   183→
+   184→/** Workout logged from this routine/day with at least one set of real data. */
+   185→async function findQualifyingWorkout(userId: string, routineId: string, dayId: string) {
+   186→  const w = await db.workout.findFirst({
+   187→    where: { userId, sourceRoutineId: routineId, sourceDayId: dayId },
+   188→    include: { exercises: { include: { sets: true } } },
+   189→    orderBy: { date: "desc" },
+   190→  });
+   191→  if (!w) return null;
+   192→  const hasLoggedData = workoutHasLoggedData(w);
+   193→  return {
+   194→    id: w.id,
+   195→    dateKey: dayKey(w.date),
+   196→    finished: !!w.finishedAt,
+   197→    hasLoggedData,
+   198→    scheduledStart: w.scheduledStart,
+   199→  };
+   200→}
+   201→
+   202→async function loadActive(userId: string) {
+   203→  return db.activeRoutine.findUnique({
+   204→    where: { userId },
+   205→    include: { routine: { include: routineInclude }, variant: true },
+   206→  });
+   207→}
+   208→
+   209→/** Active variant's effective day list (§2 cursor domain). */
+   210→async function activeDays(userId: string, active: NonNullable<Awaited<ReturnType<typeof loadActive>>>) {
+   211→  return effectiveVariantDays(userId, active.routine, active.variantId);
+   212→}
+   213→
+   214→/**
+   215→ * Run the lazy cursor rules for a user. Returns the (possibly updated) active
+   216→ * state + resolved today key. Safe to call on every relevant read.
+   217→ */
+   218→export async function applyProgramRules(userId: string) {
+   219→  const settings = await getProgramSettings(userId);
+   220→  const todayKey = localDateKey(settings.timezone, new Date());
+   221→  const active = await loadActive(userId);
+   222→  if (!active) return { todayKey, settings, active: null, days: [] as ProgramDay[] };
+   223→
+   224→  const days = await activeDays(userId, active); // Part 9 §2: variant-filtered
+   225→  let idx = clampCursor(active.cursorDayIndex, days.length);
+   226→  let anchor =
+   227→    active.lastAdvancedForDate ?? localDateKey(settings.timezone, active.startedAt);
+   228→  let dirty = false;
+   229→
+   230→  const persist = async () => {
+   231→    await db.activeRoutine.update({
+   232→      where: { id: active.id },
+   233→      data: {
+   234→        cursorDayIndex: idx,
+   235→        lastAdvancedAt: new Date(),
+   236→        lastAdvancedForDate: anchor,
+   237→      },
+   238→    });
+   239→  };
+   240→
+   241→  const guardMax = days.length * 2 + 8;
+   242→  for (let guard = 0; guard < guardMax; guard++) {
+   243→    const day = days[idx];
+   244→    if (!day) break;
+   245→
+   246→    const workout = await findQualifyingWorkout(userId, active.routineId, day.id);
+   247→    // schedule gate: logging a scheduled active-routine day moves the cursor
+   248→    // only when scheduleMovesCursor is on
+   249→    const qualifying =
+   250→      workout && (!workout.scheduledStart || settings.scheduleMovesCursor)
+   251→        ? workout
+   252→        : null;
+   253→
+   254→    const advance = shouldAdvanceCursor({
+   255→      day: toProgramDay(day),
+   256→      todayKey,
+   257→      anchorKey: anchor,
+   258→      settings,
+   259→      qualifyingWorkout: qualifying
+   260→        ? {
+   261→            hasLoggedData: qualifying.hasLoggedData,
+   262→            dateKey: qualifying.dateKey,
+   263→            finished: qualifying.finished,
+   264→          }
+   265→        : null,
+   266→    });
+   267→    if (!advance) break;
+   268→
+   269→    idx = advanceIndex(idx, days.length, 1);
+   270→    anchor = addDaysKey(anchor, 1);
+   271→    dirty = true;
+   272→  }
+   273→
+   274→  if (dirty || idx !== active.cursorDayIndex) {
+   275→    if (idx !== clampCursor(active.cursorDayIndex, days.length)) dirty = true;
+   276→    await persist();
+   277→  }
+   278→
+   279→  return {
+   280→    todayKey,
+   281→    settings,
+   282→    active: { ...active, cursorDayIndex: idx },
+   283→    days: days.map(toProgramDay),
+   284→  };
+   285→}
+   286→
+   287→/** Explicit cursor movement (skip / rest-done / advance / jump). */
+   288→async function moveCursor(
+   289→  userId: string,
+   290→  mode: { kind: "advance"; n: number } | { kind: "jump"; dayIndex: number },
+   291→) {
+   292→  const settings = await getProgramSettings(userId);
+   293→  const todayKey = localDateKey(settings.timezone, new Date());
+   294→  const active = await loadActive(userId);
+   295→  if (!active) throw badRequest("No program followed");
+   296→  const days = await activeDays(userId, active);
+   297→  const len = days.length;
+   298→  if (len === 0) throw badRequest("Program has no days");
+   299→
+   300→  const nextIdx =
+   301→    mode.kind === "advance"
+   302→      ? advanceIndex(active.cursorDayIndex, len, mode.n)
+   303→      : clampCursor(mode.dayIndex, len);
+   304→
+   305→  await db.activeRoutine.update({
+   306→    where: { id: active.id },
+   307→    data: {
+   308→      cursorDayIndex: nextIdx,
+   309→      lastAdvancedAt: new Date(),
+   310→      lastAdvancedForDate: todayKey,
+   311→    },
+   312→  });
+   313→  const day = days[nextIdx];
+   314→  return { dayIndex: nextIdx, day: toProgramDay(day) };
+   315→}
+   316→
+   317→// ---------- follow / unfollow ----------
+   318→
+   319→export async function followProgram(userId: string, routineId: string, input: { startDayIndex?: number } = {}) {
+   320→  const r = await db.routine.findFirst({ where: { id: routineId, userId, deletedAt: null }, include: routineInclude });
+   321→  if (!r) throw notFound("Program not found");
+   322→  // Part 9 §2: follow at the USER's difficulty (fallback: routine difficulty → first variant).
+   323→  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+   324→  const variant = variantForDifficulty(r, user?.difficulty ?? null);
+   325→  const days = await effectiveVariantDays(userId, r, variant?.id ?? null);
+   326→  if (!isFollowable(r.kind ?? "ROUTINE", days)) {
+   327→    throw badRequest("Only routines with at least one workout day can be followed");
+   328→  }
+   329→  const start = clampCursor(input.startDayIndex ?? 0, days.length);
+   330→  const settings = await getProgramSettings(userId);
+   331→  const todayKey = localDateKey(settings.timezone, new Date());
+   332→  await db.$transaction(async (tx) => {
+   333→    await tx.activeRoutine.deleteMany({ where: { userId } });
+   334→    await tx.activeRoutine.create({
+   335→      data: {
+   336→        id: uuid7(),
+   337→        userId,
+   338→        routineId: r.id,
+   339→        cursorDayIndex: start,
+   340→        cursorPhaseIdx: 0,
+   341→        variantId: variant?.id ?? null,
+   342→        startedAt: new Date(),
+   343→        lastAdvancedAt: null,
+   344→        lastAdvancedForDate: todayKey,
+   345→      },
+   346→    });
+   347→    // Part 9 §6: fresh cursor → regenerate the program schedule from today.
+   348→    await tx.scheduleEntry.deleteMany({
+   349→      where: { userId, routineId: r.id, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+   350→    });
+   351→  });
+   352→  await generateScheduleFromCursor(userId);
+   353→  return { routineId: r.id, dayIndex: start, day: toProgramDay(days[start]) };
+   354→}
+   355→
+   356→export async function unfollowProgram(userId: string) {
+   357→  await db.activeRoutine.deleteMany({ where: { userId } });
+   358→  return { ok: true };
+   359→}
+   360→
+   361→export async function getActiveRoutineState(userId: string) {
+   362→  const active = await loadActive(userId);
+   363→  if (!active) return null;
+   364→  const days = await activeDays(userId, active);
+   365→  const idx = clampCursor(active.cursorDayIndex, days.length);
+   366→  const day = days[idx];
+   367→  const variant = active.variant ?? variantForDifficulty(active.routine, null);
+   368→  return {
+   369→    routineId: active.routineId,
+   370→    routineName: active.routine.name,
+   371→    routineKind: active.routine.kind ?? "ROUTINE",
+   372→    cursorDayIndex: idx,
+   373→    dayCount: days.length,
+   374→    dayId: day?.id ?? "",
+   375→    dayName: day?.name ?? "",
+   376→    dayType: day?.dayType ?? "WORKOUT",
+   377→    startedAt: active.startedAt.toISOString(),
+   378→    // Part 9 §2: variant cursor
+   379→    variantId: variant?.id ?? null,
+   380→    variantDifficulty: variant?.difficulty ?? null,
+   381→    cursorPhaseIdx: active.cursorPhaseIdx ?? 0,
+   382→  };
+   383→}
+   384→
+   385→// ---------- cursor ops ----------
+   386→
+   387→export async function advanceCursorOp(userId: string, n: number) {
+   388→  return moveCursor(userId, { kind: "advance", n });
+   389→}
+   390→
+   391→export async function jumpCursorOp(userId: string, dayIndex: number) {
+   392→  return moveCursor(userId, { kind: "jump", dayIndex });
+   393→}
+   394→
+   395→/** Skip the current cursor day: advance + SKIPPED audit entry for today. */
+   396→export async function skipCursorDay(userId: string) {
+   397→  const settings = await getProgramSettings(userId);
+   398→  const todayKey = localDateKey(settings.timezone, new Date());
+   399→  const active = await loadActive(userId);
+   400→  if (!active) throw badRequest("No program followed");
+   401→  const days = await activeDays(userId, active);
+   402→  const len = days.length;
+   403→  if (len === 0) throw badRequest("Program has no days");
+   404→  const skippedIdx = clampCursor(active.cursorDayIndex, len);
+   405→  const skippedDay = days[skippedIdx];
+   406→  const nextIdx = advanceIndex(skippedIdx, len, 1);
+   407→
+   408→  await db.$transaction(async (tx) => {
+   409→    await tx.activeRoutine.update({
+   410→      where: { id: active.id },
+   411→      data: {
+   412→        cursorDayIndex: nextIdx,
+   413→        lastAdvancedAt: new Date(),
+   414→        lastAdvancedForDate: todayKey,
+   415→      },
+   416→    });
+   417→    // audit: convert today's matching PLANNED entry, else create a SKIPPED one
+   418→    const planned = await tx.scheduleEntry.findFirst({
+   419→      where: {
+   420→        userId,
+   421→        date: toDayUtc(todayKey),
+   422→        status: "PLANNED",
+   423→        deletedAt: null,
+   424→      },
+   425→    });
+   426→    if (planned && planned.routineId === active.routineId && planned.dayId === skippedDay.id) {
+   427→      await tx.scheduleEntry.update({ where: { id: planned.id }, data: { status: "SKIPPED" } });
+   428→    } else {
+   429→      await tx.scheduleEntry.create({
+   430→        data: {
+   431→          id: uuid7(),
+   432→          userId,
+   433→          date: toDayUtc(todayKey),
+   434→          sourceType: "ROUTINE_DAY",
+   435→          routineId: active.routineId,
+   436→          dayId: skippedDay.id,
+   437→          status: "SKIPPED",
+   438→        },
+   439→      });
+   440→    }
+   441→  });
+   442→  const nextDay = days[nextIdx];
+   443→  return { skipped: toProgramDay(skippedDay), dayIndex: nextIdx, day: toProgramDay(nextDay) };
+   444→}
+   445→
+   446→/** "Mark rest done": advance from a REST day without waiting for midnight. */
+   447→export async function markRestDone(userId: string) {
+   448→  const active = await loadActive(userId);
+   449→  if (!active) throw badRequest("No program followed");
+   450→  const days = await activeDays(userId, active);
+   451→  const idx = clampCursor(active.cursorDayIndex, days.length);
+   452→  const day = days[idx];
+   453→  if ((day?.dayType ?? "WORKOUT") !== "REST") throw badRequest("Current day is not a rest day");
+   454→  return moveCursor(userId, { kind: "advance", n: 1 });
+   455→}
+   456→
+   457→// ---------- start day → workout (transactional) ----------
+   458→
+   459→/** Shared: append a routine day's exercises + predefined sets to a workout. */
+   460→export async function appendDayToWorkout(
+   461→  tx: Prisma.TransactionClient,
+   462→  userId: string,
+   463→  day: DayFull,
+   464→  workoutId: string,
+   465→  date: Date,
+   466→): Promise<Set<string>> {
+   467→  // recreate routine groups in the workout
+   468→  const routineGroupIds = new Set(day.exercises.map((e) => e.groupId).filter(Boolean));
+   469→  const groupMap = new Map<string, string>();
+   470→  for (const gid of routineGroupIds) {
+   471→    const rg = await tx.routineGroup.findFirst({ where: { id: gid!, userId } });
+   472→    if (!rg) continue;
+   473→    const existing = await tx.workoutGroup.findFirst({ where: { workoutId, name: rg.name } });
+   474→    const g =
+   475→      existing ??
+   476→      (await tx.workoutGroup.create({
+   477→        data: { id: uuid7(), userId, workoutId, name: rg.name, colour: rg.colour },
+   478→      }));
+   479→    groupMap.set(gid!, g.id);
+   480→  }
+   481→
+   482→  const affected = new Set<string>();
+   483→  let sortOrder = await tx.workoutExercise.count({ where: { workoutId } });
+   484→
+   485→  for (const re of day.exercises) {
+   486→    affected.add(re.exerciseId);
+   487→    let twe = await tx.workoutExercise.findFirst({ where: { workoutId, exerciseId: re.exerciseId } });
+   488→    if (!twe) {
+   489→      twe = await tx.workoutExercise.create({
+   490→        data: {
+   491→          id: uuid7(),
+   492→          userId,
+   493→          workoutId,
+   494→          exerciseId: re.exerciseId,
+   495→          sortOrder: sortOrder++,
+   496→          groupId: re.groupId ? groupMap.get(re.groupId) ?? null : null,
+   497→        },
+   498→      });
+   499→    } else if (re.groupId && !twe.groupId) {
+   500→      await tx.workoutExercise.update({
+   501→        where: { id: twe.id },
+   502→        data: { groupId: groupMap.get(re.groupId) ?? null },
+   503→      });
+   504→    }
+   505→
+   506→    const predefined = re.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+   507→    type SetValues = {
+   508→      weight: number | null;
+   509→      reps: number | null;
+   510→      distance: number | null;
+   511→      timeSec: number | null;
+   512→      setType: string | null;
+   513→      rpe: number | null;
+   514→      tempo: string | null;
+   515→      restPlannedSec: number | null;
+   516→    };
+   517→
+   518→    // ---- Part 8 §6.4: %1RM resolution (falls back to copy-last without e1RM) ----
+   519→    const prs = await tx.personalRecord.findMany({ where: { userId, exerciseId: re.exerciseId } });
+   520→    const e1rmMethod = (await tx.userSettings.findUnique({ where: { userId } }))?.e1rmMethod ?? "BRZYCKI";
+   521→    const e1rm =
+   522→      prs.length > 0
+   523→        ? Math.max(...prs.map((pr) => estOneRmByMethod(pr.weight, pr.reps, e1rmMethod)))
+   524→        : null;
+   525→    const plateStep = (await tx.exercise.findUnique({ where: { id: re.exerciseId } }))?.weightIncrement
+   526→      ?? (await tx.userSettings.findUnique({ where: { userId } }))?.defaultWeightIncrement
+   527→      ?? 2.5;
+   528→    const resolveWeight = (s: { weightKind: string | null; pct: number | null; weight: number | null }): number | null => {
+   529→      if (s.weightKind === "PERCENT_1RM") {
+   530→        if (e1rm == null || !s.pct) return null; // fallback → copy-last path
+   531→        return Math.max(0, roundToStep((e1rm * s.pct) / 100, plateStep));
+   532→      }
+   533→      return s.weight;
+   534→    };
+   535→
+   536→    // ---- Part 8 §6.3: progression delta applied to copy-last presets ----
+   537→    const progState = await tx.progressionState.findUnique({ where: { routineExerciseId: re.id } });
+   538→    const nextDelta = progState?.nextWeightDelta ?? 0;
+   539→    const fromRow = (s: {
+   540→      weight: number | null;
+   541→      reps: number | null;
+   542→      distance: number | null;
+   543→      timeSec: number | null;
+   544→      setType: string | null;
+   545→      rpe: number | null;
+   546→      tempo: string | null;
+   547→      restPlannedSec: number | null;
+   548→    }): SetValues => ({
+   549→      weight: s.weight,
+   550→      reps: s.reps,
+   551→      distance: s.distance,
+   552→      timeSec: s.timeSec,
+   553→      setType: s.setType ?? null,
+   554→      rpe: s.rpe ?? null,
+   555→      tempo: s.tempo ?? null,
+   556→      restPlannedSec: s.restPlannedSec ?? null,
+   557→    });
+   558→
+   559→    const blank = (s: { weight: number | null; reps: number | null; distance: number | null; timeSec: number | null; weightKind: string | null }) =>
+   560→      s.weight == null && s.weightKind !== "PERCENT_1RM" && s.reps == null && s.distance == null && s.timeSec == null;
+   561→    const isBlank = predefined.length > 0 && predefined.every(blank);
+   562→    const anyBlank = predefined.some(blank);
+   563→
+   564→    // previous performance for this exercise (for copy-previous semantics)
+   565→    const prev =
+   566→      anyBlank || isBlank
+   567→        ? await tx.workoutExercise.findFirst({
+   568→            where: { userId, exerciseId: re.exerciseId, workout: { date: { lt: date } } },
+   569→            include: { sets: { orderBy: { sortOrder: "asc" } } },
+   570→            orderBy: { workout: { date: "desc" } },
+   571→          })
+   572→        : null;
+   573→
+   574→    let setsToAdd: Array<SetValues>;
+   575→    if (isBlank) {
+   576→      // all-blank template = "copy whatever I did last time" (set count follows previous)
+   577→      setsToAdd = prev ? prev.sets.map(fromRow) : [];
+   578→    } else {
+   579→      // valued/mixed template: blank rows copy the previous set at the same
+   580→      // index when one exists, otherwise they become empty placeholder rows
+   581→      setsToAdd = predefined.map((s, i) => {
+   582→        if (blank(s) && prev?.sets[i]) {
+   583→          const p = fromRow(prev.sets[i]);
+   584→          return { ...p, setType: s.setType ?? p.setType };
+   585→        }
+   586→        return fromRow(s);
+   587→      });
+   588→    }
+   589→
+   590→    // §6.4: resolve %1RM prescriptions now that copy-last has run
+   591→    setsToAdd = setsToAdd.map((v, i) => {
+   592→      const tpl = predefined[i];
+   593→      if (!tpl) return v;
+   594→      const resolved = resolveWeight(tpl);
+   595→      if (tpl.weightKind === "PERCENT_1RM") {
+   596→        // resolved == null (no e1RM) → fall back to copy-last value already in v
+   597→        return resolved != null ? { ...v, weight: resolved } : v;
+   598→      }
+   599→      return v;
+   600→    });
+   601→
+   602→    // §6.3: apply the progression delta to the first working weight when this
+   603→    // session copies previous (copy-last semantics) — deload lowers, raise adds.
+   604→    if (nextDelta !== 0 && setsToAdd.length > 0) {
+   605→      const firstIdx = setsToAdd.findIndex((v) => v.setType !== "WARMUP" && v.weight != null);
+   606→      if (firstIdx >= 0) {
+   607→        const w = setsToAdd[firstIdx].weight!;
+   608→        setsToAdd[firstIdx] = { ...setsToAdd[firstIdx], weight: Math.max(0, roundToStep(w + nextDelta, plateStep)) };
+   609→      }
+   610→    }
+   611→
+   612→    // §6.2: warm-up generation — from the first working weight, resolved AFTER
+   613→    // copy-last/1RM/progression (spec ordering). Prepended as type W rows.
+   614→    const scheme = (re.warmupScheme ?? "NONE") as WarmupScheme;
+   615→    if (scheme !== "NONE") {
+   616→      const firstWorking = setsToAdd.find((v) => v.setType !== "WARMUP" && v.weight != null)?.weight ?? null;
+   617→      if (firstWorking != null) {
+   618→        const custom = Array.isArray(re.warmupCustom)
+   619→          ? (re.warmupCustom as Array<{ pct: number; reps: number }>)
+   620→          : null;
+   621→        const warmupSets = generateWarmup(firstWorking, scheme, custom, plateStep);
+   622→        setsToAdd = [
+   623→          ...warmupSets.map((w) => ({
+   624→            weight: w.weight,
+   625→            reps: w.reps,
+   626→            distance: null,
+   627→            timeSec: null,
+   628→            setType: "WARMUP",
+   629→            rpe: null,
+   630→            tempo: null,
+   631→            restPlannedSec: null,
+   632→          })),
+   633→          ...setsToAdd,
+   634→        ];
+   635→      }
+   636→    }
+   637→
+   638→    let setOrder = await tx.trainingSet.count({ where: { workoutExerciseId: twe.id } });
+   639→    for (const s of setsToAdd) {
+   640→      await tx.trainingSet.create({
+   641→        data: {
+   642→          id: uuid7(),
+   643→          userId,
+   644→          workoutExerciseId: twe.id,
+   645→          weight: s.weight,
+   646→          reps: s.reps,
+   647→          distance: s.distance,
+   648→          timeSec: s.timeSec,
+   649→          setType: s.setType ?? "NORMAL",
+   650→          isWarmup: s.setType === "WARMUP",
+   651→          rpe: s.rpe,
+   652→          tempo: s.tempo,
+   653→          restPlannedSec: s.restPlannedSec,
+   654→          sortOrder: setOrder++,
+   655→        },
+   656→      });
+   657→    }
+   658→  }
+   659→  return affected;
+   660→}
+   661→
+   662→/**
+   663→ * Start a program day / session: upsert the workout at `date`, stamp
+   664→ * provenance, insert predefined sets (existing log-day logic), link/create the
+   665→ * schedule DONE entry — all in ONE transaction.
+   666→ */
+   667→export async function startProgramDay(
+   668→  userId: string,
+   669→  routineId: string,
+   670→  input: { dayId?: string; date?: string },
+   671→) {
+   672→  const r = await db.routine.findFirst({ where: { id: routineId, userId, deletedAt: null }, include: routineInclude });
+   673→  if (!r) throw notFound("Program not found");
+   674→  const kind = r.kind ?? "ROUTINE";
+   675→
+   676→  let day: DayFull | undefined;
+   677→  if (input.dayId) {
+   678→    day = r.days.find((d) => d.id === input.dayId);
+   679→  } else if (kind === "SESSION") {
+   680→    day = r.days.find((d) => (d.dayType ?? "WORKOUT") !== "REST");
+   681→  } else {
+   682→    const active = await loadActive(userId);
+   683→    if (active && active.routineId === r.id) {
+   684→      const variantDays = await activeDays(userId, active);
+   685→      day = variantDays[clampCursor(active.cursorDayIndex, variantDays.length)];
+   686→    }
+   687→    day = day ?? variantDaysOf(r, active?.variantId ?? null).find((d) => (d.dayType ?? "WORKOUT") !== "REST");
+   688→  }
+   689→  if (!day) throw badRequest("Program has no workout day to start");
+   690→  if ((day.dayType ?? "WORKOUT") === "REST") throw badRequest("Cannot start a rest day");
+   691→
+   692→  const settings = await getProgramSettings(userId);
+   693→  const todayKey = input.date ?? localDateKey(settings.timezone, new Date());
+   694→  const date = toDayUtc(todayKey);
+   695→  const userRow = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+   696→  const userDifficulty = userRow?.difficulty ?? "INTERMEDIATE";
+   697→
+   698→  // was this day scheduled? (PLANNED entry matching routine+day+date)
+   699→  const planned = await db.scheduleEntry.findFirst({
+   700→    where: { userId, date, status: "PLANNED", deletedAt: null },
+   701→  });
+   702→  const wasScheduled =
+   703→    !!planned && planned.routineId === r.id && (planned.dayId === day.id || kind === "SESSION");
+   704→
+   705→  const workout = await db.$transaction(async (tx) => {
+   706→    // Part 8: several sessions per day are allowed — continue the ACTIVE one.
+   707→    const active =
+   708→      (await tx.workout.findFirst({
+   709→        where: { userId, date, removedAt: null, finishedAt: null },
+   710→        orderBy: { createdAt: "desc" },
+   711→      })) ??
+   712→      (await tx.workout.create({ data: { id: uuid7(), userId, date } }));
+   713→    const w = active;
+   714→    await tx.workout.update({
+   715→      where: { id: w.id },
+   716→      data: {
+   717→        sourceType: kind === "SESSION" ? "SESSION" : "ROUTINE_DAY",
+   718→        sourceRoutineId: r.id,
+   719→        sourceDayId: day!.id,
+   720→        scheduledStart: wasScheduled,
+   721→        startAt: w.startAt ?? new Date(),
+   722→        // Part 9 §1/§8: Log provenance captured at start — difficulty immutable, sourceLabel derived.
+   723→        difficulty: w.difficulty ?? userDifficulty,
+   724→        sourceLabel: w.sourceLabel ?? sourceLabelFor(kind === "SESSION" ? "SESSION" : "ROUTINE_DAY", r.name, day!.name),
+   725→      },
+   726→    });
+   727→    const affected = await appendDayToWorkout(tx, userId, day!, w.id, date);
+   728→    for (const exerciseId of affected) await recomputePRs(tx, userId, exerciseId);
+   729→
+   730→    // schedule entry: PLANNED (matching) → DONE + link; else auto-create DONE
+   731→    if (planned && wasScheduled) {
+   732→      await tx.scheduleEntry.update({
+   733→        where: { id: planned.id },
+   734→        data: { status: "DONE", workoutId: w.id },
+   735→      });
+   736→    } else if (!planned) {
+   737→      await tx.scheduleEntry.create({
+   738→        data: {
+   739→          id: uuid7(),
+   740→          userId,
+   741→          date,
+   742→          sourceType: kind === "SESSION" ? "SESSION" : "ROUTINE_DAY",
+   743→          routineId: r.id,
+   744→          dayId: day!.id,
+   745→          status: "DONE",
+   746→          workoutId: w.id,
+   747→        },
+   748→      });
+   749→    }
+   750→    return tx.workout.findUnique({ where: { id: w.id }, include: workoutInclude });
+   751→  });
+   752→
+   753→  return mapWorkout(workout!);
+   754→}
+   755→
+   756→// ---------- finish / undo ----------
+   757→
+   758→async function tryAdvanceForWorkout(userId: string, workout: Workout, opts: { forceFinishPath: boolean }) {
+   759→  const settings = await getProgramSettings(userId);
+   760→  const todayKey = localDateKey(settings.timezone, new Date());
+   761→  const active = await loadActive(userId);
+   762→  if (!active) return { advanced: false, nextDay: null };
+   763→  if (workout.sourceRoutineId !== active.routineId) return { advanced: false, nextDay: null };
+   764→  const days = await activeDays(userId, active);
+   765→  const idx = clampCursor(active.cursorDayIndex, days.length);
+   766→  const day = days[idx];
+   767→  if (!day || day.id !== workout.sourceDayId) return { advanced: false, nextDay: null };
+   768→  if (workout.scheduledStart && !settings.scheduleMovesCursor) {
+   769→    return { advanced: false, nextDay: null };
+   770→  }
+   771→
+   772→  const qualifying = await findQualifyingWorkout(userId, active.routineId, day.id);
+   773→  if (!qualifying) return { advanced: false, nextDay: null };
+   774→
+   775→  const advance = opts.forceFinishPath
+   776→    ? qualifying.hasLoggedData || workout.finishedAt != null
+   777→    : shouldAdvanceCursor({
+   778→        day: toProgramDay(day),
+   779→        todayKey,
+   780→        anchorKey: active.lastAdvancedForDate ?? localDateKey(settings.timezone, active.startedAt),
+   781→        settings,
+   782→        qualifyingWorkout: {
+   783→          hasLoggedData: qualifying.hasLoggedData,
+   784→          dateKey: qualifying.dateKey,
+   785→          finished: qualifying.finished,
+   786→        },
+   787→      });
+   788→  if (!advance) return { advanced: false, nextDay: null };
+   789→
+   790→  const nextIdx = advanceIndex(idx, days.length, 1);
+   791→  await db.activeRoutine.update({
+   792→    where: { id: active.id },
+   793→    data: {
+   794→      cursorDayIndex: nextIdx,
+   795→      lastAdvancedAt: new Date(),
+   796→      lastAdvancedForDate: todayKey,
+   797→    },
+   798→  });
+   799→  const nextDay = days[nextIdx];
+   800→  return { advanced: true, nextDay: toProgramDay(nextDay) };
+   801→}
+   802→
+   803→export async function finishWorkout(userId: string, workoutId: string) {
+   804→  const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
+   805→  if (!w) throw notFound("Workout not found");
+   806→  const finishedAt = w.finishedAt ?? new Date();
+   807→  // Part 9 §1/§8: Log duration — active seconds from startAt (fallback: first set → finish).
+   808→  const startRef = w.startAt ?? w.createdAt;
+   809→  const durationSec = Math.max(0, Math.round((finishedAt.getTime() - startRef.getTime()) / 1000));
+   810→  await db.workout.update({
+   811→    where: { id: w.id },
+   812→    data: { finishedAt, endAt: w.endAt ?? finishedAt, durationSec },
+   813→  });
+   814→  // Part 8 §6.3: evaluate progression rules for sessions sourced from a routine.
+   815→  await evaluateWorkoutProgression(userId, w.id);
+   816→  const refreshed = await db.workout.findUnique({ where: { id: w.id } });
+   817→  const { advanced, nextDay } = await tryAdvanceForWorkout(userId, refreshed!, { forceFinishPath: true });
+   818→  return { workoutId: w.id, finishedAt: finishedAt.toISOString(), advanced, nextDay };
+   819→}
+   820→
+   821→/**
+   822→ * §6.3 — on Finish of a session sourced from that routine: evaluate each
+   823→ * exercise's rule against its target reps, write ProgressionState. Undo via
+   824→ * the finish-undo window reverts nothing here (state is idempotent by design;
+   825→ * the next evaluation overwrites).
+   826→ */
+   827→async function evaluateWorkoutProgression(userId: string, workoutId: string) {
+   828→  const w = await db.workout.findFirst({
+   829→    where: { id: workoutId, userId },
+   830→    include: {
+   831→      exercises: { include: { sets: { orderBy: { sortOrder: "asc" } }, exercise: true } },
+   832→      sourceDay: { include: { exercises: { include: { sets: true } } } },
+   833→    },
+   834→  });
+   835→  if (!w?.sourceDay) return;
+   836→  const settings = await db.userSettings.findUnique({ where: { userId } });
+   837→  for (const we of w.exercises) {
+   838→    const re = w.sourceDay!.exercises.find((r) => r.exerciseId === we.exerciseId);
+   839→    if (!re) continue;
+   840→    const rule = await db.progressionRule.findUnique({ where: { routineExerciseId: re.id } });
+   841→    if (!rule || rule.type === "NONE") continue;
+   842→    const prev = await db.progressionState.findUnique({ where: { routineExerciseId: re.id } });
+   843→    const plateStep = we.exercise.weightIncrement ?? settings?.defaultWeightIncrement ?? 2.5;
+   844→    const performed = we.sets
+   845→      .filter((s) => s.setType !== "WARMUP")
+   846→      .map((s) => ({
+   847→        weight: s.weight,
+   848→        reps: s.reps,
+   849→        // target = the template reps at the same index (blank → performed reps)
+   850→        targetReps: re.sets.find((tpl) => tpl.sortOrder === s.sortOrder)?.reps ?? null,
+   851→        isComplete: s.isComplete,
+   852→      }));
+   853→    const ruleLike: ProgressionRuleLike = {
+   854→      type: rule.type as "LINEAR" | "DOUBLE" | "NONE",
+   855→      increment: rule.increment,
+   856→      unit: rule.unit,
+   857→      condition: rule.condition as "ALL_SETS_HIT" | "LAST_SET_HIT",
+   858→      failStreakForDeload: rule.failStreakForDeload,
+   859→      deloadPct: rule.deloadPct,
+   860→    };
+   861→    const prevLike: ProgressionStateLike = {
+   862→      nextWeightDelta: prev?.nextWeightDelta ?? 0,
+   863→      failStreak: prev?.failStreak ?? 0,
+   864→    };
+   865→    const next = evaluateProgression(ruleLike, performed, prevLike, plateStep);
+   866→    await db.progressionState.upsert({
+   867→      where: { routineExerciseId: re.id },
+   868→      create: { id: uuid7(), userId, routineExerciseId: re.id, ...next },
+   869→      update: next,
+   870→    });
+   871→  }
+   872→}
+   873→
+   874→/** Undo within the 10s window: revert finishedAt and (best-effort) the cursor. */
+   875→export async function undoFinishWorkout(userId: string, workoutId: string) {
+   876→  const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
+   877→  if (!w) throw notFound("Workout not found");
+   878→  await db.workout.update({
+   879→    where: { id: w.id },
+   880→    data: { finishedAt: null },
+   881→  });
+   882→
+   883→  const active = await loadActive(userId);
+   884→  if (
+   885→    active &&
+   886→    w.sourceRoutineId === active.routineId &&
+   887→    active.lastAdvancedAt &&
+   888→    Date.now() - active.lastAdvancedAt.getTime() < 120_000
+   889→  ) {
+   890→    // revert to this workout's day if the recent advance was (likely) from it
+   891→    const variantDays = await activeDays(userId, active);
+   892→    const dayIdx = variantDays.findIndex((d) => d.id === w.sourceDayId);
+   893→    if (dayIdx >= 0) {
+   894→      const settings = await getProgramSettings(userId);
+   895→      const todayKey = localDateKey(settings.timezone, new Date());
+   896→      await db.activeRoutine.update({
+   897→        where: { id: active.id },
+   898→        data: { cursorDayIndex: dayIdx, lastAdvancedForDate: todayKey },
+   899→      });
+   900→    }
+   901→  }
+   902→  return { ok: true };
+   903→}
+   904→
+   905→/** FIRST_SET hook — called after a set is saved with real data. */
+   906→export async function notifySetSaved(userId: string, workoutId: string) {
+   907→  const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
+   908→  if (!w || !w.sourceRoutineId || !w.sourceDayId) return { advanced: false, nextDay: null };
+   909→  const result = await tryAdvanceForWorkout(userId, w, { forceFinishPath: false });
+   910→  if (!result.advanced) await applyProgramRules(userId);
+   911→  return result;
+   912→}
+   913→
+   914→// ---------- schedule CRUD ----------
+   915→
+   916→function assertScheduleShape(r: RoutineFull, dayId?: string) {
+   917→  const kind = r.kind ?? "ROUTINE";
+   918→  if (kind === "SESSION") {
+   919→    const day = r.days.find((d) => (d.dayType ?? "WORKOUT") !== "REST");
+   920→    if (!day) throw badRequest("Session has no workout day");
+   921→    if (!isValidSession(kind, r.days)) throw badRequest("Session must have exactly one workout day");
+   922→    return day;
+   923→  }
+   924→  if (!dayId) throw badRequest("dayId is required for routines");
+   925→  const day = r.days.find((d) => d.id === dayId);
+   926→  if (!day) throw badRequest("Day not found in this routine");
+   927→  if ((day.dayType ?? "WORKOUT") === "REST") throw badRequest("Cannot schedule a rest day");
+   928→  return day;
+   929→}
+   930→
+   931→async function findPlannedConflict(userId: string, date: Date, exceptId?: string) {
+   932→  return db.scheduleEntry.findFirst({
+   933→    where: { userId, date, status: "PLANNED", deletedAt: null, ...(exceptId ? { id: { not: exceptId } } : {}) },
+   934→    include: entryInclude,
+   935→  });
+   936→}
+   937→
+   938→export async function createSchedule(
+   939→  userId: string,
+   940→  input: { date: string; routineId: string; dayId?: string; note?: string | null; replace?: boolean },
+   941→) {
+   942→  const r = await db.routine.findFirst({
+   943→    where: { id: input.routineId, userId, deletedAt: null },
+   944→    include: routineInclude,
+   945→  });
+   946→  if (!r) throw notFound("Program not found");
+   947→  const day = assertScheduleShape(r, input.dayId);
+   948→  const date = toDayUtc(input.date);
+   949→
+   950→  const existing = await findPlannedConflict(userId, date);
+   951→  if (existing) {
+   952→    if (!input.replace) {
+   953→      throw conflict("A workout is already planned for this date", {
+   954→        date: input.date,
+   955→        entryId: existing.id,
+   956→        routineName: existing.routine.name,
+   957→        dayName: existing.day?.name ?? null,
+   958→      });
+   959→    }
+   960→    await db.scheduleEntry.update({
+   961→      where: { id: existing.id },
+   962→      data: { deletedAt: new Date() },
+   963→    });
+   964→  }
+   965→
+   966→  const created = await db.scheduleEntry.create({
+   967→    data: {
+   968→      id: uuid7(),
+   969→      userId,
+   970→      date,
+   971→      sourceType: (r.kind ?? "ROUTINE") === "SESSION" ? "SESSION" : "ROUTINE_DAY",
+   972→      routineId: r.id,
+   973→      dayId: day.id,
+   974→      status: "PLANNED",
+   975→      note: input.note ?? null,
+   976→    },
+   977→    include: entryInclude,
+   978→  });
+   979→  return mapScheduleEntry(created);
+   980→}
+   981→
+   982→export async function updateSchedule(
+   983→  userId: string,
+   984→  id: string,
+   985→  input: { date?: string; status?: string; note?: string | null },
+   986→) {
+   987→  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: entryInclude });
+   988→  if (!entry) throw notFound("Schedule entry not found");
+   989→
+   990→  const data: Prisma.ScheduleEntryUpdateInput = {};
+   991→  if (input.date !== undefined) {
+   992→    const date = toDayUtc(input.date);
+   993→    if (!date.getTime() || Number.isNaN(date.getTime())) throw badRequest("Invalid date");
+   994→    const conflictEntry = await findPlannedConflict(userId, date, id);
+   995→    if (conflictEntry && entry.status === "PLANNED") {
+   996→      throw conflict("A workout is already planned for this date", {
+   997→        date: input.date,
+   998→        entryId: conflictEntry.id,
+   999→        routineName: conflictEntry.routine.name,
+  1000→      });
+  1001→    }
+  1002→    data.date = date;
+  1003→  }
+  1004→  if (input.note !== undefined) data.note = input.note;
+  1005→
+  1006→  if (input.status !== undefined) {
+  1007→    if (input.status === "PLANNED") {
+  1008→      // Reopen: only for date >= today
+  1009→      const settings = await getProgramSettings(userId);
+  1010→      const todayKey = localDateKey(settings.timezone, new Date());
+  1011→      const dateKey = dayKey(input.date !== undefined ? toDayUtc(input.date) : entry.date);
+  1012→      if (compareDateKeys(dateKey, todayKey) < 0) throw badRequest("Can only reopen entries from today onwards");
+  1013→      const conflictEntry = await findPlannedConflict(
+  1014→        userId,
+  1015→        input.date !== undefined ? toDayUtc(input.date) : entry.date,
+  1016→        id,
+  1017→      );
+  1018→      if (conflictEntry) throw conflict("A workout is already planned for this date");
+  1019→      data.status = "PLANNED";
+  1020→    } else if (input.status === "SKIPPED") {
+  1021→      data.status = "SKIPPED";
+  1022→    } else {
+  1023→      throw badRequest("Status can only be set to SKIPPED (or PLANNED to reopen)");
+  1024→    }
+  1025→  }
+  1026→
+  1027→  const updated = await db.scheduleEntry.update({ where: { id }, data, include: entryInclude });
+  1028→  return mapScheduleEntry(updated);
+  1029→}
+  1030→
+  1031→export async function deleteSchedule(userId: string, id: string) {
+  1032→  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null } });
+  1033→  if (!entry) throw notFound("Schedule entry not found");
+  1034→  await db.scheduleEntry.update({ where: { id }, data: { deletedAt: new Date() } });
+  1035→  return { ok: true };
+  1036→}
+  1037→
+  1038→/** List entries in [from, to] with lazy status derivation + optional projection. */
+  1039→export async function listSchedule(userId: string, input: { from?: string; to?: string }) {
+  1040→  const settings = await getProgramSettings(userId);
+  1041→  const todayKey = localDateKey(settings.timezone, new Date());
+  1042→  await applyProgramRules(userId);
+  1043→
+  1044→  const to = input.to ?? addDaysKey(todayKey, 60);
+  1045→  const from = input.from ?? addDaysKey(todayKey, -60);
+  1046→  const rows = await db.scheduleEntry.findMany({
+  1047→    where: { userId, deletedAt: null, date: { gte: toDayUtc(from), lte: toDayUtc(to) } },
+  1048→    include: {
+  1049→      ...entryInclude,
+  1050→      workout: { include: { exercises: { include: { sets: true } } } },
+  1051→    },
+  1052→    orderBy: { date: "asc" },
+  1053→  });
+  1054→
+  1055→  const entries: Array<ReturnType<typeof mapScheduleEntry>> = [];
+  1056→  const nowMs = Date.now();
+  1057→  for (const e of rows) {
+  1058→    let status = e.status;
+  1059→    if (e.status === "PLANNED" && e.workoutId && e.workout) {
+  1060→      const hasData = workoutHasLoggedData(e.workout);
+  1061→      const derived = deriveEntryStatus({
+  1062→        storedStatus: "PLANNED",
+  1063→        dateKey: dayKey(e.date),
+  1064→        todayKey,
+  1065→        linkedWorkoutHasData: hasData,
+  1066→        linkedWorkoutFinished: !!e.workout.finishedAt,
+  1067→        missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+  1068→        nowMs,
+  1069→      });
+  1070→      if (derived !== "PLANNED") {
+  1071→        status = derived;
+  1072→        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived, ...(derived === "MISSED" ? { missedAt: e.missedAt ?? new Date(nowMs) } : {}) } });
+  1073→      }
+  1074→    } else if (e.status === "PLANNED") {
+  1075→      const derived = deriveEntryStatus({
+  1076→        storedStatus: "PLANNED",
+  1077→        dateKey: dayKey(e.date),
+  1078→        todayKey,
+  1079→        linkedWorkoutHasData: false,
+  1080→        linkedWorkoutFinished: false,
+  1081→        missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+  1082→        nowMs,
+  1083→      });
+  1084→      if (derived !== "PLANNED") {
+  1085→        status = derived;
+  1086→        await db.scheduleEntry.update({ where: { id: e.id }, data: { status: derived, ...(derived === "MISSED" ? { missedAt: e.missedAt ?? new Date(nowMs) } : {}) } });
+  1087→      }
+  1088→    }
+  1089→    entries.push(mapScheduleEntry({ ...e, status }));
+  1090→  }
+  1091→
+  1092→  // projected ghost days (calendar)
+  1093→  let projected: Array<{ date: string; routineId: string; dayId: string; dayName: string; dayType: string }> = [];
+  1094→  if (settings.showProjectedDays) {
+  1095→    const active = await loadActive(userId);
+  1096→    if (active) {
+  1097→      const days = (await activeDays(userId, active)).map(toProgramDay);
+  1098→      const idx = clampCursor(active.cursorDayIndex, days.length);
+  1099→      const plannedDates = new Set(entries.filter((e) => e.status === "PLANNED").map((e) => e.date));
+  1100→      projected = projectCursor({ days, startIndex: idx, todayKey, settings, count: 28 })
+  1101→        .filter((p) => {
+  1102→          const inRange = compareDateKeys(p.dateKey, from) >= 0 && compareDateKeys(p.dateKey, to) <= 0;
+  1103→          return inRange && !plannedDates.has(p.dateKey) && p.day.dayType !== "REST";
+  1104→        })
+  1105→        .map((p) => ({
+  1106→          date: p.dateKey,
+  1107→          routineId: active.routineId,
+  1108→          dayId: p.day.id,
+  1109→          dayName: p.day.name,
+  1110→          dayType: p.day.dayType,
+  1111→        }));
+  1112→    }
+  1113→  }
+  1114→
+  1115→  return { entries, projected };
+  1116→}
+  1117→
+  1118→// ---------- session from workout ----------
+  1119→
+  1120→export async function sessionFromWorkout(userId: string, input: { workoutId: string; name?: string }) {
+  1121→  const w = await db.workout.findFirst({
+  1122→    where: { id: input.workoutId, userId },
+  1123→    include: { exercises: { include: { sets: true } }, groups: true },
+  1124→  });
+  1125→  if (!w) throw notFound("Workout not found");
+  1126→
+  1127→  const name = (input.name ?? "").trim() || `Session · ${dayKey(w.date)}`;
+  1128→  const count = await db.routine.count({ where: { userId } });
+  1129→
+  1130→  const routineId = uuid7();
+  1131→  const dayId = uuid7();
+  1132→  await db.$transaction(async (tx) => {
+  1133→    await tx.routine.create({
+  1134→      data: { id: routineId, userId, name, kind: "SESSION", sortOrder: count },
+  1135→    });
+  1136→    await tx.routineDay.create({
+  1137→      data: { id: dayId, userId, routineId, name, dayType: "WORKOUT", sortOrder: 0 },
+  1138→    });
+  1139→    // recreate groups
+  1140→    const groupMap = new Map<string, string>();
+  1141→    for (const g of w.groups) {
+  1142→      const created = await tx.routineGroup.create({
+  1143→        data: { id: uuid7(), userId, routineId, name: g.name, colour: g.colour },
+  1144→      });
+  1145→      groupMap.set(g.id, created.id);
+  1146→    }
+  1147→    for (const we of w.exercises.slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
+  1148→      const reId = uuid7();
+  1149→      await tx.routineExercise.create({
+  1150→        data: {
+  1151→          id: reId,
+  1152→          userId,
+  1153→          dayId,
+  1154→          exerciseId: we.exerciseId,
+  1155→          sortOrder: we.sortOrder,
+  1156→          groupId: we.groupId ? groupMap.get(we.groupId) ?? null : null,
+  1157→        },
+  1158→      });
+  1159→      const sets = we.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  1160→      for (const s of sets) {
+  1161→        await tx.predefinedSet.create({
+  1162→          data: {
+  1163→            id: uuid7(),
+  1164→            routineExerciseId: reId,
+  1165→            weight: s.weight,
+  1166→            reps: s.reps,
+  1167→            distance: s.distance,
+  1168→            timeSec: s.timeSec,
+  1169→            setType: s.setType ?? "NORMAL",
+  1170→            rpe: s.rpe,
+  1171→            tempo: s.tempo,
+  1172→            restPlannedSec: s.restPlannedSec,
+  1173→            sortOrder: s.sortOrder,
+  1174→          },
+  1175→        });
+  1176→      }
+  1177→    }
+  1178→  });
+  1179→
+  1180→  const created = await db.routine.findUnique({ where: { id: routineId }, include: routineInclude });
+  1181→  return mapRoutine(created!);
+  1182→}
+  1183→
+  1184→// ---------- programs list ----------
+  1185→
+  1186→export async function listPrograms(userId: string, kind?: "ROUTINE" | "SESSION") {
+  1187→  await applyProgramRules(userId);
+  1188→  const routines = await db.routine.findMany({
+  1189→    where: { userId, deletedAt: null, ...(kind ? { kind } : {}) },
+  1190→    include: routineInclude,
+  1191→    orderBy: { sortOrder: "asc" },
+  1192→  });
+  1193→  const active = await db.activeRoutine.findUnique({ where: { userId } });
+  1194→
+  1195→  const lastUsed = await db.workout.groupBy({
+  1196→    by: ["sourceRoutineId"],
+  1197→    where: { userId, sourceRoutineId: { not: null } },
+  1198→    _max: { date: true },
+  1199→  });
+  1200→  const lastUsedMap = new Map(lastUsed.map((r) => [r.sourceRoutineId!, r._max.date ?? null]));
+  1201→
+  1202→  return routines.map((r) => {
+  1203→    const workoutDays = r.days.filter((d) => (d.dayType ?? "WORKOUT") !== "REST");
+  1204→    const exerciseCount = workoutDays.reduce((acc, d) => acc + d.exercises.length, 0);
+  1205→    const last = lastUsedMap.get(r.id) ?? null;
+  1206→    return {
+  1207→      id: r.id,
+  1208→      name: r.name,
+  1209→      notes: r.notes ?? null,
+  1210→      kind: r.kind ?? "ROUTINE",
+  1211→      dayCount: r.days.length,
+  1212→      restCount: r.days.length - workoutDays.length,
+  1213→      exerciseCount,
+  1214→      lastUsedAt: last ? dayKey(last) : null,
+  1215→      isFollowed: active?.routineId === r.id,
+  1216→      cursor:
+  1217→        active?.routineId === r.id
+  1218→          ? {
+  1219→              dayIndex: clampCursor(active.cursorDayIndex, r.days.length),
+  1220→              dayCount: r.days.length,
+  1221→            }
+  1222→          : null,
+  1223→    };
+  1224→  });
+  1225→}
+  1226→
+  1227→// ---------- dashboard ----------
+  1228→
+  1229→export async function getDashboard(userId: string) {
+  1230→  const rules = await applyProgramRules(userId);
+  1231→  const { todayKey, settings } = rules;
+  1232→  const todayDate = toDayUtc(todayKey);
+  1233→
+  1234→  const [active, plannedToday, windowEntries, todayWorkoutRow] = await Promise.all([
+  1235→    loadActive(userId),
+  1236→    db.scheduleEntry.findFirst({
+  1237→      where: { userId, date: todayDate, deletedAt: null },
+  1238→      include: { ...entryInclude, workout: { include: { exercises: { include: { sets: true } } } } },
+  1239→      orderBy: [{ status: "asc" }, { createdAt: "desc" }], // PLANNED first
+  1240→    }),
+  1241→    db.scheduleEntry.findMany({
+  1242→      where: {
+  1243→        userId,
+  1244→        deletedAt: null,
+  1245→        date: { gte: addDaysUtc(todayDate, 1), lte: addDaysUtc(todayDate, 7) },
+  1246→      },
+  1247→      include: entryInclude,
+  1248→      orderBy: { date: "asc" },
+  1249→    }),
+  1250→    db.workout.findFirst({
+  1251→      where: { userId, date: todayDate },
+  1252→      include: { exercises: { include: { sets: true } } },
+  1253→    }),
+  1254→  ]);
+  1255→
+  1256→  // ---- today resolution ----
+  1257→  let today: {
+  1258→    date: string;
+  1259→    kind: "WORKOUT" | "REST" | "NONE";
+  1260→    scheduled: ReturnType<typeof mapScheduleEntry> | null;
+  1261→    routine: { id: string; name: string; kind: string } | null;
+  1262→    day: { id: string; name: string; dayType: string; index: number; count: number } | null;
+  1263→  };
+  1264→
+  1265→  const plannedEntry = plannedToday && plannedToday.status === "PLANNED" ? plannedToday : null;
+  1266→  // Part 9 §2: the cursor domain is the active VARIANT's effective days.
+  1267→  const variantDayList = active ? await activeDays(userId, active) : [];
+  1268→
+  1269→  if (plannedEntry) {
+  1270→    const dayIdx = active && active.routineId === plannedEntry.routineId && plannedEntry.dayId
+  1271→      ? variantDayList.findIndex((d) => d.id === plannedEntry.dayId)
+  1272→      : -1;
+  1273→    today = {
+  1274→      date: todayKey,
+  1275→      kind: (plannedEntry.day?.dayType ?? "WORKOUT") === "REST" ? "REST" : "WORKOUT",
+  1276→      scheduled: mapScheduleEntry(plannedEntry),
+  1277→      routine: { id: plannedEntry.routine.id, name: plannedEntry.routine.name, kind: plannedEntry.routine.kind ?? "ROUTINE" },
+  1278→      day: plannedEntry.day
+  1279→        ? {
+  1280→            id: plannedEntry.day.id,
+  1281→            name: plannedEntry.day.name,
+  1282→            dayType: plannedEntry.day.dayType ?? "WORKOUT",
+  1283→            index: dayIdx,
+  1284→            count: active && active.routineId === plannedEntry.routineId ? variantDayList.length : 0,
+  1285→          }
+  1286→        : null,
+  1287→    };
+  1288→  } else if (active) {
+  1289→    const days = variantDayList;
+  1290→    const idx = clampCursor(active.cursorDayIndex, days.length);
+  1291→    const day = days[idx];
+  1292→    today = {
+  1293→      date: todayKey,
+  1294→      kind: (day?.dayType ?? "WORKOUT") === "REST" ? "REST" : "WORKOUT",
+  1295→      scheduled: null,
+  1296→      routine: { id: active.routine.id, name: active.routine.name, kind: active.routine.kind ?? "ROUTINE" },
+  1297→      day: day
+  1298→        ? { id: day.id, name: day.name, dayType: day.dayType ?? "WORKOUT", index: idx, count: days.length }
+  1299→        : null,
+  1300→    };
+  1301→  } else {
+  1302→    today = { date: todayKey, kind: "NONE", scheduled: null, routine: null, day: null };
+  1303→  }
+  1304→
+  1305→  // ---- upcoming strip (7 days) ----
+  1306→  type EntryRow = (typeof windowEntries)[number];
+  1307→  const entryByDate = new Map<string, EntryRow[]>();
+  1308→  for (const e of windowEntries) {
+  1309→    const k = dayKey(e.date);
+  1310→    entryByDate.set(k, [...(entryByDate.get(k) ?? []), e]);
+  1311→  }
+  1312→  const activeDayDtos = variantDayList.map(toProgramDay);
+  1313→  const projection = active
+  1314→    ? projectCursor({
+  1315→        days: activeDayDtos,
+  1316→        startIndex: clampCursor(active.cursorDayIndex, activeDayDtos.length),
+  1317→        todayKey,
+  1318→        settings,
+  1319→        count: 7,
+  1320→      })
+  1321→    : [];
+  1322→  const upcoming = projection.map((p) => {
+  1323→    const entries = (entryByDate.get(p.dateKey) ?? []).filter((e) => e.status !== "DONE");
+  1324→    const entry = entries.find((e) => e.status === "PLANNED") ?? entries[0] ?? null;
+  1325→    if (entry) {
+  1326→      return {
+  1327→        date: p.dateKey,
+  1328→        kind: "SCHEDULED" as const,
+  1329→        label: entry.day?.name ?? entry.routine.name,
+  1330→        entry: mapScheduleEntry(entry),
+  1331→      };
+  1332→    }
+  1333→    return {
+  1334→      date: p.dateKey,
+  1335→      kind: p.day.dayType === "REST" ? ("REST" as const) : ("WORKOUT" as const),
+  1336→      label: p.day.name,
+  1337→      entry: null,
+  1338→    };
+  1339→  });
+  1340→
+  1341→  // ---- stats ----
+  1342→  const weekStart = addDaysUtc(todayDate, -6);
+  1343→  const weekWorkouts = await db.workout.findMany({
+  1344→    where: { userId, date: { gte: weekStart, lte: todayDate } },
+  1345→    include: { exercises: { include: { sets: true } } },
+  1346→  });
+  1347→  let weekSets = 0;
+  1348→  let weekVolume = 0;
+  1349→  for (const w of weekWorkouts) {
+  1350→    for (const e of w.exercises) {
+  1351→      for (const s of e.sets) {
+  1352→        if (s.isComplete || s.reps != null || s.weight != null) {
+  1353→          weekSets += 1;
+  1354→          weekVolume += (s.weight ?? 0) * (s.reps ?? 0);
+  1355→        }
+  1356→      }
+  1357→    }
+  1358→  }
+  1359→
+  1360→  // streak: consecutive days (ending today or yesterday) with ≥1 set
+  1361→  const daysWithData = new Set<string>();
+  1362→  for (const w of weekWorkouts) {
+  1363→    const has = w.exercises.some((e) => e.sets.length > 0);
+  1364→    if (has) daysWithData.add(dayKey(w.date));
+  1365→  }
+  1366→  // widen the look-back for the streak
+  1367→  const streakLookback = await db.workout.findMany({
+  1368→    where: { userId, date: { gte: addDaysUtc(todayDate, -180), lte: addDaysUtc(todayDate, -7) } },
+  1369→    include: { exercises: { include: { sets: { take: 1 } } } },
+  1370→  });
+  1371→  for (const w of streakLookback) {
+  1372→    if (w.exercises.some((e) => e.sets.length > 0)) daysWithData.add(dayKey(w.date));
+  1373→  }
+  1374→  let streakDays = 0;
+  1375→  let cursorDate = daysWithData.has(todayKey) ? todayKey : addDaysKey(todayKey, -1);
+  1376→  while (daysWithData.has(cursorDate) && streakDays < 366) {
+  1377→    streakDays += 1;
+  1378→    cursorDate = addDaysKey(cursorDate, -1);
+  1379→  }
+  1380→
+  1381→  // ---- quick sessions ----
+  1382→  const sessions = (await listPrograms(userId, "SESSION")) as Array<{
+  1383→    id: string;
+  1384→    name: string;
+  1385→    notes: string | null;
+  1386→    kind: string;
+  1387→    dayCount: number;
+  1388→    restCount: number;
+  1389→    exerciseCount: number;
+  1390→    lastUsedAt: string | null;
+  1391→    isFollowed: boolean;
+  1392→    cursor: { dayIndex: number; dayCount: number } | null;
+  1393→  }>;
+  1394→  sessions.sort((a, b) => {
+  1395→    if (a.lastUsedAt && b.lastUsedAt) return b.lastUsedAt.localeCompare(a.lastUsedAt);
+  1396→    if (a.lastUsedAt) return -1;
+  1397→    if (b.lastUsedAt) return 1;
+  1398→    return a.name.localeCompare(b.name);
+  1399→  });
+  1400→
+  1401→  // ---- today's workout ----
+  1402→  const todayWorkout = todayWorkoutRow
+  1403→    ? {
+  1404→        id: todayWorkoutRow.id,
+  1405→        finishedAt: todayWorkoutRow.finishedAt?.toISOString() ?? null,
+  1406→        setCount: todayWorkoutRow.exercises.reduce((acc, e) => acc + e.sets.length, 0),
+  1407→        completedCount: todayWorkoutRow.exercises.reduce(
+  1408→          (acc, e) => acc + e.sets.filter((s) => s.isComplete).length,
+  1409→          0,
+  1410→        ),
+  1411→      }
+  1412→    : null;
+  1413→
+  1414→  return {
+  1415→    today,
+  1416→    active: active ? await getActiveRoutineState(userId) : null,
+  1417→    upcoming,
+  1418→    stats: {
+  1419→      weekSets,
+  1420→      weekVolume: Math.round(weekVolume * 100) / 100,
+  1421→      streakDays,
+  1422→      weekWorkouts: weekWorkouts.filter((w) => w.exercises.some((e) => e.sets.length > 0)).length,
+  1423→      weeklyWorkoutTarget: settings.weeklyWorkoutTarget,
+  1424→    },
+  1425→    todayWorkout,
+  1426→  };
+  1427→}
+  1428→
+  1429→function addDaysUtc(d: Date, days: number): Date {
+  1430→  return new Date(d.getTime() + days * 86400000);
+  1431→}
+  1432→
+  1433→// ─────────────────────────────────────────────────────────────────────────────
+  1434→// Part 6 — program metadata (§4.4/§4.5), mark-off (§4.5), totals, builder (§4.7)
+  1435→// ─────────────────────────────────────────────────────────────────────────────
+  1436→
+  1437→import { jsonStringArray } from "@/server/media";
+  1438→import type { ProgramMetaDTO, ProgramTotalsDTO } from "@/lib/types";
+  1439→
+  1440→type PhaseJson = { name: string; dayIds: string[] };
+  1441→
+  1442→function parsePhases(raw: unknown): PhaseJson[] | null {
+  1443→  if (raw == null) return null;
+  1444→  const arr = Array.isArray(raw) ? raw : (() => { try { return JSON.parse(String(raw)); } catch { return null; } })();
+  1445→  if (!Array.isArray(arr)) return null;
+  1446→  const out: PhaseJson[] = [];
+  1447→  for (const p of arr) {
+  1448→    if (p && typeof p === "object" && typeof (p as PhaseJson).name === "string" && Array.isArray((p as PhaseJson).dayIds)) {
+  1449→      out.push({ name: (p as PhaseJson).name, dayIds: (p as PhaseJson).dayIds.filter((d) => typeof d === "string") });
+  1450→    }
+  1451→  }
+  1452→  return out;
+  1453→}
+  1454→
+  1455→async function loadOwnedRoutine(userId: string, routineId: string) {
+  1456→  const routine = await db.routine.findFirst({
+  1457→    where: { id: routineId, userId, deletedAt: null },
+  1458→    include: { days: { orderBy: { sortOrder: "asc" } } },
+  1459→  });
+  1460→  if (!routine) throw notFound("Program not found");
+  1461→  return routine;
+  1462→}
+  1463→
+  1464→export async function getProgramMeta(userId: string, routineId: string): Promise<ProgramMetaDTO> {
+  1465→  const routine = await loadOwnedRoutine(userId, routineId);
+  1466→  return {
+  1467→    difficulty: routine.difficulty ?? null,
+  1468→    phases: parsePhases(routine.phases),
+  1469→    daysPerWeek: routine.daysPerWeek ?? null,
+  1470→    estMinutes: routine.estMinutes ?? null,
+  1471→    highlights: jsonStringArray(routine.highlights),
+  1472→    labels: jsonStringArray(routine.labels),
+  1473→    isFavorite: routine.isFavorite,
+  1474→  };
+  1475→}
+  1476→
+  1477→export interface ProgramMetaPatch {
+  1478→  difficulty?: string | null;
+  1479→  phases?: PhaseJson[] | null;
+  1480→  daysPerWeek?: number | null;
+  1481→  estMinutes?: number | null;
+  1482→  highlights?: string[] | null;
+  1483→  labels?: string[] | null;
+  1484→  isFavorite?: boolean;
+  1485→}
+  1486→
+  1487→export async function updateProgramMeta(userId: string, routineId: string, patch: ProgramMetaPatch): Promise<ProgramMetaDTO> {
+  1488→  const routine = await loadOwnedRoutine(userId, routineId);
+  1489→  if (patch.phases) {
+  1490→    const dayIds = new Set(routine.days.map((d) => d.id));
+  1491→    for (const phase of patch.phases) {
+  1492→      if (phase.dayIds.some((id) => !dayIds.has(id))) throw badRequest("Phase dayIds must belong to this program");
+  1493→    }
+  1494→  }
+  1495→  await db.routine.update({
+  1496→    where: { id: routineId },
+  1497→    data: {
+  1498→      ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {}),
+  1499→      ...(patch.phases !== undefined ? { phases: patch.phases ? JSON.stringify(patch.phases) : null } : {}),
+  1500→      ...(patch.daysPerWeek !== undefined ? { daysPerWeek: patch.daysPerWeek } : {}),
+  1501→      ...(patch.estMinutes !== undefined ? { estMinutes: patch.estMinutes } : {}),
+  1502→      ...(patch.highlights !== undefined ? { highlights: JSON.stringify(patch.highlights ?? []) } : {}),
+  1503→      ...(patch.labels !== undefined ? { labels: JSON.stringify(patch.labels ?? []) } : {}),
+  1504→      ...(patch.isFavorite !== undefined ? { isFavorite: patch.isFavorite } : {}),
+  1505→    } as Prisma.RoutineUpdateInput,
+  1506→  });
+  1507→  return getProgramMeta(userId, routineId);
+  1508→}
+  1509→
+  1510→function readCompletedDayIds(active: { completedDayIds: unknown } | null): string[] {
+  1511→  return jsonStringArray(active?.completedDayIds);
+  1512→}
+  1513→
+  1514→/**
+  1515→ * POST /api/programs/:id/days/:dayId/mark-off (§4.5 DayActionRow "Mark off"):
+  1516→ * adds a persistent completed marker (independent of the cursor), creates a DONE
+  1517→ * ScheduleEntry for today if none exists, and advances the cursor ONLY when the
+  1518→ * marked day is the cursor day (per Part 5 rules).
+  1519→ */
+  1520→export async function markDayOff(userId: string, routineId: string, dayId: string): Promise<{ completedDayIds: string[]; advanced: boolean }> {
+  1521→  const routine = await loadOwnedRoutine(userId, routineId);
+  1522→  const day = routine.days.find((d) => d.id === dayId);
+  1523→  if (!day) throw notFound("Day not found");
+  1524→
+  1525→  const active = await db.activeRoutine.findFirst({ where: { userId, routineId } });
+  1526→  const completed = readCompletedDayIds(active);
+  1527→  let advanced = false;
+  1528→  if (!completed.includes(dayId)) {
+  1529→    completed.push(dayId);
+  1530→    if (active) {
+  1531→      await db.activeRoutine.update({ where: { id: active.id }, data: { completedDayIds: JSON.stringify(completed) } });
+  1532→    }
+  1533→  }
+  1534→
+  1535→  // DONE schedule entry for today (if none for this day). Part 9 §5: the mark-off
+  1536→  // also mints the Log (Workout PROGRAM, durationSec 0, markedOff) + COMPLETE entry.
+  1537→  const settings = await getProgramSettings(userId);
+  1538→  const todayKey = localDateKey(settings.timezone, new Date());
+  1539→  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  1540→  const todayDate = toDayUtc(todayKey);
+  1541→  const existing = await db.scheduleEntry.findFirst({
+  1542→    where: { userId, deletedAt: null, date: todayDate, dayId },
+  1543→  });
+  1544→  const markOffWorkout = await db.workout.create({
+  1545→    data: {
+  1546→      id: uuid7(),
+  1547→      userId,
+  1548→      date: todayDate,
+  1549→      sourceType: "ROUTINE_DAY",
+  1550→      sourceRoutineId: routineId,
+  1551→      sourceDayId: dayId,
+  1552→      sourceLabel: `${routine.name} · Day off`,
+  1553→      difficulty: user?.difficulty ?? null,
+  1554→      durationSec: 0,
+  1555→      finishedAt: new Date(),
+  1556→    },
+  1557→  });
+  1558→  if (existing && existing.status === "PLANNED") {
+  1559→    await db.scheduleEntry.update({
+  1560→      where: { id: existing.id },
+  1561→      data: { status: "DONE", workoutId: markOffWorkout.id, markedOff: true },
+  1562→    });
+  1563→  } else if (!existing) {
+  1564→    await db.scheduleEntry.create({
+  1565→      data: {
+  1566→        id: uuid7(),
+  1567→        userId,
+  1568→        date: todayDate,
+  1569→        sourceType: "ROUTINE_DAY",
+  1570→        routineId,
+  1571→        dayId,
+  1572→        status: "DONE",
+  1573→        workoutId: markOffWorkout.id,
+  1574→        markedOff: true,
+  1575→        estMinutes: day.estMinutes ?? routine.estMinutes ?? null,
+  1576→      },
+  1577→    });
+  1578→  }
+  1579→
+  1580→  // Cursor advance only when marking off the cursor day (variant-aware, Part 9 §2)
+  1581→  const activeFull = active ? await loadActive(userId) : null;
+  1582→  const variantDayList = activeFull ? await activeDays(userId, activeFull) : [];
+  1583→  const cursorDayId = activeFull
+  1584→    ? variantDayList[clampCursor(activeFull.cursorDayIndex, variantDayList.length)]?.id
+  1585→    : null;
+  1586→  if (active && cursorDayId === dayId) {
+  1587→    await advanceCursorOp(userId, 1);
+  1588→    advanced = true;
+  1589→  }
+  1590→  return { completedDayIds: completed, advanced };
+  1591→}
+  1592→
+  1593→/** DELETE /api/programs/:id/days/:dayId/mark-off — un-mark (no confirm; client toasts + Undo). */
+  1594→export async function unmarkDayOff(userId: string, routineId: string, dayId: string): Promise<{ completedDayIds: string[] }> {
+  1595→  const active = await db.activeRoutine.findFirst({ where: { userId, routineId } });
+  1596→  const completed = readCompletedDayIds(active).filter((id) => id !== dayId);
+  1597→  if (active) {
+  1598→    await db.activeRoutine.update({ where: { id: active.id }, data: { completedDayIds: JSON.stringify(completed) } });
+  1599→  }
+  1600→  return { completedDayIds: completed };
+  1601→}
+  1602→
+  1603→/** POST /api/programs/:id/days/:dayId/favourite — toggle the day favourite (DayFavorite table, legacy flag kept in sync). */
+  1604→export async function toggleDayFavourite(userId: string, routineId: string, dayId: string): Promise<{ isFavorite: boolean }> {
+  1605→  const routine = await loadOwnedRoutine(userId, routineId);
+  1606→  const day = routine.days.find((d) => d.id === dayId);
+  1607→  if (!day) throw notFound("Day not found");
+  1608→  const existing = await db.dayFavorite.findUnique({ where: { userId_dayId: { userId, dayId } } });
+  1609→  if (existing) {
+  1610→    await db.dayFavorite.delete({ where: { userId_dayId: { userId, dayId } } });
+  1611→    await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: false } });
+  1612→    return { isFavorite: false };
+  1613→  }
+  1614→  await db.dayFavorite.create({ data: { userId, dayId } });
+  1615→  await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: true } });
+  1616→  return { isFavorite: true };
+  1617→}
+  1618→
+  1619→/**
+  1620→ * GET /api/programs/:id/totals (§4.5 TotalsRow). From workouts with
+  1621→ * sourceRoutineId = this program; removed workouts excluded;
+  1622→ * warm-up sets excluded (acceptance: "totals excludes discarded/warmups").
+  1623→ */
+  1624→export async function getProgramTotals(userId: string, routineId: string): Promise<ProgramTotalsDTO> {
+  1625→  await loadOwnedRoutine(userId, routineId);
+  1626→  const workouts = await db.workout.findMany({
+  1627→    where: { userId, sourceRoutineId: routineId, removedAt: null },
+  1628→    include: { exercises: { include: { sets: true } } },
+  1629→  });
+  1630→  let setsLogged = 0;
+  1631→  let weightLifted = 0;
+  1632→  let workoutCount = 0;
+  1633→  for (const w of workouts) {
+  1634→    let hasQualifyingSet = false;
+  1635→    for (const we of w.exercises) {
+  1636→      for (const s of we.sets) {
+  1637→        if (s.isWarmup || s.setType === "WARMUP") continue;
+  1638→        const performed = s.isComplete || s.weight != null || s.reps != null || s.distance != null || s.timeSec != null;
+  1639→        if (!performed) continue;
+  1640→        setsLogged += 1;
+  1641→        hasQualifyingSet = true;
+  1642→        if (s.weight != null && s.reps != null) weightLifted += s.weight * s.reps;
+  1643→      }
+  1644→    }
+  1645→    if (hasQualifyingSet) workoutCount += 1;
+  1646→  }
+  1647→  return { workouts: workoutCount, setsLogged, weightLifted: Math.round(weightLifted * 10) / 10 };
+  1648→}
+  1649→
+  1650→// ---------- builder (§4.7) ----------
+  1651→
+  1652→export interface BuilderSetInput { weight?: number | null; reps?: number | null; restPlannedSec?: number | null; setType?: string | null }
+  1653→export interface BuilderExerciseInput { exerciseId: string; sets?: BuilderSetInput[] }
+  1654→export interface BuilderInput {
+  1655→  name: string;
+  1656→  difficulty?: string | null;
+  1657→  daysPerWeek?: number | null;
+  1658→  estMinutes?: number | null;
+  1659→  labels?: string[];
+  1660→  phases: Array<{ name: string; weeks: number }>;
+  1661→  weekly: Array<{ weekday: number; type: string; name?: string | null }>;
+  1662→  exercises?: Record<string, BuilderExerciseInput[]>;
+  1663→}
+  1664→
+  1665→/**
+  1666→ * POST /api/programs/builder — generates a Routine from the 4-step builder:
+  1667→ * days = phases × weeks × 7 weekly-template days (REST included), phases json
+  1668→ * populated with ordered dayIds, exercises attached per named workout template.
+  1669→ */
+  1670→export async function buildProgram(userId: string, input: BuilderInput): Promise<{ id: string; dayCount: number }> {
+  1671→  const weekly = [...input.weekly].sort((a, b) => a.weekday - b.weekday);
+  1672→  if (weekly.length !== 7 || new Set(weekly.map((w) => w.weekday)).size !== 7) {
+  1673→    throw badRequest("Weekly template must cover all 7 weekdays");
+  1674→  }
+  1675→  const templateNames = new Set<string>();
+  1676→  for (const w of weekly) {
+  1677→    if (w.type === "WORKOUT" && !w.name) throw badRequest("WORKOUT weekdays need a template name");
+  1678→    if (w.type === "WORKOUT") templateNames.add(w.name as string);
+  1679→  }
+  1680→
+  1681→  const exerciseIds = new Set<string>();
+  1682→  for (const list of Object.values(input.exercises ?? {})) {
+  1683→    for (const e of list) exerciseIds.add(e.exerciseId);
+  1684→  }
+  1685→  if (exerciseIds.size > 0) {
+  1686→    const owned = await db.exercise.findMany({ where: { userId, deletedAt: null, id: { in: [...exerciseIds] } }, select: { id: true } });
+  1687→    if (owned.length !== exerciseIds.size) throw badRequest("Builder references exercises you do not own");
+  1688→  }
+  1689→
+  1690→  const routineId = uuid7();
+  1691→  const phaseDays: PhaseJson[] = [];
+  1692→  const dayRows: Array<{ id: string; name: string; dayType: string; templateName: string | null }> = [];
+  1693→  let sortOrder = 0;
+  1694→  for (const phase of input.phases) {
+  1695→    const collected: string[] = [];
+  1696→    for (let week = 1; week <= phase.weeks; week++) {
+  1697→      for (const w of weekly) {
+  1698→        const isRest = w.type === "REST";
+  1699→        const id = uuid7();
+  1700→        const name = isRest ? "Rest" : `${w.name}${input.phases.length > 1 ? ` · W${week}` : ""}`;
+  1701→        dayRows.push({ id, name, dayType: isRest ? "REST" : "WORKOUT", templateName: isRest ? null : (w.name as string) });
+  1702→        collected.push(id);
+  1703→        sortOrder += 1;
+  1704→      }
+  1705→    }
+  1706→    phaseDays.push({ name: phase.name, dayIds: collected });
+  1707→  }
+  1708→
+  1709→  const workoutCount = dayRows.filter((d) => d.dayType === "WORKOUT").length;
+  1710→  if (workoutCount === 0) throw badRequest("Builder produced no workout days");
+  1711→
+  1712→  // Single transaction: a failure mid-attach (bad exercise id, etc.) must not
+  1713→  // leave a half-built program behind (verified by the §4.7 QA).
+  1714→  await db.$transaction(async (tx) => {
+  1715→    await tx.routine.create({
+  1716→      data: {
+  1717→        id: routineId,
+  1718→        userId,
+  1719→        name: input.name,
+  1720→        kind: "ROUTINE",
+  1721→        difficulty: input.difficulty ?? null,
+  1722→        daysPerWeek: input.daysPerWeek ?? weekly.filter((w) => w.type === "WORKOUT").length,
+  1723→        estMinutes: input.estMinutes ?? null,
+  1724→        labels: JSON.stringify(input.labels ?? []),
+  1725→        phases: JSON.stringify(phaseDays),
+  1726→        days: {
+  1727→          create: dayRows.map((d) => ({ id: d.id, userId, name: d.name, dayType: d.dayType, sortOrder: dayRows.indexOf(d) })),
+  1728→        },
+  1729→      },
+  1730→    });
+  1731→
+  1732→    // Attach exercises per template name (order preserved per template)
+  1733→    for (const [templateName, list] of Object.entries(input.exercises ?? {})) {
+  1734→      if (!templateNames.has(templateName)) continue;
+  1735→      const targetDays = dayRows.filter((d) => d.templateName === templateName);
+  1736→      for (const day of targetDays) {
+  1737→        let exOrder = 0;
+  1738→        for (const e of list) {
+  1739→          const reId = uuid7();
+  1740→          await tx.routineExercise.create({
+  1741→            data: {
+  1742→              id: reId,
+  1743→              userId,
+  1744→              dayId: day.id,
+  1745→              exerciseId: e.exerciseId,
+  1746→              sortOrder: exOrder,
+  1747→              sets: {
+  1748→                // PredefinedSet.id has no DB default — every nested row needs one.
+  1749→                create: (e.sets ?? []).map((s, i) => ({
+  1750→                  id: uuid7(),
+  1751→                  weight: s.weight ?? null,
+  1752→                  reps: s.reps ?? null,
+  1753→                  restPlannedSec: s.restPlannedSec ?? null,
+  1754→                  setType: s.setType ?? null,
+  1755→                  sortOrder: i,
+  1756→                })) as Prisma.PredefinedSetUncheckedCreateWithoutRoutineExerciseInput[],
+  1757→              },
+  1758→            },
+  1759→          });
+  1760→          exOrder += 1;
+  1761→        }
+  1762→      }
+  1763→    }
+  1764→  });
+  1765→
+  1766→  return { id: routineId, dayCount: dayRows.length };
+  1767→}
+  1768→
+  1769→/** POST /api/schedule/:id/time (§4.13) — set/clear time-of-day on an entry. */
+  1770→export async function setScheduleTime(userId: string, id: string, time: string | null): Promise<ReturnType<typeof mapScheduleEntry>> {
+  1771→  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: { routine: { select: { name: true } }, day: { select: { name: true } } } });
+  1772→  if (!entry) throw notFound("Schedule entry not found");
+  1773→  const updated = await db.scheduleEntry.update({ where: { id }, data: { timeOfDay: time } });
+  1774→  return mapScheduleEntry({ ...updated, routine: { name: entry.routine.name }, day: entry.day ? { name: entry.day.name } : null });
+  1775→}
+  1776→
+  1777→// ---------- Part 9 §2: difficulty ----------
+  1778→
+  1779→export function sourceLabelFor(sourceType: string, routineName: string | null, dayName: string | null): string {
+  1780→  if (sourceType === "SESSION") return "On demand";
+  1781→  if (sourceType === "ROUTINE_DAY") return routineName ? `${routineName}${dayName ? ` · ${dayName}` : ""}` : "Program";
+  1782→  return "Custom";
+  1783→}
+  1784→
+  1785→/**
+  1786→ * PATCH /api/user/difficulty (§2). Sets the global difficulty; when a program is
+  1787→ * followed the ActiveRoutine switches to the sibling variant at the new
+  1788→ * difficulty (kept + flagged when the sibling does not exist), the cursor
+  1789→ * restarts at (0,0) and future program schedule entries regenerate (§6).
+  1790→ */
+  1791→export async function changeDifficulty(userId: string, difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED") {
+  1792→  const user = await db.user.findUnique({ where: { id: userId } });
+  1793→  if (!user) throw notFound("User not found");
+  1794→  const oldDifficulty = (user.difficulty ?? "INTERMEDIATE") as "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+  1795→  if (oldDifficulty === difficulty) {
+  1796→    return { difficulty, oldDifficulty, switched: false, variantKept: null as string | null };
+  1797→  }
+  1798→
+  1799→  const active = await loadActive(userId);
+  1800→  let variantKept: string | null = null;
+  1801→
+  1802→  await db.$transaction(async (tx) => {
+  1803→    await tx.user.update({ where: { id: userId }, data: { difficulty } });
+  1804→    if (!active) return;
+  1805→    const settings = await getProgramSettings(userId);
+  1806→    const todayKey = localDateKey(settings.timezone, new Date());
+  1807→    const sibling = await tx.programVariant.findFirst({ where: { routineId: active.routineId, difficulty } });
+  1808→    if (sibling) {
+  1809→      await tx.activeRoutine.update({
+  1810→        where: { id: active.id },
+  1811→        data: { variantId: sibling.id, cursorPhaseIdx: 0, cursorDayIndex: 0, lastAdvancedAt: new Date(), lastAdvancedForDate: todayKey },
+  1812→      });
+  1813→    } else {
+  1814→      variantKept = oldDifficulty;
+  1815→      await tx.activeRoutine.update({
+  1816→        where: { id: active.id },
+  1817→        data: { cursorPhaseIdx: 0, cursorDayIndex: 0, lastAdvancedAt: new Date(), lastAdvancedForDate: todayKey },
+  1818→      });
+  1819→    }
+  1820→    // §2: future program schedule entries deleted, regenerated in §6 order.
+  1821→    await tx.scheduleEntry.deleteMany({
+  1822→      where: { userId, routineId: active.routineId, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+  1823→    });
+  1824→  });
+  1825→
+  1826→  if (active) await generateScheduleFromCursor(userId);
+  1827→  return { difficulty, oldDifficulty, switched: true, variantKept };
+  1828→}
+  1829→
+  1830→export async function getUserDifficulty(userId: string): Promise<"BEGINNER" | "INTERMEDIATE" | "ADVANCED"> {
+  1831→  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  1832→  return (user?.difficulty ?? "INTERMEDIATE") as "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+  1833→}
+  1834→
+  1835→// ---------- Part 9 §4/§6: program start + schedule generation ----------
+  1836→
+  1837→/**
+  1838→ * §6 On Start: for each Day from the start phase in user order → date = start + offset.
+  1839→ * REST days consume a date (entry kind REST, no dot). Idempotent: existing
+  1840→ * (date, day) pairs and dates already carrying a PLANNED entry are skipped.
+  1841→ */
+  1842→export async function generateScheduleFromCursor(userId: string, fromDateKey?: string) {
+  1843→  const settings = await getProgramSettings(userId);
+  1844→  const todayKey = fromDateKey ?? localDateKey(settings.timezone, new Date());
+  1845→  const active = await loadActive(userId);
+  1846→  if (!active) return { created: 0 };
+  1847→  const days = await activeDays(userId, active);
+  1848→  if (days.length === 0) return { created: 0 };
+  1849→  const startIdx = clampCursor(active.cursorDayIndex, days.length);
+  1850→
+  1851→  const existing = await db.scheduleEntry.findMany({ where: { userId, deletedAt: null } });
+  1852→  const seenPairs = new Set(existing.map((e) => `${dayKey(e.date)}:${e.dayId ?? ""}`));
+  1853→  const plannedDates = new Set(existing.filter((e) => e.status === "PLANNED").map((e) => dayKey(e.date)));
+  1854→
+  1855→  let created = 0;
+  1856→  let offset = 0;
+  1857→  for (let i = startIdx; i < days.length; i++, offset++) {
+  1858→    const d = days[i];
+  1859→    const dateKey = addDaysKey(todayKey, offset);
+  1860→    if (seenPairs.has(`${dateKey}:${d.id}`)) continue;
+  1861→    if (plannedDates.has(dateKey)) continue; // one PLANNED entry per (user, date)
+  1862→    await db.scheduleEntry.create({
+  1863→      data: {
+  1864→        id: uuid7(),
+  1865→        userId,
+  1866→        date: toDayUtc(dateKey),
+  1867→        sourceType: "ROUTINE_DAY",
+  1868→        routineId: active.routineId,
+  1869→        dayId: d.id,
+  1870→        status: "PLANNED",
+  1871→        estMinutes: d.estMinutes ?? undefined,
+  1872→      },
+  1873→    });
+  1874→    plannedDates.add(dateKey);
+  1875→    seenPairs.add(`${dateKey}:${d.id}`);
+  1876→    created += 1;
+  1877→  }
+  1878→  return { created };
+  1879→}
+  1880→
+  1881→/**
+  1882→ * POST /api/programs/:id/start { phaseIdx } (§4). Sets currentVariantId (the
+  1883→ * variant at the USER's difficulty), cursor = (phaseIdx, 0), programStartedAt
+  1884→ * and regenerates the schedule (§6).
+  1885→ */
+  1886→export async function startProgram(userId: string, routineId: string, input: { phaseIdx?: number } = {}) {
+  1887→  const r = await db.routine.findFirst({ where: { id: routineId, userId, deletedAt: null }, include: routineInclude });
+  1888→  if (!r) throw notFound("Program not found");
+  1889→  const difficulty = await getUserDifficulty(userId);
+  1890→  const variant = variantForDifficulty(r, difficulty);
+  1891→  const days = await effectiveVariantDays(userId, r, variant?.id ?? null);
+  1892→  if (!isFollowable(r.kind ?? "ROUTINE", days)) {
+  1893→    throw badRequest("Only programs with at least one workout day can be started");
+  1894→  }
+  1895→  // cursorPhaseIdx points at the requested phase; the flat cursor index is the
+  1896→  // first day of that phase (0 when the phase has no days).
+  1897→  let phaseIdx = input.phaseIdx ?? 0;
+  1898→  if (variant) phaseIdx = Math.min(Math.max(0, phaseIdx), Math.max(0, variant.phases.length - 1));
+  1899→  let cursorDayIndex = 0;
+  1900→  if (variant && variant.phases.length > 0) {
+  1901→    const phase = variant.phases[phaseIdx];
+  1902→    const firstIdx = days.findIndex((d) => d.phaseId === phase?.id);
+  1903→    cursorDayIndex = firstIdx >= 0 ? firstIdx : 0;
+  1904→  }
+  1905→  const settings = await getProgramSettings(userId);
+  1906→  const todayKey = localDateKey(settings.timezone, new Date());
+  1907→  await db.$transaction(async (tx) => {
+  1908→    await tx.activeRoutine.deleteMany({ where: { userId } });
+  1909→    await tx.activeRoutine.create({
+  1910→      data: {
+  1911→        id: uuid7(),
+  1912→        userId,
+  1913→        routineId: r.id,
+  1914→        variantId: variant?.id ?? null,
+  1915→        cursorPhaseIdx: phaseIdx,
+  1916→        cursorDayIndex,
+  1917→        startedAt: new Date(),
+  1918→        lastAdvancedAt: null,
+  1919→        lastAdvancedForDate: todayKey,
+  1920→      },
+  1921→    });
+  1922→    await tx.scheduleEntry.deleteMany({
+  1923→      where: { userId, routineId: r.id, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+  1924→    });
+  1925→  });
+  1926→  await generateScheduleFromCursor(userId);
+  1927→  return {
+  1928→    routineId: r.id,
+  1929→    variantId: variant?.id ?? null,
+  1930→    difficulty: variant?.difficulty ?? difficulty,
+  1931→    phaseIdx,
+  1932→    dayIndex: cursorDayIndex,
+  1933→    day: toProgramDay(days[cursorDayIndex]),
+  1934→  };
+  1935→}
+  1936→
+  1937→// ---------- Part 9 §6: missed reconcile ----------
+  1938→
+  1939→/**
+  1940→ * POST /api/schedule/reconcile-missed (idempotent; cron + on-open).
+  1941→ * PLANNED entries whose local date passed the missed cutoff without a
+  1942→ * qualifying workout → MISSED (persisted, missedAt stamped). REST entries
+  1943→ * never reconcile to MISSED (§6: "entry kind REST, no dot").
+  1944→ */
+  1945→export async function reconcileMissedSchedule(userId: string) {
+  1946→  const settings = await getProgramSettings(userId);
+  1947→  const todayKey = localDateKey(settings.timezone, new Date());
+  1948→  const nowMs = Date.now();
+  1949→  const rows = await db.scheduleEntry.findMany({
+  1950→    where: { userId, deletedAt: null, status: "PLANNED", date: { lt: toDayUtc(todayKey) } },
+  1951→    include: { day: true, workout: { include: { exercises: { include: { sets: true } } } } },
+  1952→  });
+  1953→  let missed = 0;
+  1954→  let completed = 0;
+  1955→  for (const e of rows) {
+  1956→    if ((e.day?.dayType ?? "WORKOUT") === "REST") continue; // REST never misses
+  1957→    const hasData = e.workout ? workoutHasLoggedData(e.workout) : false;
+  1958→    const derived = deriveEntryStatus({
+  1959→      storedStatus: "PLANNED",
+  1960→      dateKey: dayKey(e.date),
+  1961→      todayKey,
+  1962→      linkedWorkoutHasData: hasData,
+  1963→      linkedWorkoutFinished: !!e.workout?.finishedAt,
+  1964→      missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+  1965→      nowMs,
+  1966→    });
+  1967→    if (derived === "MISSED") {
+  1968→      await db.scheduleEntry.update({ where: { id: e.id }, data: { status: "MISSED", missedAt: e.missedAt ?? new Date(nowMs) } });
+  1969→      missed += 1;
+  1970→    } else if (derived === "DONE") {
+  1971→      await db.scheduleEntry.update({ where: { id: e.id }, data: { status: "DONE" } });
+  1972→      completed += 1;
+  1973→    }
+  1974→  }
+  1975→  return { missed, completed, checked: rows.length };
+  1976→}
+  1977→
+  1978→// ---------- Part 9 §10: challenges ----------
+  1979→
+  1980→export async function getActiveChallenge(userId: string) {
+  1981→  const settings = await getProgramSettings(userId);
+  1982→  const todayKey = localDateKey(settings.timezone, new Date());
+  1983→  const challenge = await db.challenge.findFirst({
+  1984→    where: { isActive: true },
+  1985→    include: { programVariant: { include: { routine: { select: { id: true, name: true, userId: true } } } }, dismisses: { where: { userId } } },
+  1986→    orderBy: { startsOn: "desc" },
+  1987→  });
+  1988→  if (!challenge) return null;
+  1989→  const startsOnKey = dayKey(challenge.startsOn);
+  1990→  // startsOn ≥ today-7 (recent or upcoming) and not dismissed
+  1991→  const diff = diffDateKeys(todayKey, startsOnKey);
+  1992→  if (diff < -7) return null;
+  1993→  if (challenge.dismisses.length > 0) return null;
+  1994→  return {
+  1995→    id: challenge.id,
+  1996→    name: challenge.name,
+  1997→    startsOn: startsOnKey,
+  1998→    weeks: challenge.weeks,
+  1999→    isActive: challenge.isActive,
+  2000→    variantId: challenge.programVariantId,
+
+[showing lines 1-2000 of 2076; use offset=2001 with limit to continue reading]

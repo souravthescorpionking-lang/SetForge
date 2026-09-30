@@ -1,0 +1,1110 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// SetsEditorScreen — #/builder/{program|session}/{id}/exercise/{reId}
+     5→// (Part 8 §3.8 sets editor — the predefined-editor evolved with §6.2/§6.3/§6.4).
+     6→//
+     7→//   TopBar (56)  : BackButton → the editor · `{Exercise} · sets` · [Done]
+     8→//   ScrollBody   : header row 32 (`#  kg  reps  rest`) · set rows 48
+     9→//                  (W/index · weight prescription cell [§6.4 segmented
+    10→//                  popover Fixed | Copy last | % 1RM] · reps input · rest
+    11→//                  popover · … menu [Copy last · Apply to all · warm-up
+    12→//                  toggle · Remove]) · 40px `+ set | Apply to all ▾`
+    13→//                  · Warm-up row 56 › (§6.2 scheme chips + switch)
+    14→//                  · Progression row 56 › (§6.3 type/increment/unit/
+    15→//                  condition/deload)
+    16→//
+    17→// Every edit persists IMMEDIATELY (routinesApi sets PATCH / exerciseMetaApi
+    18→// PUT) — Done confirms + returns to the editor, like the routines screens.
+    19→// ─────────────────────────────────────────────────────────────────────────────
+    20→
+    21→import { useEffect, useMemo, useState, type ReactNode } from "react";
+    22→import { useQuery, useQueryClient } from "@tanstack/react-query";
+    23→import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
+    24→import { BackButton } from "@/components/layout/back-button";
+    25→import { tourAttrs } from "@/lib/tour/attrs";
+    26→import { Button } from "@/components/ui/button";
+    27→import { Input } from "@/components/ui/input";
+    28→import { Switch } from "@/components/ui/switch";
+    29→import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+    30→import {
+    31→  DropdownMenu,
+    32→  DropdownMenuContent,
+    33→  DropdownMenuItem,
+    34→  DropdownMenuTrigger,
+    35→} from "@/components/ui/dropdown-menu";
+    36→import {
+    37→  Check,
+    38→  ChevronDown,
+    39→  Copy,
+    40→  Flame,
+    41→  MoreHorizontal,
+    42→  Plus,
+    43→  RotateCcw,
+    44→  Trash2,
+    45→  TrendingUp,
+    46→} from "lucide-react";
+    47→import { toast } from "sonner";
+    48→import { cn } from "@/lib/utils";
+    49→import { useApp } from "@/lib/client/store";
+    50→import { exerciseMetaApi, routinesApi, type ExerciseMetaProgression, type PredefinedSetInput } from "@/lib/client/api";
+    51→import { qk, useOnline } from "@/lib/client/query";
+    52→import { fieldsForType, formatRestSec, type SetField } from "@/lib/constants";
+    53→import { trimNum, parseFieldValue, parseDurationInput } from "@/components/group-card/group-types";
+    54→import type { WeightKind } from "@/lib/grouping";
+    55→import type { PredefinedSetDTO, RoutineDayDTO } from "@/lib/types";
+    56→import type { TourAttrs } from "@/lib/tour/attrs";
+    57→import {
+    58→  errorMessage,
+    59→  useLastSetsPrefill,
+    60→  useRoutineRun,
+    61→} from "@/features/routines/screen-helpers";
+    62→import { kindSegment } from "./editor-shared";
+    63→import { exerciseUnit } from "@/features/exercises/labels";
+    64→
+    65→const REST_PRESETS = [30, 60, 90, 120, 150, 180];
+    66→
+    67→const DEFAULT_PROGRESSION: ExerciseMetaProgression = {
+    68→  type: "LINEAR",
+    69→  increment: 2.5,
+    70→  unit: "kg",
+    71→  condition: "ALL_SETS_HIT",
+    72→  failStreakForDeload: 3,
+    73→  deloadPct: 10,
+    74→};
+    75→
+    76→const WARMUP_SCHEME_META: Array<{
+    77→  value: "NONE" | "STANDARD" | "LIGHT";
+    78→  label: string;
+    79→  detail: string;
+    80→}> = [
+    81→  { value: "NONE", label: "Off", detail: "No generated warm-up sets" },
+    82→  { value: "STANDARD", label: "Standard", detail: "40/60/80% × 5/3/2" },
+    83→  { value: "LIGHT", label: "Light", detail: "50/70% × 5/3" },
+    84→];
+    85→
+    86→// ---------- small pieces ----------
+    87→
+    88→/** 48px set row grid: # 32 · f1 minmax(72,1fr) · f2 minmax(56,1fr) · rest 56 · … 32 */
+    89→function gridTemplate(fields: SetField[], restVisible: boolean): string {
+    90→  const parts: string[] = ["32px"];
+    91→  if (fields[0]) parts.push("minmax(72px,1fr)");
+    92→  if (fields[1]) parts.push("minmax(56px,1fr)");
+    93→  if (restVisible) parts.push("56px");
+    94→  parts.push("32px");
+    95→  return parts.join(" ");
+    96→}
+    97→
+    98→function fieldLabel(field: SetField, unit: string | null): string {
+    99→  switch (field) {
+   100→    case "weight":
+   101→      return unit ?? "kg";
+   102→    case "reps":
+   103→      return "reps";
+   104→    case "distance":
+   105→      return "dist";
+   106→    case "timeSec":
+   107→      return "time";
+   108→  }
+   109→}
+   110→
+   111→function NumberInput({
+   112→  value,
+   113→  onCommit,
+   114→  ariaLabel,
+   115→  className,
+   116→}: {
+   117→  value: number | null;
+   118→  onCommit: (next: number | null) => void;
+   119→  ariaLabel: string;
+   120→  className?: string;
+   121→}) {
+   122→  const [draft, setDraft] = useState<string | null>(null);
+   123→  const display = draft ?? (value == null ? "" : trimNum(value));
+   124→  const commit = () => {
+   125→    if (draft != null) {
+   126→      const parsed = parseFieldValue("reps", draft);
+   127→      if (parsed !== undefined && parsed !== value) onCommit(parsed);
+   128→    }
+   129→    setDraft(null);
+   130→  };
+   131→  return (
+   132→    <input
+   133→      inputMode="decimal"
+   134→      aria-label={ariaLabel}
+   135→      {...tourAttrs({ skipTour: true, reason: "Covered by the setsEditor row cell anchors" })}
+   136→      value={display}
+   137→      onChange={(e) => setDraft(e.target.value)}
+   138→      onBlur={commit}
+   139→      onKeyDown={(e) => {
+   140→        if (e.key === "Enter") {
+   141→          e.preventDefault();
+   142→          e.currentTarget.blur();
+   143→        }
+   144→      }}
+   145→      className={cn(
+   146→        "h-10 min-w-0 w-full rounded-md border-0 bg-transparent px-1 text-right text-sm tabular-nums text-foreground outline-none focus:bg-muted/40",
+   147→        className,
+   148→      )}
+   149→    />
+   150→  );
+   151→}
+   152→
+   153→// ---------- §6.4 weight prescription cell ----------
+   154→
+   155→function WeightKindCell({
+   156→  set,
+   157→  onApply,
+   158→}: {
+   159→  set: PredefinedSetDTO;
+   160→  onApply: (input: PredefinedSetInput) => void;
+   161→}) {
+   162→  const kind: WeightKind = (set.weightKind ?? (set.weight != null ? "FIXED" : "COPY_LAST")) as WeightKind;
+   163→  const [open, setOpen] = useState(false);
+   164→  const [mode, setMode] = useState<WeightKind>(kind);
+   165→  const [value, setValue] = useState("");
+   166→
+   167→  const reseed = () => {
+   168→    setMode(kind);
+   169→    setValue(
+   170→      kind === "PERCENT_1RM"
+   171→        ? set.pct != null
+   172→          ? trimNum(set.pct)
+   173→          : ""
+   174→        : set.weight != null
+   175→          ? trimNum(set.weight)
+   176→          : "",
+   177→    );
+   178→  };
+   179→
+   180→  const text =
+   181→    kind === "PERCENT_1RM"
+   182→      ? set.pct != null
+   183→        ? `${trimNum(set.pct)}%`
+   184→        : "↺ %"
+   185→      : kind === "COPY_LAST"
+   186→        ? "↺"
+   187→        : set.weight != null
+   188→          ? trimNum(set.weight)
+   189→          : "–";
+   190→
+   191→  const apply = () => {
+   192→    if (mode === "COPY_LAST") {
+   193→      onApply({ weightKind: "COPY_LAST", weight: null, pct: null });
+   194→    } else if (mode === "PERCENT_1RM") {
+   195→      const pct = parseFieldValue("reps", value);
+   196→      if (pct == null || pct <= 0 || pct > 100) {
+   197→        toast.info("Enter a % of your 1RM between 1 and 100");
+   198→        return;
+   199→      }
+   200→      onApply({ weightKind: "PERCENT_1RM", pct, weight: null });
+   201→    } else {
+   202→      const weight = parseFieldValue("reps", value);
+   203→      onApply({ weightKind: "FIXED", weight: weight ?? null, pct: null });
+   204→    }
+   205→    setOpen(false);
+   206→  };
+   207→
+   208→  const seg = (m: WeightKind, label: string) => (
+   209→    <Button
+   210→      key={m}
+   211→      type="button"
+   212→      variant={mode === m ? "default" : "outline"}
+   213→      size="sm"
+   214→      tour={{ skipTour: true, reason: "Weight-kind segment inside the prescription popover" }}
+   215→      className="h-8 min-w-0 flex-1 rounded-lg px-1 text-xs font-bold"
+   216→      onClick={() => setMode(m)}
+   217→    >
+   218→      <span className="truncate">{label}</span>
+   219→    </Button>
+   220→  );
+   221→
+   222→  return (
+   223→    <Popover
+   224→      open={open}
+   225→      onOpenChange={(o) => {
+   226→        if (o) reseed();
+   227→        setOpen(o);
+   228→      }}
+   229→    >
+   230→      <PopoverTrigger asChild>
+   231→        <button
+   232→          type="button"
+   233→          {...tourAttrs({ id: "setsEditor.weightKind", label: "Weight", help: "Fixed weight, copy last workout, or a % of your 1RM.", order: 40 })}
+   234→          aria-label={`Weight prescription for set ${set.sortOrder + 1}: ${kind}. Tap to change`}
+   235→          className="flex h-10 w-full items-center justify-center rounded-md px-1 text-sm font-semibold tabular-nums transition-colors hover:bg-accent"
+   236→        >
+   237→          {text}
+   238→        </button>
+   239→      </PopoverTrigger>
+   240→      <PopoverContent align="center" className="w-60 p-3">
+   241→        <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+   242→          Weight
+   243→        </p>
+   244→        <div className="flex items-center gap-1">
+   245→          {seg("FIXED", "Fixed")}
+   246→          {seg("COPY_LAST", "Copy last")}
+   247→          {seg("PERCENT_1RM", "% 1RM")}
+   248→        </div>
+   249→        {mode === "FIXED" ? (
+   250→          <div className="mt-3 flex items-center gap-1">
+   251→            <Input
+   252→              autoFocus
+   253→              inputMode="decimal"
+   254→              value={value}
+   255→              aria-label="Fixed weight in kg"
+   256→              {...tourAttrs({ skipTour: true, reason: "Fixed-weight input inside the prescription popover" })}
+   257→              onChange={(e) => setValue(e.target.value)}
+   258→              onKeyDown={(e) => e.key === "Enter" && apply()}
+   259→              placeholder="kg"
+   260→              className="h-8 min-w-0 flex-1"
+   261→            />
+   262→            <Button type="button" size="sm" tour={{ skipTour: true, reason: "Apply inside the prescription popover" }} className="h-8 rounded-lg" onClick={apply}>
+   263→              Set
+   264→            </Button>
+   265→          </div>
+   266→        ) : mode === "COPY_LAST" ? (
+   267→          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+   268→            ↺ No stored weight — the set copies your last workout when the day starts.
+   269→          </p>
+   270→        ) : (
+   271→          <div className="mt-3 flex items-center gap-1">
+   272→            <Input
+   273→              autoFocus
+   274→              inputMode="decimal"
+   275→              value={value}
+   276→              aria-label="Percent of one-rep max"
+   277→              {...tourAttrs({ skipTour: true, reason: "Percent input inside the prescription popover" })}
+   278→              onChange={(e) => setValue(e.target.value)}
+   279→              onKeyDown={(e) => e.key === "Enter" && apply()}
+   280→              placeholder="% of 1RM"
+   281→              className="h-8 min-w-0 flex-1"
+   282→            />
+   283→            <Button type="button" size="sm" tour={{ skipTour: true, reason: "Apply inside the prescription popover" }} className="h-8 rounded-lg" onClick={apply}>
+   284→              Set
+   285→            </Button>
+   286→          </div>
+   287→        )}
+   288→      </PopoverContent>
+   289→    </Popover>
+   290→  );
+   291→}
+   292→
+   293→// ---------- rest cell (presets popover) ----------
+   294→
+   295→function RestCell({ set, onCommit }: { set: PredefinedSetDTO; onCommit: (sec: number | null) => void }) {
+   296→  const [open, setOpen] = useState(false);
+   297→  const [custom, setCustom] = useState("");
+   298→  const planned = set.restPlannedSec ?? null;
+   299→  const applyCustom = () => {
+   300→    const sec = parseDurationInput(custom);
+   301→    if (sec == null) {
+   302→      toast.info("Enter rest as seconds or m:ss");
+   303→      return;
+   304→    }
+   305→    onCommit(sec);
+   306→    setOpen(false);
+   307→  };
+   308→  return (
+   309→    <Popover open={open} onOpenChange={setOpen}>
+   310→      <PopoverTrigger asChild>
+   311→        <button
+   312→          type="button"
+   313→          {...tourAttrs({ id: "setsEditor.rest", label: "Rest", help: "Planned rest after this set; tap to edit.", order: 50 })}
+   314→          aria-label={planned ? `Planned rest ${formatRestSec(planned)}, tap to change` : "Rest not set, tap to edit"}
+   315→          className="flex h-10 w-full items-center justify-center rounded-md px-1 text-xs font-semibold tabular-nums transition-colors hover:bg-accent"
+   316→        >
+   317→          {planned ? formatRestSec(planned) : <span className="text-muted-foreground/50">–</span>}
+   318→        </button>
+   319→      </PopoverTrigger>
+   320→      <PopoverContent align="center" className="w-52 p-3">
+   321→        <p className="pb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Rest</p>
+   322→        <div className="grid grid-cols-3 gap-1">
+   323→          {REST_PRESETS.map((sec) => (
+   324→            <Button
+   325→              key={sec}
+   326→              type="button"
+   327→              variant={planned === sec ? "default" : "outline"}
+   328→              size="sm"
+   329→              tour={{ skipTour: true, reason: "Rest presets inside the rest popover" }}
+   330→              className="h-8 rounded-lg px-0 text-xs font-bold tabular-nums"
+   331→              onClick={() => {
+   332→                onCommit(sec);
+   333→                setOpen(false);
+   334→              }}
+   335→            >
+   336→              {formatRestSec(sec)}
+   337→            </Button>
+   338→          ))}
+   339→        </div>
+   340→        <div className="mt-2 flex items-center gap-1">
+   341→          <Input
+   342→            value={custom}
+   343→            aria-label="Custom rest duration"
+   344→            {...tourAttrs({ skipTour: true, reason: "Custom rest field inside the rest popover" })}
+   345→            onChange={(e) => setCustom(e.target.value)}
+   346→            onKeyDown={(e) => e.key === "Enter" && applyCustom()}
+   347→            placeholder="m:ss"
+   348→            className="h-8 min-w-0 flex-1"
+   349→          />
+   350→          <Button type="button" variant="outline" size="sm" tour={{ skipTour: true, reason: "Apply inside the rest popover" }} className="h-8 rounded-lg text-xs font-bold" onClick={applyCustom}>
+   351→            Set
+   352→          </Button>
+   353→        </div>
+   354→        {planned != null ? (
+   355→          <Button
+   356→            type="button"
+   357→            variant="ghost"
+   358→            size="sm"
+   359→            tour={{ skipTour: true, reason: "Clear control inside the rest popover" }}
+   360→            className="mt-2 w-full text-xs text-muted-foreground"
+   361→            onClick={() => {
+   362→              onCommit(null);
+   363→              setOpen(false);
+   364→            }}
+   365→          >
+   366→            Clear rest
+   367→          </Button>
+   368→        ) : null}
+   369→      </PopoverContent>
+   370→    </Popover>
+   371→  );
+   372→}
+   373→
+   374→// ---------- one 48px set row ----------
+   375→
+   376→function SetEditorRow({
+   377→  set,
+   378→  index,
+   379→  fields,
+   380→  unit,
+   381→  restVisible,
+   382→  onPatch,
+   383→  onCopyLast,
+   384→  onApplyAll,
+   385→  onRemove,
+   386→  onToggleWarmup,
+   387→}: {
+   388→  set: PredefinedSetDTO;
+   389→  index: number;
+   390→  fields: SetField[];
+   391→  unit: string | null;
+   392→  restVisible: boolean;
+   393→  onPatch: (input: PredefinedSetInput) => void;
+   394→  onCopyLast: () => void;
+   395→  onApplyAll: () => void;
+   396→  onRemove: () => void;
+   397→  onToggleWarmup: () => void;
+   398→}) {
+   399→  const [menuOpen, setMenuOpen] = useState(false);
+   400→  const isWarmup = (set.setType ?? "NORMAL") === "WARMUP";
+   401→
+   402→  const cells: Record<string, ReactNode> = {
+   403→    index: isWarmup ? (
+   404→      <span
+   405→        className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500/15 text-[11px] font-bold text-amber-600 dark:text-amber-400"
+   406→        title="Warm-up set"
+   407→      >
+   408→        W
+   409→      </span>
+   410→    ) : (
+   411→      <span className="w-full truncate text-center text-xs tabular-nums text-muted-foreground">{index}</span>
+   412→    ),
+   413→    f1:
+   414→      fields[0] === "weight" ? (
+   415→        <WeightKindCell set={set} onApply={onPatch} />
+   416→      ) : fields[0] ? (
+   417→        <NumberInput
+   418→          value={fields[0] === "reps" ? set.reps : fields[0] === "distance" ? set.distance : set.timeSec}
+   419→          ariaLabel={`${fieldLabel(fields[0], unit)} for set ${index}`}
+   420→          onCommit={(v) => onPatch(fields[0] === "reps" ? { reps: v } : fields[0] === "distance" ? { distance: v } : { timeSec: v })}
+   421→        />
+   422→      ) : null,
+   423→    f2: fields[1] ? (
+   424→      <NumberInput
+   425→        value={fields[1] === "reps" ? set.reps : fields[1] === "distance" ? set.distance : set.timeSec}
+   426→        ariaLabel={`${fieldLabel(fields[1], unit)} for set ${index}`}
+   427→        onCommit={(v) => onPatch(fields[1] === "reps" ? { reps: v } : fields[1] === "distance" ? { distance: v } : { timeSec: v })}
+   428→      />
+   429→    ) : null,
+   430→    rest: <RestCell set={set} onCommit={(sec) => onPatch({ restPlannedSec: sec })} />,
+   431→    more: (
+   432→      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+   433→        <PopoverTrigger asChild>
+   434→          <button
+   435→            type="button"
+   436→            {...tourAttrs({ id: "setsEditor.more", label: "More", help: "Copy last, apply to all, warm-up toggle or remove.", order: 60 })}
+   437→            aria-label={`More options for set ${index}`}
+   438→            className="flex h-10 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+   439→          >
+   440→            <MoreHorizontal className="h-4 w-4" aria-hidden />
+   441→          </button>
+   442→        </PopoverTrigger>
+   443→        <PopoverContent align="end" className="w-56 p-2">
+   444→          <div className="flex flex-col gap-1">
+   445→            <Button
+   446→              type="button"
+   447→              variant="ghost"
+   448→              size="sm"
+   449→              tour={{ skipTour: true, reason: "Copy-last inside the row menu" }}
+   450→              className="h-9 w-full justify-start gap-2 rounded-lg text-sm"
+   451→              onClick={() => {
+   452→                onCopyLast();
+   453→                setMenuOpen(false);
+   454→              }}
+   455→            >
+   456→              <RotateCcw className="h-4 w-4" aria-hidden /> Copy last workout
+   457→            </Button>
+   458→            <Button
+   459→              type="button"
+   460→              variant="ghost"
+   461→              size="sm"
+   462→              tour={{ id: "setsEditor.applyAll", label: "Apply to all", help: "Copy this set's weight, reps and rest onto every set.", order: 70 }}
+   463→              className="h-9 w-full justify-start gap-2 rounded-lg text-sm"
+   464→              onClick={() => {
+   465→                onApplyAll();
+   466→                setMenuOpen(false);
+   467→              }}
+   468→            >
+   469→              <Copy className="h-4 w-4" aria-hidden /> Apply to all sets
+   470→            </Button>
+   471→            <Button
+   472→              type="button"
+   473→              variant="ghost"
+   474→              size="sm"
+   475→              tour={{ skipTour: true, reason: "Warm-up toggle inside the row menu" }}
+   476→              className="h-9 w-full justify-start gap-2 rounded-lg text-sm"
+   477→              onClick={() => {
+   478→                onToggleWarmup();
+   479→                setMenuOpen(false);
+   480→              }}
+   481→            >
+   482→              <Flame className="h-4 w-4" aria-hidden /> {isWarmup ? "Make working set" : "Make warm-up set"}
+   483→            </Button>
+   484→            <Button
+   485→              type="button"
+   486→              variant="ghost"
+   487→              size="sm"
+   488→              tour={{ skipTour: true, reason: "Remove-set inside the row menu" }}
+   489→              className="h-9 w-full justify-start gap-2 rounded-lg text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+   490→              onClick={() => {
+   491→                onRemove();
+   492→                setMenuOpen(false);
+   493→              }}
+   494→            >
+   495→              <Trash2 className="h-4 w-4" aria-hidden /> Remove set
+   496→            </Button>
+   497→          </div>
+   498→        </PopoverContent>
+   499→      </Popover>
+   500→    ),
+   501→  };
+   502→
+   503→  const keys: string[] = ["index"];
+   504→  if (fields[0]) keys.push("f1");
+   505→  if (fields[1]) keys.push("f2");
+   506→  if (restVisible) keys.push("rest");
+   507→  keys.push("more");
+   508→
+   509→  return (
+   510→    <div
+   511→      data-row
+   512→      role="group"
+   513→      aria-label={`Set ${index}${isWarmup ? " warm-up" : ""}`}
+   514→      className="grid h-12 items-center overflow-hidden whitespace-nowrap rounded-lg border border-border bg-card"
+   515→      style={{ gridTemplateColumns: gridTemplate(fields, restVisible) }}
+   516→    >
+   517→      {keys.map((key) => (
+   518→        <div key={key} className={cn("flex h-full min-w-0 items-center overflow-hidden", key !== "f1" && key !== "f2" && "justify-center")}>
+   519→          {cells[key]}
+   520→        </div>
+   521→      ))}
+   522→    </div>
+   523→  );
+   524→}
+   525→
+   526→// ---------- accordion section row (56px) ----------
+   527→// tour declarations arrive PRE-COMPUTED from the call sites
+   528→// (`{...tourAttrs({ literal })}` — static + codegen-readable) and are spread
+   529→// onto the row here.
+   530→
+   531→function SectionRow({
+   532→  icon,
+   533→  title,
+   534→  summary,
+   535→  open,
+   536→  onToggle,
+   537→  declAttrs,
+   538→}: {
+   539→  icon: ReactNode;
+   540→  title: string;
+   541→  summary: string;
+   542→  open: boolean;
+   543→  onToggle: () => void;
+   544→  declAttrs?: TourAttrs;
+   545→}) {
+   546→  return (
+   547→    <button
+   548→      type="button"
+   549→      data-row
+   550→      aria-expanded={open}
+   551→      {...(declAttrs ?? {})}
+   552→      onClick={onToggle}
+   553→      className="flex h-14 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-border bg-card px-3 text-left transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+   554→    >
+   555→      {icon}
+   556→      <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{title}</span>
+   557→      <span className="min-w-0 flex-none truncate text-xs text-muted-foreground">{summary}</span>
+   558→      <ChevronDown className={cn("h-4 w-4 flex-none text-muted-foreground transition-transform", !open && "-rotate-90")} aria-hidden />
+   559→    </button>
+   560→  );
+   561→}
+   562→
+   563→// ─────────────────────────────────────────────────────────────────────────────
+   564→// Screen
+   565→// ─────────────────────────────────────────────────────────────────────────────
+   566→
+   567→export default function SetsEditorScreen({ routineId, reId }: { routineId: string; reId: string }) {
+   568→  return <SetsEditorInner key={`${routineId}:${reId}`} routineId={routineId} reId={reId} />;
+   569→}
+   570→
+   571→function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string }) {
+   572→  const navigate = useApp((s) => s.navigate);
+   573→  const settings = useApp((s) => s.settings);
+   574→  const online = useOnline();
+   575→  const { run } = useRoutineRun();
+   576→  const prefillFor = useLastSetsPrefill();
+   577→  const qc = useQueryClient();
+   578→
+   579→  // ---------- data (reId is unique across the routine — find its day) ----------
+   580→  const { data: routine, isLoading } = useQuery({
+   581→    queryKey: qk.routine(routineId),
+   582→    queryFn: () => routinesApi.get(routineId),
+   583→    retry: 1,
+   584→  });
+   585→
+   586→  const located = useMemo(() => {
+   587→    if (!routine) return null;
+   588→    for (const day of routine.days) {
+   589→      const re = day.exercises.find((e) => e.id === reId);
+   590→      if (re) return { day, re };
+   591→    }
+   592→    return null;
+   593→  }, [routine, reId]);
+   594→
+   595→  const metaKey = ["exercise-meta", routineId, reId] as const;
+   596→  const metaQuery = useQuery({
+   597→    queryKey: metaKey,
+   598→    queryFn: () => exerciseMetaApi.get(routineId, reId),
+   599→    enabled: !!located,
+   600→  });
+   601→
+   602→  const day = located?.day ?? null;
+   603→  const re = located?.re ?? null;
+   604→  const kindSeg = routine ? kindSegment(routine) : "program";
+   605→  const backHref = `/builder/${kindSeg}/${routineId}`;
+   606→
+   607→  const fields = useMemo(
+   608→    () => (re ? (fieldsForType(re.exercise.type) as SetField[]) : []),
+   609→    [re],
+   610→  );
+   611→  const unit = useMemo(() => (re ? exerciseUnit(re.exercise, settings) : "kg"), [re, settings]);
+   612→  const restVisible = settings?.showRest ?? true;
+   613→
+   614→  const sortedSets = useMemo(
+   615→    () => (re ? [...re.sets].sort((a, b) => a.sortOrder - b.sortOrder) : []),
+   616→    [re],
+   617→  );
+   618→
+   619→  // ---------- ui state ----------
+   620→  const [warmupOpen, setWarmupOpen] = useState(false);
+   621→  const [progressionOpen, setProgressionOpen] = useState(false);
+   622→
+   623→  // ---------- set mutations (immediate persist) ----------
+   624→  const patchSet = async (setId: string, input: PredefinedSetInput) => {
+   625→    if (!day || !re) return;
+   626→    await run(() => routinesApi.updateSet(routineId, day.id, reId, setId, input), {
+   627→      path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}/sets/${setId}`,
+   628→      method: "PATCH",
+   629→      body: input,
+   630→      label: "Set updated",
+   631→    });
+   632→  };
+   633→
+   634→  const addSet = async () => {
+   635→    if (!day || !re) return;
+   636→    await run(() => routinesApi.addSet(routineId, day.id, reId, {}), {
+   637→      path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}/sets`,
+   638→      method: "POST",
+   639→      body: {},
+   640→      label: "Set added",
+   641→    });
+   642→  };
+   643→
+   644→  const removeSet = async (setId: string) => {
+   645→    if (!day || !re) return;
+   646→    await run(() => routinesApi.removeSet(routineId, day.id, reId, setId), {
+   647→      path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}/sets/${setId}`,
+   648→      method: "DELETE",
+   649→      label: "Set removed",
+   650→    });
+   651→  };
+   652→
+   653→  const copyLastToSet = async (setId: string, index0: number) => {
+   654→    if (!day || !re) return;
+   655→    const src = await prefillFor(re.exerciseId, index0);
+   656→    if (!src) {
+   657→      toast.info("No previous workout to copy from");
+   658→      return;
+   659→    }
+   660→    await run(
+   661→      () =>
+   662→        routinesApi.updateSet(routineId, day.id, reId, setId, {
+   663→          weight: src.weight,
+   664→          reps: src.reps,
+   665→          distance: src.distance,
+   666→          timeSec: src.timeSec,
+   667→          weightKind: src.weight != null ? "FIXED" : null,
+   668→        }),
+   669→      {
+   670→        path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}/sets/${setId}`,
+   671→        method: "PATCH",
+   672→        body: { weight: src.weight, reps: src.reps, distance: src.distance, timeSec: src.timeSec },
+   673→        label: "Copied from last workout",
+   674→      },
+   675→    );
+   676→    toast.success("Copied from last workout");
+   677→  };
+   678→
+   679→  const toggleWarmupSet = (set: PredefinedSetDTO) => {
+   680→    void patchSet(set.id, {
+   681→      setType: (set.setType ?? "NORMAL") === "WARMUP" ? "NORMAL" : "WARMUP",
+   682→    });
+   683→  };
+   684→
+   685→  /** Apply ONE set's everything onto every other set. */
+   686→  const applySetToAll = (source: PredefinedSetDTO) => {
+   687→    for (const s of sortedSets) {
+   688→      if (s.id === source.id) continue;
+   689→      void patchSet(s.id, {
+   690→        weight: source.weight,
+   691→        weightKind: source.weightKind ?? null,
+   692→        pct: source.pct ?? null,
+   693→        reps: source.reps,
+   694→        distance: source.distance,
+   695→        timeSec: source.timeSec,
+   696→        restPlannedSec: source.restPlannedSec,
+   697→      });
+   698→    }
+   699→    toast.success(`Applied set ${source.sortOrder + 1} to all ${sortedSets.length} sets`);
+   700→  };
+   701→
+   702→  /** Apply the FIRST set's chosen fields onto every other set (bottom ▾). */
+   703→  const applyFirstFields = (which: "weight" | "reps" | "rest" | "everything") => {
+   704→    const first = sortedSets[0];
+   705→    if (!first || sortedSets.length < 2) {
+   706→      toast.info("Add at least two sets first");
+   707→      return;
+   708→    }
+   709→    for (const s of sortedSets.slice(1)) {
+   710→      const input: PredefinedSetInput = {};
+   711→      if (which === "weight" || which === "everything") {
+   712→        input.weight = first.weight;
+   713→        input.weightKind = first.weightKind ?? null;
+   714→        input.pct = first.pct ?? null;
+   715→      }
+   716→      if (which === "reps" || which === "everything") {
+   717→        input.reps = first.reps;
+   718→        input.distance = first.distance;
+   719→        input.timeSec = first.timeSec;
+   720→      }
+   721→      if (which === "rest" || which === "everything") {
+   722→        input.restPlannedSec = first.restPlannedSec;
+   723→      }
+   724→      void patchSet(s.id, input);
+   725→    }
+   726→    toast.success(`Applied ${which} from set 1 to the other sets`);
+   727→  };
+   728→
+   729→  // ---------- exercise meta (warm-up + progression) ----------
+   730→  const warmupScheme = metaQuery.data?.warmupScheme ?? "NONE";
+   731→  const progressionMeta = metaQuery.data?.progression ?? null;
+   732→
+   733→  const [prog, setProg] = useState<ExerciseMetaProgression | null>(null);
+   734→  useEffect(() => {
+   735→    setProg(progressionMeta);
+   736→  }, [progressionMeta]);
+   737→
+   738→  const putMeta = async (body: Parameters<typeof exerciseMetaApi.put>[2]) => {
+   739→    if (!located) return;
+   740→    if (!online) {
+   741→      toast.info("Saving needs a connection");
+   742→      return;
+   743→    }
+   744→    try {
+   745→      await exerciseMetaApi.put(routineId, reId, body);
+   746→      await qc.invalidateQueries({ queryKey: metaKey });
+   747→      qc.invalidateQueries({ queryKey: qk.routine(routineId) });
+   748→    } catch (e) {
+   749→      toast.error(errorMessage(e));
+   750→    }
+   751→  };
+   752→
+   753→  const putWarmupScheme = (scheme: "NONE" | "STANDARD" | "LIGHT") => {
+   754→    void putMeta({ warmupScheme: scheme });
+   755→    toast.success(scheme === "NONE" ? "Warm-up off" : `Warm-up · ${scheme === "STANDARD" ? "Standard" : "Light"}`);
+   756→  };
+   757→
+   758→  const putProgression = (next: ExerciseMetaProgression) => {
+   759→    setProg(next);
+   760→    void putMeta({ progression: next });
+   761→  };
+   762→
+   763→  const setProgField = (patch: Partial<ExerciseMetaProgression>) => {
+   764→    const base = prog ?? DEFAULT_PROGRESSION;
+   765→    putProgression({ ...base, ...patch });
+   766→  };
+   767→
+   768→  const progSummary = !prog || prog.type === "NONE" ? "Off" : `${prog.type === "DOUBLE" ? "Double" : "Linear"} · +${trimNum(prog.increment)} ${prog.unit}`;
+   769→  const warmupSummary = warmupScheme === "NONE" ? "Off" : warmupScheme === "STANDARD" ? "Standard" : "Light";
+   770→
+   771→  const done = () => {
+   772→    toast.success("Saved");
+   773→    navigate(backHref);
+   774→  };
+   775→
+   776→  // ---------- render ----------
+   777→  const headerKeys: string[] = ["index"];
+   778→  if (fields[0]) headerKeys.push("f1");
+   779→  if (fields[1]) headerKeys.push("f2");
+   780→  if (restVisible) headerKeys.push("rest");
+   781→  headerKeys.push("more");
+   782→
+   783→  return (
+   784→    <Screen
+   785→      topBar={
+   786→        <TopBar
+   787→          leading={<BackButton fallbackHash={`#${backHref}`} label={`Back to ${routine?.name ?? "editor"}`} />}
+   788→          title={
+   789→            <span className="flex min-w-0 items-center gap-1">
+   790→              <span className="min-w-0 truncate">{re ? re.exercise.name : "Sets"}</span>
+   791→              <span className="flex-none text-xs font-medium text-muted-foreground">· sets</span>
+   792→            </span>
+   793→          }
+   794→          actions={
+   795→            <>
+   796→              <Button
+   797→                type="button"
+   798→                className="h-11 flex-none gap-1.5 px-4 text-sm font-bold"
+   799→                disabled={!located}
+   800→                tour={{ id: "setsEditor.done", label: "Done", help: "Finish and return to the editor; edits already persist.", order: 10 }}
+   801→                onClick={done}
+   802→              >
+   803→                <Check className="h-4 w-4" aria-hidden />
+   804→                Done
+   805→              </Button>
+   806→              <TopBarHelp />
+   807→            </>
+   808→          }
+   809→        />
+   810→      }
+   811→    >
+   812→      <ScrollBody>
+   813→        {isLoading ? (
+   814→          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading exercise">
+   815→            <div className="h-8 animate-pulse rounded-lg bg-muted/40" />
+   816→            <div className="h-12 animate-pulse rounded-lg bg-muted/40" />
+   817→            <div className="h-12 animate-pulse rounded-lg bg-muted/40" />
+   818→            <div className="h-12 animate-pulse rounded-lg bg-muted/40" />
+   819→          </div>
+   820→        ) : !located || !re || !day ? (
+   821→          <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+   822→            <p className="text-sm font-semibold">Exercise not found in this program</p>
+   823→            <Button
+   824→              type="button"
+   825→              variant="outline"
+   826→              tour={{ skipTour: true, reason: "Error-state back link for a missing exercise" }}
+   827→              onClick={() => navigate(backHref)}
+   828→            >
+   829→              Back to editor
+   830→            </Button>
+   831→          </div>
+   832→        ) : (
+   833→          <>
+   834→            {/* ---------- header row 32px (# · f1 · f2 · rest) ---------- */}
+   835→            <div
+   836→              data-row
+   837→              role="group"
+   838→              aria-label="Set columns"
+   839→              className="grid h-8 items-center overflow-hidden whitespace-nowrap px-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"
+   840→              style={{ gridTemplateColumns: gridTemplate(fields, restVisible) }}
+   841→            >
+   842→              {headerKeys.map((key) => (
+   843→                <div key={key} className={cn("flex h-full min-w-0 items-center justify-center overflow-hidden", (key === "f1" || key === "f2") && "justify-end pr-2")}>
+   844→                  {key === "index" ? "#" : key === "f1" ? fieldLabel(fields[0], unit) : key === "f2" ? fieldLabel(fields[1], unit) : key === "rest" ? "rest" : ""}
+   845→                </div>
+   846→              ))}
+   847→            </div>
+   848→
+   849→            {/* ---------- set rows 48px ---------- */}
+   850→            <div className="flex flex-col gap-2">
+   851→              {sortedSets.map((s, i) => (
+   852→                <SetEditorRow
+   853→                  key={s.id}
+   854→                  set={s}
+   855→                  index={i + 1}
+   856→                  fields={fields}
+   857→                  unit={unit}
+   858→                  restVisible={restVisible}
+   859→                  onPatch={(input) => void patchSet(s.id, input)}
+   860→                  onCopyLast={() => void copyLastToSet(s.id, i)}
+   861→                  onApplyAll={() => applySetToAll(s)}
+   862→                  onRemove={() => void removeSet(s.id)}
+   863→                  onToggleWarmup={() => toggleWarmupSet(s)}
+   864→                />
+   865→              ))}
+   866→              {sortedSets.length === 0 ? (
+   867→                <p className="flex-none rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+   868→                  No sets yet — add the first one below.
+   869→                </p>
+   870→              ) : null}
+   871→            </div>
+   872→
+   873→            {/* ---------- + set | Apply to all ▾ (40px) ---------- */}
+   874→            <div data-row className="flex h-10 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap">
+   875→              <button
+   876→                type="button"
+   877→                {...tourAttrs({ id: "setsEditor.addSet", label: "Add set", help: "Append another set to this exercise.", order: 80 })}
+   878→                aria-label="Add a set"
+   879→                onClick={() => void addSet()}
+   880→                className="flex h-10 min-w-0 flex-1 items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+   881→              >
+   882→                <Plus className="h-4 w-4 flex-none" aria-hidden />
+   883→                <span className="truncate">set</span>
+   884→              </button>
+   885→              <DropdownMenu>
+   886→                <DropdownMenuTrigger asChild>
+   887→                  <button
+   888→                    type="button"
+   889→                    {...tourAttrs({ id: "setsEditor.applyToAll", label: "Apply to all", help: "Fan set 1's weight, reps or rest out to every set.", order: 90 })}
+   890→                    aria-label="Apply to all sets"
+   891→                    className="flex h-10 min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-lg border border-dashed border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent/40 hover:text-foreground"
+   892→                  >
+   893→                    <Copy className="h-4 w-4 flex-none" aria-hidden />
+   894→                    <span className="truncate">Apply to all</span>
+   895→                    <ChevronDown className="h-3.5 w-3.5 flex-none" aria-hidden />
+   896→                  </button>
+   897→                </DropdownMenuTrigger>
+   898→                <DropdownMenuContent align="end" className="w-44">
+   899→                  <DropdownMenuItem onClick={() => applyFirstFields("weight")}>
+   900→                    <Copy className="h-4 w-4" aria-hidden /> Weight
+   901→                  </DropdownMenuItem>
+   902→                  <DropdownMenuItem onClick={() => applyFirstFields("reps")}>
+   903→                    <Copy className="h-4 w-4" aria-hidden /> Reps
+   904→                  </DropdownMenuItem>
+   905→                  <DropdownMenuItem onClick={() => applyFirstFields("rest")}>
+   906→                    <Copy className="h-4 w-4" aria-hidden /> Rest
+   907→                  </DropdownMenuItem>
+   908→                  <DropdownMenuItem onClick={() => applyFirstFields("everything")}>
+   909→                    <Copy className="h-4 w-4" aria-hidden /> Everything
+   910→                  </DropdownMenuItem>
+   911→                </DropdownMenuContent>
+   912→              </DropdownMenu>
+   913→            </div>
+   914→
+   915→            {/* ---------- Warm-up row 56 › (§6.2) ---------- */}
+   916→            <SectionRow
+   917→              icon={<Flame className="h-5 w-5 flex-none text-amber-500" aria-hidden />}
+   918→              title="Warm-up"
+   919→              summary={warmupSummary}
+   920→              open={warmupOpen}
+   921→              onToggle={() => setWarmupOpen((o) => !o)}
+   922→              declAttrs={{
+   923→                ...tourAttrs({ id: "setsEditor.warmupRow", label: "Warm-up", help: "Pick a generated warm-up ramp before the working sets.", order: 100 }),
+   924→              }}
+   925→            />
+   926→            {warmupOpen ? (
+   927→              <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
+   928→                <div className="flex flex-wrap items-center gap-1">
+   929→                  {WARMUP_SCHEME_META.map((s) => (
+   930→                    <Button
+   931→                      key={s.value}
+   932→                      type="button"
+   933→                      variant={warmupScheme === s.value ? "default" : "outline"}
+   934→                      size="sm"
+   935→                      tour={{ id: "setsEditor.warmupScheme", label: "Warm-up scheme", help: "Standard 40/60/80% × 5/3/2 · Light 50/70% × 5/3.", order: 110 }}
+   936→                      className="h-9 flex-none rounded-lg px-3 text-xs font-bold"
+   937→                      onClick={() => putWarmupScheme(s.value)}
+   938→                    >
+   939→                      {s.label}
+   940→                    </Button>
+   941→                  ))}
+   942→                </div>
+   943→                <p className="text-xs leading-relaxed text-muted-foreground">
+   944→                  {WARMUP_SCHEME_META.find((s) => s.value === warmupScheme)?.detail ?? ""} — warm-up rows are
+   945→                  generated when the day starts and never count toward PRs or volume.
+   946→                </p>
+   947→                <label className="flex h-10 flex-none cursor-pointer items-center gap-2 text-sm font-medium">
+   948→                  <Switch
+   949→                    checked={warmupScheme !== "NONE"}
+   950→                    {...tourAttrs({ id: "setsEditor.warmupGenerate", label: "Generate warm-up", help: "Auto-build the ramp from the first working weight.", order: 120 })}
+   951→                    onCheckedChange={(on) =>
+   952→                      putWarmupScheme(
+   953→                        on ? (warmupScheme === "LIGHT" ? "LIGHT" : "STANDARD") : "NONE",
+   954→                      )
+   955→                    }
+   956→                    aria-label="Generate warm-up from first working weight"
+   957→                  />
+   958→                  Generate from first working weight
+   959→                </label>
+   960→              </div>
+   961→            ) : null}
+   962→
+   963→            {/* ---------- Progression row 56 › (§6.3) ---------- */}
+   964→            <SectionRow
+   965→              icon={<TrendingUp className="h-5 w-5 flex-none text-primary" aria-hidden />}
+   966→              title="Progression"
+   967→              summary={progSummary}
+   968→              open={progressionOpen}
+   969→              onToggle={() => setProgressionOpen((o) => !o)}
+   970→              declAttrs={{
+   971→                ...tourAttrs({ id: "setsEditor.progressionRow", label: "Progression", help: "Set the rule that advances this exercise's weight each session.", order: 130 }),
+   972→              }}
+   973→            />
+   974→            {progressionOpen ? (
+   975→              <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
+   976→                {/* type */}
+   977→                <div className="flex items-center gap-1">
+   978→                  {(["NONE", "LINEAR", "DOUBLE"] as const).map((t) => {
+   979→                    const active = (prog?.type ?? "NONE") === t;
+   980→                    return (
+   981→                      <Button
+   982→                        key={t}
+   983→                        type="button"
+   984→                        variant={active ? "default" : "outline"}
+   985→                        size="sm"
+   986→                        tour={{ id: "setsEditor.progType", label: "Progression type", help: "Linear adds each hit; Double doubles after two.", order: 140 }}
+   987→                        className="h-9 min-w-0 flex-1 rounded-lg px-1 text-xs font-bold"
+   988→                        onClick={() => {
+   989→                          if (t === "NONE") setProgField({ type: "NONE" });
+   990→                          else if (!prog || prog.type === "NONE") {
+   991→                            setProgField({ type: t });
+   992→                            if (!prog) toast.success("Progression rule saved");
+   993→                          } else {
+   994→                            setProgField({ type: t });
+   995→                          }
+   996→                        }}
+   997→                      >
+   998→                        {t === "NONE" ? "None" : t === "LINEAR" ? "Linear" : "Double"}
+   999→                      </Button>
+  1000→                    );
+  1001→                  })}
+  1002→                </div>
+  1003→
+  1004→                {(prog?.type ?? "NONE") !== "NONE" && prog ? (
+  1005→                  <>
+  1006→                    {/* increment + unit */}
+  1007→                    <div className="flex items-center gap-2">
+  1008→                      <span className="w-20 flex-none text-xs font-semibold text-muted-foreground">Increment</span>
+  1009→                      <Input
+  1010→                        inputMode="decimal"
+  1011→                        value={trimNum(prog.increment)}
+  1012→                        aria-label="Progression increment"
+  1013→                        {...tourAttrs({ id: "setsEditor.progIncrement", label: "Increment", help: "How much weight to add after a successful session.", order: 150 })}
+  1014→                        onChange={(e) => {
+  1015→                          const v = parseFieldValue("reps", e.target.value);
+  1016→                          if (v != null) setProgField({ increment: v });
+  1017→                        }}
+  1018→                        className="h-10 min-w-0 flex-1"
+  1019→                      />
+  1020→                      <div className="flex items-center gap-1">
+  1021→                        {(["kg", "lbs", "%"] as const).map((u) => (
+  1022→                          <Button
+  1023→                            key={u}
+  1024→                            type="button"
+  1025→                            variant={prog.unit === u ? "default" : "outline"}
+  1026→                            size="sm"
+  1027→                            tour={{ id: "setsEditor.progUnit", label: "Increment unit", help: "Kg, lbs or a percent of the current weight.", order: 160 }}
+  1028→                            className="h-10 w-11 rounded-lg px-0 text-xs font-bold"
+  1029→                            onClick={() => setProgField({ unit: u })}
+  1030→                          >
+  1031→                            {u}
+  1032→                          </Button>
+  1033→                        ))}
+  1034→                      </div>
+  1035→                    </div>
+  1036→
+  1037→                    {/* condition */}
+  1038→                    <div className="flex items-center gap-2">
+  1039→                      <span className="w-20 flex-none text-xs font-semibold text-muted-foreground">Advance when</span>
+  1040→                      <div className="flex min-w-0 flex-1 items-center gap-1">
+  1041→                        <Button
+  1042→                          type="button"
+  1043→                          variant={prog.condition === "ALL_SETS_HIT" ? "default" : "outline"}
+  1044→                          size="sm"
+  1045→                          tour={{ id: "setsEditor.progCondition", label: "Hit condition", help: "All sets hit their reps, or just the last one.", order: 170 }}
+  1046→                          className="h-10 min-w-0 flex-1 rounded-lg px-1 text-xs font-bold"
+  1047→                          onClick={() => setProgField({ condition: "ALL_SETS_HIT" })}
+  1048→                        >
+  1049→                          <span className="truncate">All sets hit</span>
+  1050→                        </Button>
+  1051→                        <Button
+  1052→                          type="button"
+  1053→                          variant={prog.condition === "LAST_SET_HIT" ? "default" : "outline"}
+  1054→                          size="sm"
+  1055→                          tour={{ skipTour: true, reason: "The second hit-condition chip of the pair" }}
+  1056→                          className="h-10 min-w-0 flex-1 rounded-lg px-1 text-xs font-bold"
+  1057→                          onClick={() => setProgField({ condition: "LAST_SET_HIT" })}
+  1058→                        >
+  1059→                          <span className="truncate">Last set hit</span>
+  1060→                        </Button>
+  1061→                      </div>
+  1062→                    </div>
+  1063→
+  1064→                    {/* deload */}
+  1065→                    <div className="flex items-center gap-2">
+  1066→                      <span className="w-20 flex-none text-xs font-semibold text-muted-foreground">Deload</span>
+  1067→                      <NumberInput
+  1068→                        value={prog.failStreakForDeload}
+  1069→                        ariaLabel="Fails before deload"
+  1070→                        onCommit={(v) => setProgField({ failStreakForDeload: Math.max(1, Math.min(10, Math.round(v ?? 3))) })}
+  1071→                      />
+  1072→                      <span className="flex-none text-xs text-muted-foreground">fails →</span>
+  1073→                      <NumberInput
+  1074→                        value={prog.deloadPct}
+  1075→                        ariaLabel="Deload percent"
+  1076→                        onCommit={(v) => setProgField({ deloadPct: Math.max(1, Math.min(50, Math.round(v ?? 10))) })}
+  1077→                      />
+  1078→                      <span className="flex-none text-xs text-muted-foreground">% lighter</span>
+  1079→                      <Button
+  1080→                        type="button"
+  1081→                        variant="outline"
+  1082→                        size="sm"
+  1083→                        tour={{ id: "setsEditor.progSave", label: "Save rule", help: "Persist this progression rule for this exercise.", order: 180 }}
+  1084→                        className="ml-auto h-10 flex-none rounded-lg text-xs font-bold"
+  1085→                        onClick={() => {
+  1086→                          void putMeta({ progression: prog });
+  1087→                          toast.success("Progression rule saved");
+  1088→                        }}
+  1089→                      >
+  1090→                        Save rule
+  1091→                      </Button>
+  1092→                    </div>
+  1093→                  </>
+  1094→                ) : (
+  1095→                  <p className="text-xs leading-relaxed text-muted-foreground">
+  1096→                    Turn progression on to advance the weight automatically when sessions hit their targets, with a
+  1097→                    deload after repeated misses.
+  1098→                  </p>
+  1099→                )}
+  1100→              </div>
+  1101→            ) : null}
+  1102→
+  1103→            <div className="h-2 flex-none" aria-hidden />
+  1104→          </>
+  1105→        )}
+  1106→      </ScrollBody>
+  1107→    </Screen>
+  1108→  );
+  1109→}
+  1110→

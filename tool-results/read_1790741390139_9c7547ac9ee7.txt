@@ -1,0 +1,733 @@
+     1→// SetForge — workout tracker data model
+     2→// Portable schema: no vendor extensions, no DB-side logic (DDL only).
+     3→// IDs are UUIDv7 generated app-side (src/lib/uuid7.ts) — schema defaults are fallback only.
+     4→// Note: sandbox uses SQLite; enums are stored as strings (validated app-side by Zod).
+     5→
+     6→generator client {
+     7→  provider = "prisma-client-js"
+     8→}
+     9→
+    10→datasource db {
+    11→  provider = "sqlite"
+    12→  url      = env("DATABASE_URL")
+    13→}
+    14→
+    15→// ---------- Auth ----------
+    16→
+    17→model User {
+    18→  id           String   @id
+    19→  email        String   @unique
+    20→  name         String?
+    21→  passwordHash String?
+    22→  createdAt    DateTime @default(now())
+    23→  updatedAt    DateTime @updatedAt
+    24→
+    25→  settings     UserSettings?
+    26→  categories   Category[]
+    27→  exercises    Exercise[]
+    28→  workouts     Workout[]
+    29→  routines     Routine[]
+    30→  measurements Measurement[]
+    31→  plates       Plate[]
+    32→  goals        Goal[]
+    33→  timerPresets TimerPreset[]
+    34→  sessions     Session[]
+    35→  resetTokens  PasswordResetToken[]
+    36→  activeRoutine ActiveRoutine?
+    37→  scheduleEntries ScheduleEntry[]
+    38→  profile    UserProfile?
+    39→  // ---- Part 7: tour system ----
+    40→  tourStates UserTourState[]
+    41→  hintStates UserHintState[]
+    42→}
+    43→
+    44→model Session {
+    45→  id        String   @id @default(uuid())
+    46→  userId    String
+    47→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    48→  token     String   @unique
+    49→  expiresAt DateTime
+    50→  createdAt DateTime @default(now())
+    51→
+    52→  @@index([userId])
+    53→}
+    54→
+    55→model VerificationToken {
+    56→  identifier String
+    57→  token      String   @unique
+    58→  expiresAt  DateTime
+    59→
+    60→  @@id([identifier, token])
+    61→}
+    62→
+    63→// Password reset tokens (audit B8): stored SHA-256 hashed, single-use, 1h TTL.
+    64→model PasswordResetToken {
+    65→  id        String    @id @default(uuid())
+    66→  userId    String
+    67→  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    68→  tokenHash String    @unique
+    69→  expiresAt DateTime
+    70→  usedAt    DateTime?
+    71→  createdAt DateTime  @default(now())
+    72→
+    73→  @@index([userId])
+    74→}
+    75→
+    76→// ---------- User config ----------
+    77→
+    78→model UserSettings {
+    79→  id                    String  @id
+    80→  userId                String  @unique
+    81→  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    82→  theme                 String  @default("system") // light | dark | system
+    83→  unitSystem            String  @default("metric") // metric | imperial
+    84→  weekStart             Int     @default(1) // 0=Sunday 1=Monday
+    85→  defaultWeightIncrement Float  @default(2.5)
+    86→  homeSetsShown         Int     @default(3)
+    87→  showCategory          Boolean @default(true)
+    88→  trackPR               Boolean @default(true)
+    89→  markSetsComplete      Boolean @default(false)
+    90→  autoSelectNextSet     Boolean @default(true)
+    91→  keepScreenOn          Boolean @default(false)
+    92→  estOneRmRepLimit      Int     @default(10)
+    93→  weeklyWorkoutTarget   Int     @default(0) // workouts per week goal (0 = off)
+    94→  // ---- set-table column visibility & behaviour (Part 2) ----
+    95→  showSetType           Boolean @default(true)
+    96→  showRpe               Boolean @default(true)
+    97→  showTempo             Boolean @default(true)
+    98→  showRest              Boolean @default(true)
+    99→  autoRestFromRow       Boolean @default(true) // ✓ starts the row's planned rest
+   100→  restEndBehaviour      String  @default("NOTIFY_AND_FOCUS_NEXT") // NOTIFY | NOTIFY_AND_FOCUS_NEXT
+   101→  e1rmMethod            String  @default("BRZYCKI") // BRZYCKI | RPE | EPLEY
+   102→  // ---- Part 5: programs, sessions, scheduling ----
+   103→  timezone              String  @default("UTC") // IANA tz; client sends browser tz at signup
+   104→  autoAdvanceRest       Boolean @default(true) // REST cursor day auto-advances after local midnight
+   105→  scheduleMovesCursor   Boolean @default(true) // logging a scheduled active-routine day advances cursor
+   106→  advanceTrigger        String  @default("FINISH_OR_MIDNIGHT") // FINISH_OR_MIDNIGHT | FIRST_SET
+   107→  showProjectedDays     Boolean @default(false) // calendar ghosts upcoming cursor days
+   108→  reminderTime          String? // "HH:MM" local daily reminder (null = off)
+   109→  // ---- Part 6: feature expansion (defaults preserve Part 1-5 behaviour) ----
+   110→  guidedMode          Boolean @default(false) // guided set-by-set session pointer
+   111→  restDisplay         String  @default("BAR") // BAR | RING (RING adds in-flow RestRingBlock)
+   112→  autoMoveNextSet     Boolean @default(false) // pointer/focus advances after rest
+   113→  hapticsEnabled      Boolean @default(true)
+   114→  showVideoPanel      Boolean @default(true) // guided-mode per-exercise video block
+   115→  showMuscleChips     Boolean @default(true)
+   116→  showEquipmentChips  Boolean @default(true)
+   117→  finishBehaviour     String  @default("ALWAYS_SAVE") // ALWAYS_SAVE | ASK (discard option)
+   118→  showSetsProgressBar Boolean @default(true) // 4px bar inside DateStrip SubBar
+   119→  showMaxWeightBar    Boolean @default(true) // "Best W×R" line in ExerciseCard meta
+   120→  calendarStyle       String  @default("GRID") // GRID | SCROLL (continuous months)
+   121→  tempoPresets        Json? // string[]; default ["2-0-2-0","3-1-1-0","4-0-1-0","1-0-1-0"] applied app-side
+   122→  showCaloriesCard    Boolean @default(false) // Home calories card (manual kcal log)
+   123→  showThumbnails      Boolean @default(true) // library row thumbnails
+   124→  // ---- Part 8: phone-only redesign ----
+   125→  preset              String  @default("STANDARD") // SIMPLE | STANDARD | POWER (writes the individual switches)
+   126→  sessionMode         String  @default("AUTO") // AUTO | GUIDED | FREE (AUTO = guided when started from a program/session)
+   127→  defaultTransitionRestSec Int @default(0) // rest between groups (0 = off)
+   128→  notifScheduled      Boolean @default(false) // notify at scheduled session time
+   129→  notifMissedDay      Boolean @default(false) // missed-day nudge next morning (max 1/week)
+   130→  notifPr             Boolean @default(true) // in-app PR celebration toast
+   131→  // ---- Part 7: tour system ----
+   132→  showTours           Boolean @default(true) // auto-start screen tours + welcome tour
+   133→  showHints           Boolean @default(true) // contextual one-time hints
+   134→  replayToursOnUpdate Boolean @default(false) // auto-replay when a screen's tour version bumps
+   135→  createdAt             DateTime @default(now())
+   136→  updatedAt             DateTime @updatedAt
+   137→}
+   138→
+   139→// ---------- Part 7: tour system ----------
+   140→
+   141→// One row per (user, screenId): the last outcome of that screen's tour.
+   142→// screenId is a route name ("home", "programs", …) or "__welcome" for the
+   143→// welcome tour. version mirrors the generated registry version hash — a
+   144→// mismatch means the tour content changed since the user last saw it.
+   145→model UserTourState {
+   146→  id          String   @id
+   147→  userId      String
+   148→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   149→  screenId    String
+   150→  version     String
+   151→  status      String // SEEN | SKIPPED | COMPLETED
+   152→  stepReached Int      @default(0)
+   153→  updatedAt   DateTime @updatedAt
+   154→
+   155→  @@unique([userId, screenId])
+   156→  @@index([userId])
+   157→}
+   158→
+   159→// One row per (user, hintId): a contextual hint the user has dismissed.
+   160→model UserHintState {
+   161→  id      String   @id
+   162→  userId  String
+   163→  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   164→  hintId  String
+   165→  seenAt  DateTime @default(now())
+   166→
+   167→  @@unique([userId, hintId])
+   168→  @@index([userId])
+   169→}
+   170→
+   171→// ---------- Exercise catalogue ----------
+   172→
+   173→model Category {
+   174→  id        String    @id
+   175→  userId    String
+   176→  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   177→  name      String
+   178→  colour    String    @default("#f97316")
+   179→  sortOrder Int       @default(0)
+   180→  createdAt DateTime  @default(now())
+   181→  updatedAt DateTime  @updatedAt
+   182→  deletedAt DateTime?
+   183→
+   184→  exercises Exercise[]
+   185→
+   186→  @@unique([userId, name])
+   187→  @@index([userId])
+   188→}
+   189→
+   190→model Exercise {
+   191→  id              String    @id
+   192→  userId          String
+   193→  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   194→  categoryId      String
+   195→  category        Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+   196→  name            String
+   197→  notes           String?
+   198→  type            String    @default("WEIGHT_REPS") // ExerciseType
+   199→  weightUnit      String? // override: kg | lbs (null = settings default)
+   200→  weightIncrement Float? // per-exercise stepper increment
+   201→  restSec         Int? // default rest timer
+   202→  defaultGraph    String? // preferred graph metric
+   203→  isFavorite      Boolean   @default(false)
+   204→  barWeight       Float? // per-exercise bar weight for plate calculator
+   205→  // ---- Part 8: per-exercise set-table column visibility + transition rest ----
+   206→  showRpe         Boolean @default(true)
+   207→  showTempo       Boolean @default(true)
+   208→  showRest        Boolean @default(true)
+   209→  transitionRestSec Int? // rest when the pointer moves to the next group (null = settings default)
+   210→  autoWarmup      Boolean   @default(false) // auto-open the warm-up ramp in the training screen
+   211→  // ---- Part 2: per-exercise set defaults ----
+   212→  defaultSetType  String? // NORMAL | WARMUP | DROP | FAILURE | AMRAP preset for new sets
+   213→  defaultRpeTarget Float? // suggested RPE for new sets
+   214→  defaultTempo    String? // suggested tempo, e.g. "3-1-1-0"
+   215→  // ---- Part 6: catalog metadata (additive; lists as Json — SQLite) ----
+   216→  primaryMuscles   Json? // string[] (Muscles enum values)
+   217→  secondaryMuscles Json? // string[]
+   218→  equipment        Json? // string[] (Equipment enum values)
+   219→  thumbnailUrl     String? // resolves via media adapter; null = no thumbnail
+   220→  videoUrl         String?
+   221→  trainerTip       String?
+   222→  setupNotes       String?
+   223→  targetNotes      String?
+   224→  catalogKey       String? // stable key of the SystemCatalog row this was adopted from
+   225→  createdAt        DateTime  @default(now())
+   226→  updatedAt        DateTime  @updatedAt
+   227→  deletedAt        DateTime?
+   228→
+   229→  workoutExercises WorkoutExercise[]
+   230→  routineExercises RoutineExercise[]
+   231→  personalRecords  PersonalRecord[]
+   232→  goals            Goal[]
+   233→
+   234→  @@unique([userId, name])
+   235→  @@unique([userId, catalogKey])
+   236→  @@index([userId, categoryId])
+   237→}
+   238→
+   239→// ---------- Workouts ----------
+   240→
+   241→model Workout {
+   242→  id        String    @id
+   243→  userId    String
+   244→  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   245→  date      DateTime // UTC midnight of the workout day
+   246→  comment   String?
+   247→  startAt   DateTime?
+   248→  endAt     DateTime?
+   249→  // ---- Part 5: provenance ----
+   250→  sourceType      String    @default("FREESTYLE") // ROUTINE_DAY | SESSION | FREESTYLE | COPY
+   251→  sourceRoutine   Routine?  @relation("SourceRoutine", fields: [sourceRoutineId], references: [id], onDelete: SetNull)
+   252→  sourceRoutineId String? // routine/session the workout was started from (kept, routine delete → null)
+   253→  sourceDay       RoutineDay? @relation("SourceDay", fields: [sourceDayId], references: [id], onDelete: SetNull)
+   254→  sourceDayId     String? // routine day it was started from
+   255→  scheduledStart  Boolean   @default(false) // true = started from a PLANNED schedule entry
+   256→  finishedAt      DateTime? // set by the Finish action
+   257→  // ---- Part 8 §6.9: single remove semantics (replaces discardedAt/deletedAt pair) ----
+   258→  removedAt        DateTime? // set = hidden everywhere; listed under Backup & data -> Removed items
+   259→  removeReason     String? // USER_DELETE | DISCARDED_SESSION | HISTORY_PURGE
+   260→  createdAt DateTime  @default(now())
+   261→  updatedAt DateTime  @updatedAt
+   262→
+   263→  exercises WorkoutExercise[]
+   264→  groups    WorkoutGroup[]
+   265→  scheduleEntries ScheduleEntry[]
+   266→
+   267→  @@index([userId, date])
+   268→  @@index([userId, sourceRoutineId])
+   269→  @@index([userId, removedAt])
+   270→}
+   271→
+   272→model WorkoutGroup {
+   273→  id        String          @id
+   274→  userId    String
+   275→  workoutId String
+   276→  workout   Workout         @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+   277→  name      String
+   278→  colour    String          @default("#f97316")
+   279→  // ---- Part 8 §2.1: derived cache (recomputed on reorder, never user-edited) ----
+   280→  code      String? // group letter "A"
+   281→  size      Int? // member count
+   282→  createdAt DateTime        @default(now())
+   283→
+   284→  exercises WorkoutExercise[]
+   285→
+   286→  @@index([workoutId])
+   287→}
+   288→
+   289→model WorkoutExercise {
+   290→  id         String   @id
+   291→  userId     String
+   292→  workoutId  String
+   293→  workout    Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+   294→  exerciseId String
+   295→  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+   296→  sortOrder  Int      @default(0)
+   297→  groupId    String?
+   298→  group      WorkoutGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+   299→  createdAt  DateTime @default(now())
+   300→  updatedAt  DateTime @updatedAt
+   301→
+   302→  sets TrainingSet[]
+   303→
+   304→  @@index([workoutId])
+   305→  @@index([exerciseId])
+   306→}
+   307→
+   308→model TrainingSet {
+   309→  id                String          @id
+   310→  userId            String
+   311→  workoutExerciseId String
+   312→  workoutExercise   WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+   313→  weight            Float?
+   314→  reps              Int?
+   315→  distance          Float?
+   316→  timeSec           Int?
+   317→  comment           String?
+   318→  isComplete        Boolean         @default(false)
+   319→  isWarmup          Boolean         @default(false) // mirrors setType == WARMUP (legacy flag, kept in sync)
+   320→  // ---- Part 2 set fields (all nullable / defaulted - additive migration) ----
+   321→  setType           String          @default("NORMAL") // SetType: NORMAL | WARMUP | DROP | FAILURE | AMRAP
+   322→  rpe               Float? // 6.0-10.0, step 0.5
+   323→  tempo             String? // "ecc-pause-con-pause", e.g. "3-1-1-0"
+   324→  restPlannedSec    Int?
+   325→  restActualSec     Int? // measured: previous completedAt -> this completedAt
+   326→  completedAt       DateTime?
+   327→  sortOrder         Int             @default(0)
+   328→  createdAt         DateTime        @default(now())
+   329→  updatedAt         DateTime        @updatedAt
+   330→
+   331→  personalRecords PersonalRecord[]
+   332→
+   333→  @@index([workoutExerciseId])
+   334→}
+   335→
+   336→model PersonalRecord {
+   337→  id         String   @id
+   338→  userId     String
+   339→  exerciseId String
+   340→  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+   341→  reps       Int
+   342→  weight     Float
+   343→  setId      String?  @unique
+   344→  set        TrainingSet? @relation(fields: [setId], references: [id], onDelete: SetNull)
+   345→  date       DateTime
+   346→  createdAt  DateTime @default(now())
+   347→  updatedAt  DateTime @updatedAt
+   348→
+   349→  @@unique([exerciseId, reps])
+   350→  @@index([userId, exerciseId])
+   351→}
+   352→
+   353→// ---------- Routines ----------
+   354→
+   355→model Routine {
+   356→  id        String    @id
+   357→  userId    String
+   358→  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   359→  name      String
+   360→  notes     String?
+   361→  kind      String    @default("ROUTINE") // ROUTINE (multi-day program) | SESSION (single-day)
+   362→  sortOrder Int       @default(0)
+   363→  // ---- Part 6: program metadata (additive) ----
+   364→  difficulty  String? // BEGINNER | INTERMEDIATE | ADVANCED
+   365→  phases      Json? // ordered [{ name, dayIds: string[] }]
+   366→  daysPerWeek Int?
+   367→  estMinutes  Int?
+   368→  highlights  Json? // string[] ≤4 short lines
+   369→  isFavorite  Boolean @default(false)
+   370→  labels      Json? // string[] user-defined tags
+   371→  createdAt DateTime  @default(now())
+   372→  updatedAt DateTime  @updatedAt
+   373→  deletedAt DateTime?
+   374→
+   375→  days RoutineDay[]
+   376→  groups RoutineGroup[]
+   377→  activeFor ActiveRoutine?
+   378→  scheduleEntries ScheduleEntry[]
+   379→  sourceWorkouts Workout[] @relation("SourceRoutine")
+   380→
+   381→  @@index([userId])
+   382→}
+   383→
+   384→model RoutineDay {
+   385→  id         String   @id
+   386→  userId     String
+   387→  routineId  String
+   388→  routine    Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+   389→  name       String
+   390→  dayType    String   @default("WORKOUT") // WORKOUT | REST
+   391→  sortOrder  Int      @default(0)
+   392→  // ---- Part 6 (additive) ----
+   393→  primaryMuscles Json? // string[] derived cache from exercises on save
+   394→  estMinutes     Int? // derived: Σ sets × (avg set 30s + rest)
+   395→  isFavorite     Boolean @default(false)
+   396→  createdAt  DateTime @default(now())
+   397→  updatedAt  DateTime @updatedAt
+   398→
+   399→  exercises RoutineExercise[]
+   400→  scheduleEntries ScheduleEntry[]
+   401→  sourceWorkouts Workout[] @relation("SourceDay")
+   402→
+   403→  @@index([routineId])
+   404→}
+   405→
+   406→model RoutineGroup {
+   407→  id        String           @id
+   408→  userId    String
+   409→  routineId String
+   410→  routine   Routine          @relation(fields: [routineId], references: [id], onDelete: Cascade)
+   411→  name      String
+   412→  colour    String           @default("#f97316")
+   413→  // ---- Part 8 §2.1: derived cache ----
+   414→  code      String? // group letter "A"
+   415→  size      Int? // member count
+   416→  exercises RoutineExercise[]
+   417→
+   418→  @@index([routineId])
+   419→}
+   420→
+   421→model RoutineExercise {
+   422→  id         String    @id
+   423→  userId     String
+   424→  dayId      String
+   425→  day        RoutineDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+   426→  exerciseId String
+   427→  exercise   Exercise  @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+   428→  sortOrder  Int       @default(0)
+   429→  groupId    String?
+   430→  group      RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+   431→  // ---- Part 8 §6.2: warm-up generator ----
+   432→  warmupScheme String? // NONE | STANDARD (40/60/80% x 5/3/2) | LIGHT (50/70% x 5/3) | CUSTOM
+   433→  warmupCustom Json? // [{ pct, reps }] when scheme = CUSTOM
+   434→  createdAt  DateTime  @default(now())
+   435→  updatedAt  DateTime  @updatedAt
+   436→
+   437→  sets PredefinedSet[]
+   438→  progressionRule ProgressionRule?
+   439→  progressionState ProgressionState?
+   440→
+   441→  @@index([dayId])
+   442→  @@index([exerciseId])
+   443→}
+   444→
+   445→model PredefinedSet {
+   446→  id                String          @id
+   447→  routineExerciseId String
+   448→  routineExercise   RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+   449→  weight            Float?
+   450→  reps              Int?
+   451→  distance          Float?
+   452→  timeSec           Int?
+   453→  // ---- Part 2 template fields (null = copy previous / unset) ----
+   454→  setType           String? // null = NORMAL
+   455→  rpe               Float?
+   456→  tempo             String?
+   457→  restPlannedSec    Int?
+   458→  // ---- Part 8 §6.4: weight prescription kinds ----
+   459→  weightKind        String? // FIXED | COPY_LAST | PERCENT_1RM
+   460→  pct               Float? // % of e1RM when weightKind = PERCENT_1RM
+   461→  sortOrder         Int             @default(0)
+   462→  createdAt         DateTime        @default(now())
+   463→  updatedAt         DateTime        @updatedAt
+   464→
+   465→  @@index([routineExerciseId])
+   466→}
+   467→
+   468→// ---------- Programs & scheduling (Part 5) ----------
+   469→
+   470→// Cursor into the followed program. One per user. `cursorDayIndex` is a 0-based
+   471→// index into the routine's days (ordered by sortOrder); the server owns it.
+   472→model ActiveRoutine {
+   473→  id                  String    @id
+   474→  userId              String    @unique
+   475→  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   476→  routineId           String    @unique
+   477→  routine             Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+   478→  cursorDayIndex      Int       @default(0)
+   479→  startedAt           DateTime  @default(now())
+   480→  lastAdvancedAt      DateTime?
+   481→  lastAdvancedForDate String? // local YYYY-MM-DD of the last advance (idempotency for date-based advances)
+   482→  completedDayIds     Json    @default("[]") // persistent "Day completed" markers, independent of cursor
+   483→  createdAt           DateTime  @default(now())
+   484→  updatedAt           DateTime  @updatedAt
+   485→
+   486→  @@index([userId])
+   487→}
+   488→
+   489→// Calendar scheduling. One PLANNED entry per (user, date); DONE entries are
+   490→// unlimited. Status is derived lazily on read (no cron).
+   491→model ScheduleEntry {
+   492→  id         String    @id
+   493→  userId     String
+   494→  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   495→  date       DateTime // UTC midnight of the scheduled day
+   496→  sourceType String // ROUTINE_DAY | SESSION
+   497→  routineId  String
+   498→  routine    Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+   499→  dayId      String?
+   500→  day        RoutineDay? @relation(fields: [dayId], references: [id], onDelete: Cascade)
+   501→  status     String    @default("PLANNED") // PLANNED | DONE | SKIPPED | MISSED
+   502→  workoutId  String?
+   503→  workout    Workout?  @relation(fields: [workoutId], references: [id], onDelete: SetNull)
+   504→  note       String?
+   505→  // ---- Part 6 (additive) ----
+   506→  timeOfDay  String? // "HH:MM" local time-of-day (null = all-day)
+   507→  estMinutes Int?
+   508→  missedAt   DateTime? // set lazily when PLANNED → MISSED is derived
+   509→  createdAt  DateTime  @default(now())
+   510→  updatedAt  DateTime  @updatedAt
+   511→  deletedAt  DateTime?
+   512→
+   513→  @@index([userId, date])
+   514→}
+   515→
+   516→// ---------- Goals ----------
+   517→
+   518→model Goal {
+   519→  id             String   @id
+   520→  userId         String
+   521→  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   522→  exerciseId     String
+   523→  exercise       Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+   524→  type           String // ONE_RM | MAX_WEIGHT | MAX_REPS | MAX_DISTANCE | MAX_TIME | VOLUME
+   525→  targetWeight   Float?
+   526→  targetReps     Int?
+   527→  targetDistance Float?
+   528→  targetTimeSec  Int?
+   529→  createdAt      DateTime @default(now())
+   530→  updatedAt      DateTime @updatedAt
+   531→
+   532→  @@index([userId])
+   533→}
+   534→
+   535→// ---------- Body measurements ----------
+   536→
+   537→model MeasurementUnit {
+   538→  id     String  @id
+   539→  userId String? // null = system unit
+   540→  name   String
+   541→
+   542→  measurements Measurement[]
+   543→
+   544→  @@unique([userId, name])
+   545→}
+   546→
+   547→model Measurement {
+   548→  id          String   @id
+   549→  userId      String
+   550→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   551→  unitId      String
+   552→  unit        MeasurementUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+   553→  name        String
+   554→  goalType    String   @default("NONE") // INCREASE | DECREASE | SPECIFIC | NONE
+   555→  targetValue Float?
+   556→  isEnabled   Boolean  @default(true)
+   557→  isDefault   Boolean  @default(false)
+   558→  sortOrder   Int      @default(0)
+   559→  createdAt   DateTime @default(now())
+   560→  updatedAt   DateTime @updatedAt
+   561→
+   562→  records MeasurementRecord[]
+   563→
+   564→  @@unique([userId, name])
+   565→  @@index([userId])
+   566→}
+   567→
+   568→model MeasurementRecord {
+   569→  id            String      @id
+   570→  userId        String
+   571→  measurementId String
+   572→  measurement   Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+   573→  value         Float
+   574→  recordedAt    DateTime
+   575→  comment       String?
+   576→  createdAt     DateTime    @default(now())
+   577→  updatedAt     DateTime    @updatedAt
+   578→  photos        ProgressPhoto[]
+   579→
+   580→  @@index([measurementId])
+   581→}
+   582→
+   583→// ---------- Plates ----------
+   584→
+   585→model Plate {
+   586→  id         String  @id
+   587→  userId     String
+   588→  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+   589→  weight     Float
+   590→  colour     String  @default("#9ca3af")
+   591→  count      Int     @default(2)
+   592→  isAvailable Boolean @default(true)
+   593→  unitSystem String  @default("metric") // metric | imperial
+   594→  sortOrder  Int     @default(0)
+   595→
+   596→  @@index([userId, unitSystem])
+   597→}
+   598→
+   599→// ---------- Interval timer ----------
+   600→
+   601→model TimerPreset {
+   602→  id         String   @id
+   603→  userId     String
+   604→  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   605→  name       String
+   606→  prepareSec Int      @default(10)
+   607→  workSec    Int      @default(30)
+   608→  restSec    Int      @default(15)
+   609→  rounds     Int      @default(8)
+   610→  sortOrder  Int      @default(0)
+   611→  createdAt  DateTime @default(now())
+   612→  updatedAt  DateTime @updatedAt
+   613→
+   614→  @@unique([userId, name])
+   615→}
+   616→
+   617→// ---------- Part 6: profile, photos, calories, catalog ----------
+   618→
+   619→model UserProfile {
+   620→  id        String    @id
+   621→  userId    String    @unique
+   622→  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   623→  age       Int?
+   624→  heightCm  Float?
+   625→  weightKg  Float?
+   626→  level     String? // BEGINNER | INTERMEDIATE | ADVANCED
+   627→  goal      String? // STRENGTH | MUSCLE | FAT_LOSS | GENERAL
+   628→  daysPerWeekTarget Int?
+   629→  onboardingCompletedAt DateTime? // null = onboarding pending; set on Finish OR Skip
+   630→  createdAt DateTime  @default(now())
+   631→  updatedAt DateTime  @updatedAt
+   632→}
+   633→
+   634→model ProgressPhoto {
+   635→  id                 String    @id
+   636→  userId             String
+   637→  measurementRecordId String
+   638→  measurementRecord  MeasurementRecord @relation(fields: [measurementRecordId], references: [id], onDelete: Cascade)
+   639→  slot               String // FRONT | BACK | LEFT | RIGHT
+   640→  mediaKey           String // media-adapter key (users/{userId}/photos/...)
+   641→  width              Int
+   642→  height             Int
+   643→  createdAt          DateTime  @default(now())
+   644→
+   645→  @@index([userId])
+   646→  @@index([measurementRecordId])
+   647→}
+   648→
+   649→// ---------- Part 8 §6.3: progression rules & state ----------
+   650→
+   651→model ProgressionRule {
+   652→  id                 String   @id
+   653→  userId             String
+   654→  routineExerciseId String   @unique
+   655→  routineExercise    RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+   656→  type               String   @default("LINEAR") // LINEAR | DOUBLE | NONE
+   657→  increment          Float    @default(2.5)
+   658→  unit               String   @default("kg") // kg | lbs | %
+   659→  condition          String   @default("ALL_SETS_HIT") // ALL_SETS_HIT | LAST_SET_HIT
+   660→  failStreakForDeload Int    @default(2)
+   661→  deloadPct          Int      @default(10)
+   662→  createdAt DateTime @default(now())
+   663→  updatedAt DateTime @updatedAt
+   664→
+   665→  @@index([userId])
+   666→}
+   667→
+   668→model ProgressionState {
+   669→  id                 String   @id
+   670→  userId             String
+   671→  routineExerciseId String   @unique
+   672→  routineExercise    RoutineExercise @relation(fields: [routineExerciseId], references: [id], onDelete: Cascade)
+   673→  nextWeightDelta    Float    @default(0)
+   674→  failStreak         Int      @default(0)
+   675→  updatedAt DateTime @updatedAt
+   676→
+   677→  @@index([userId])
+   678→}
+   679→
+   680→// ---------- Part 8 §6.13: sync conflict log (read-only) ----------
+   681→
+   682→model SyncConflict {
+   683→  id          String   @id
+   684→  userId      String
+   685→  table       String
+   686→  rowId       String
+   687→  field       String
+   688→  localValue  String?
+   689→  remoteValue String?
+   690→  resolvedWith String  // LOCAL | REMOTE | UNION
+   691→  at          DateTime @default(now())
+   692→
+   693→  @@index([userId, at])
+   694→}
+   695→
+   696→// ---------- Part 8 §6.8: scheduled backup runs ----------
+   697→
+   698→model BackupRun {
+   699→  id        String   @id
+   700→  userId    String
+   701→  target    String // local | s3 | webdav
+   702→  status    String // OK | ERROR
+   703→  bytes     Int?
+   704→  at        DateTime @default(now())
+   705→
+   706→  @@index([userId, at])
+   707→}
+   708→
+   709→// System-level exercise catalog (not per user). Loaded from
+   710→// catalog/exercises.v1.json (builtin) or CATALOG_URL on boot; upsert by key.
+   711→model SystemCatalog {
+   712→  key              String   @id
+   713→  name             String
+   714→  category         String
+   715→  type             String   @default("WEIGHT_REPS")
+   716→  primaryMuscles   Json? // string[]
+   717→  secondaryMuscles Json? // string[]
+   718→  equipment        Json? // string[]
+   719→  setupNotes       String?
+   720→  targetNotes      String?
+   721→  trainerTip       String?
+   722→  thumbnailUrl     String?
+   723→  videoUrl         String?
+   724→  updatedAt        DateTime @updatedAt
+   725→}
+   726→
+   727→// ---------- System ----------
+   728→
+   729→model SystemMeta {
+   730→  key   String @id
+   731→  value String
+   732→}
+   733→

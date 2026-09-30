@@ -1,0 +1,1005 @@
+     1→"use client";
+     2→
+     3→// ─────────────────────────────────────────────────────────────────────────────
+     4→// ExerciseOverviewScreen — #/exercise-overview/{exerciseId} (p3-9 Task A: the
+     5→// last legacy passthrough, rebuilt on the layout primitives).
+     6→//
+     7→//   TopBar (56)  : back (→ browser history when the SPA navigated here, else
+     8→//                  #/exercises) · exercise name + category dot (ellipsis) · ⋮
+     9→//                  (Favourite toggle · Training history → #/today/{id}?tab=history)
+    10→//   SubBar (48)  : About | Records | Goals | History — 4 equal tabs, active
+    11→//                  tab deep-linkable via ?tab= (replaceHash, no history
+    12→//                  pollution). About (Part 6 §4.2b) is the default tab.
+    13→//   ScrollBody   : ABOUT   — ExerciseDetailBody (MediaBlock 180/240 · Setup /
+    14→//                            Target tiles with inline expansion · muscle and
+    15→//                            equipment chip rows · trainer tip row), sourced
+    16→//                            from the owned exercise's optional catalog
+    17→//                            metadata; every section collapses to 0px when
+    18→//                            absent. No ActionRow — the exercise is already
+    19→//                            owned (TopBar ⋮ keeps the favourite toggle).
+    20→//                  RECORDS — 40px data-rows: lift (ellipsis) | value 72px right
+    21→//                            tabular | date 88px. Sections: Bests (best weight,
+    22→//                            best volume set, estimated 1RM, best distance/
+    23→//                            time for cardio), Rep records (per-reps actual PRs
+    24→//                            from the records API, superseded dimmed), Estimated
+    25→//                            maxes (nRM table rows). Computations ported from
+    26→//                            the legacy exercise-overview/records-tab.
+    27→//                  GOALS    — 40px data-rows: goal target (ellipsis) | progress
+    28→//                            % 56px | status hit/open; tap → 96px INLINE
+    29→//                            expansion (progress bar + target editor + two-tap
+    30→//                            delete) ported from the p3-7 insights goals tab;
+    31→//                            "+ Add goal" row opens a 96px inline creator (type
+    32→//                            select + target input) — no dialogs.
+    33→//                  HISTORY  — DateGroup×N (32px headers, PR badge when a record
+    34→//                            falls on that day) + ONE GroupCard read mode
+    35→//                            per workout date (tap to collapse/expand; ⋮ Notes /
+    36→//                            Open → training screen) — the pattern from the
+    37→//                            training screen's History tab.
+    38→// ─────────────────────────────────────────────────────────────────────────────
+    39→
+    40→import { useEffect, useMemo, useState } from "react";
+    41→import { useQuery } from "@tanstack/react-query";
+    42→import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
+    43→import { SoloCard } from "@/components/group-card";
+    44→import { CardAction, CardExercise, CardSet, CardVisibleColumns, toCardSet } from "@/components/group-card";
+    45→import { Button } from "@/components/ui/button";
+    46→import { Input } from "@/components/ui/input";
+    47→import { Skeleton } from "@/components/ui/skeleton";
+    48→import { Progress } from "@/components/ui/progress";
+    49→import {
+    50→  Select,
+    51→  SelectContent,
+    52→  SelectItem,
+    53→  SelectTrigger,
+    54→  SelectValue,
+    55→} from "@/components/ui/select";
+    56→import {
+    57→  DropdownMenu,
+    58→  DropdownMenuContent,
+    59→  DropdownMenuItem,
+    60→  DropdownMenuTrigger,
+    61→} from "@/components/ui/dropdown-menu";
+    62→import { ChevronLeft, History, MoreVertical, Plus, Star, Target, Trash2, Trophy } from "lucide-react";
+    63→import { toast } from "sonner";
+    64→import { tourAttrs } from "@/lib/tour/attrs";
+    65→import { cn } from "@/lib/utils";
+    66→import { useApp } from "@/lib/client/store";
+    67→import { qk, useInvalidate } from "@/lib/client/query";
+    68→import { exercisesApi, goalsApi, type GoalInput } from "@/lib/client/api";
+    69→import { dayKeyOf, formatDayLabel, formatDayShort, round1, round2 } from "@/lib/client/format";
+    70→import { formatDuration, estOneRmByMethod } from "@/lib/formulas";
+    71→import { fieldsForType } from "@/lib/constants";
+    72→import { useHashRoute, replaceHash } from "@/features/shell/router";
+    73→import {
+    74→  type WeightUnit,
+    75→  exerciseUnit,
+    76→  goalTargetField,
+    77→  goalTypeLabel,
+    78→  goalValueLabel,
+    79→  weightLabel,
+    80→} from "@/features/exercises/labels";
+    81→import { useOfflineRun } from "@/features/exercises/offline-run";
+    82→import { useToggleFavourite } from "@/features/exercises/use-favourite";
+    83→import { ExerciseNotesPopover } from "@/features/today/card-popovers";
+    84→import { ExerciseDetailBody } from "@/features/library/exercise-detail-body";
+    85→import type { ExerciseDTO, GoalDTO, RecordsDTO, SetDTO } from "@/lib/types";
+    86→
+    87→const TABS = ["about", "records", "goals", "history"] as const;
+    88→type TabKey = (typeof TABS)[number];
+    89→const TAB_LABELS: Record<TabKey, string> = { about: "About", records: "Records", goals: "Goals", history: "History" };
+    90→
+    91→// Any in-app navigation (navigate() pushes a history entry) fires hashchange.
+    92→// Until one fires, this screen was reached by a deep link / fresh load → the
+    93→// back button falls back to #/exercises instead of leaving the app.
+    94→let appNavigated = false;
+    95→if (typeof window !== "undefined") {
+    96→  window.addEventListener(
+    97→    "hashchange",
+    98→    () => {
+    99→      appNavigated = true;
+   100→    },
+   101→    { once: true },
+   102→  );
+   103→}
+   104→
+   105→type HistoryEntry = { workoutId: string; date: string; workoutExerciseId: string; sets: SetDTO[] };
+   106→
+   107→export default function ExerciseOverviewScreen({ exerciseId }: { exerciseId: string }) {
+   108→  const navigate = useApp((s) => s.navigate);
+   109→  const settings = useApp((s) => s.settings);
+   110→  const route = useHashRoute();
+   111→  const toggleFavourite = useToggleFavourite();
+   112→
+   113→  const exerciseQuery = useQuery({
+   114→    queryKey: qk.exercise(exerciseId),
+   115→    queryFn: () => exercisesApi.get(exerciseId),
+   116→    retry: false,
+   117→    staleTime: 60_000,
+   118→  });
+   119→  const exercise = exerciseQuery.data ?? null;
+   120→
+   121→  // ---------- ?tab= deep link ----------
+   122→  const tabParam = route.name === "exercise-overview" ? route.query.get("tab") : null;
+   123→  const tab: TabKey = (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabKey) : "about";
+   124→  const switchTab = (t: TabKey) => {
+   125→    if (t === tab) return;
+   126→    replaceHash(`#/exercise-overview/${exerciseId}?tab=${t}`);
+   127→  };
+   128→
+   129→  const goBack = () => {
+   130→    if (appNavigated && window.history.length > 1) window.history.back();
+   131→    else navigate("/exercises");
+   132→  };
+   133→
+   134→  const visibleColumns: CardVisibleColumns = {
+   135→    setType: settings?.showSetType ?? true,
+   136→    rpe: settings?.showRpe ?? true,
+   137→    tempo: settings?.showTempo ?? true,
+   138→    rest: settings?.showRest ?? true,
+   139→  };
+   140→
+   141→  return (
+   142→    <Screen
+   143→      topBar={
+   144→        <TopBar
+   145→          leading={
+   146→            <Button
+   147→              type="button"
+   148→              variant="ghost"
+   149→              size="icon"
+   150→              className="h-11 w-11 flex-none"
+   151→              tour={{ id: "exerciseOverview.back", label: "Back", help: "Return to your exercise list.", order: 10 }}
+   152→              onClick={goBack}
+   153→              aria-label="Go back"
+   154→            >
+   155→              <ChevronLeft className="h-5 w-5" aria-hidden />
+   156→            </Button>
+   157→          }
+   158→          title={
+   159→            exercise ? (
+   160→              <span className="flex min-w-0 items-center gap-2">
+   161→                <span
+   162→                  className="h-2 w-2 flex-none rounded-full"
+   163→                  style={{ backgroundColor: exercise.category?.colour ?? "#71717a" }}
+   164→                  aria-hidden
+   165→                />
+   166→                <span className="truncate">{exercise.name}</span>
+   167→              </span>
+   168→            ) : (
+   169→              "Exercise"
+   170→            )
+   171→          }
+   172→          actions={
+   173→            exercise ? (
+   174→              <>
+   175→                <DropdownMenu>
+   176→                  <DropdownMenuTrigger asChild>
+   177→                    <Button
+   178→                      type="button"
+   179→                      variant="ghost"
+   180→                      size="icon"
+   181→                      className="h-11 w-11 flex-none"
+   182→                      aria-label="More actions"
+   183→                      tour={{ id: "exerciseOverview.menu", label: "Menu", help: "Favourite this exercise or open its training history.", order: 20 }}
+   184→                    >
+   185→                      <MoreVertical className="h-5 w-5" aria-hidden />
+   186→                    </Button>
+   187→                  </DropdownMenuTrigger>
+   188→                  <DropdownMenuContent align="end" className="w-48">
+   189→                    <DropdownMenuItem onClick={() => void toggleFavourite(exercise)}>
+   190→                      <Star className="h-4 w-4" aria-hidden />
+   191→                      {exercise.isFavorite ? "Unfavourite" : "Favourite"}
+   192→                    </DropdownMenuItem>
+   193→                    <DropdownMenuItem
+   194→                      onClick={() => navigate(`/today/${exercise.id}?tab=history`)}
+   195→                    >
+   196→                      <History className="h-4 w-4" aria-hidden /> Training history
+   197→                    </DropdownMenuItem>
+   198→                  </DropdownMenuContent>
+   199→                </DropdownMenu>
+   200→                <TopBarHelp />
+   201→              </>
+   202→            ) : (
+   203→              <TopBarHelp />
+   204→            )
+   205→          }
+   206→        />
+   207→      }
+   208→      subBar={
+   209→        <div className="grid h-12 w-full grid-cols-4" role="tablist" aria-label="Exercise overview tabs">
+   210→          {TABS.map((t) => (
+   211→            <button
+   212→              key={t}
+   213→              type="button"
+   214→              role="tab"
+   215→              aria-selected={tab === t}
+   216→              onClick={() => switchTab(t)}
+   217→              {...tourAttrs(
+   218→                t === "about"
+   219→                  ? { id: "exerciseOverview.tabAbout", label: "About tab", help: "Catalog detail: media, setup, muscles, tips.", order: 30 }
+   220→                  : t === "records"
+   221→                    ? { id: "exerciseOverview.tabRecords", label: "Records tab", help: "Bests, rep records and estimated maxes.", order: 40 }
+   222→                    : t === "goals"
+   223→                      ? { id: "exerciseOverview.tabGoals", label: "Goals tab", help: "Goals you set for this exercise.", order: 50 }
+   224→                      : { id: "exerciseOverview.tabHistory", label: "History tab", help: "Every past session of this exercise.", order: 60 },
+   225→              )}
+   226→              className={cn(
+   227→                "flex h-12 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap transition-colors",
+   228→                tab === t ? "text-primary" : "text-muted-foreground hover:text-foreground",
+   229→              )}
+   230→            >
+   231→              <span className="text-sm font-semibold leading-none">{TAB_LABELS[t]}</span>
+   232→              <span
+   233→                className={cn("h-0.5 w-8 rounded-full", tab === t ? "bg-primary" : "bg-transparent")}
+   234→                aria-hidden
+   235→              />
+   236→            </button>
+   237→          ))}
+   238→        </div>
+   239→      }
+   240→    >
+   241→      <ScrollBody>
+   242→        {exerciseQuery.isLoading ? (
+   243→          <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading exercise">
+   244→            {[0, 1, 2, 3, 4, 5].map((i) => (
+   245→              <Skeleton key={i} className="h-10 rounded-lg" />
+   246→            ))}
+   247→          </div>
+   248→        ) : !exercise ? (
+   249→          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center">
+   250→            <p className="text-sm font-semibold">Exercise not found</p>
+   251→            <p className="mt-1 text-sm text-muted-foreground">
+   252→              It may have been deleted on this account.
+   253→            </p>
+   254→            <Button
+   255→              type="button"
+   256→              variant="secondary"
+   257→              className="mt-4 gap-1.5"
+   258→              tour={{ skipTour: true, reason: "Not-found state back button for a deleted exercise" }}
+   259→              onClick={() => navigate("/exercises")}
+   260→            >
+   261→              <ChevronLeft className="h-4 w-4" aria-hidden /> Back to exercises
+   262→            </Button>
+   263→          </div>
+   264→        ) : tab === "about" ? (
+   265→          <AboutTab key={`about-${exercise.id}`} exercise={exercise} />
+   266→        ) : tab === "records" ? (
+   267→          <RecordsTab key={`rec-${exercise.id}`} exercise={exercise} />
+   268→        ) : tab === "goals" ? (
+   269→          <GoalsTab key={`goals-${exercise.id}`} exercise={exercise} />
+   270→        ) : (
+   271→          <HistoryTab
+   272→            key={`hist-${exercise.id}`}
+   273→            exercise={exercise}
+   274→            visibleColumns={visibleColumns}
+   275→          />
+   276→        )}
+   277→      </ScrollBody>
+   278→    </Screen>
+   279→  );
+   280→}
+   281→
+   282→// ─────────────────────────────────────────────────────────────────────────────
+   283→// ABOUT (Part 6 §4.2b) — the ExerciseDetailBody shared with #/library/{key},
+   284→// sourced from the owned exercise's optional catalog metadata. No ActionRow.
+   285→// ─────────────────────────────────────────────────────────────────────────────
+   286→
+   287→function AboutTab({ exercise }: { exercise: ExerciseDTO }) {
+   288→  return <ExerciseDetailBody data={exercise} />;
+   289→}
+   290→
+   291→// ─────────────────────────────────────────────────────────────────────────────
+   292→// RECORDS — 40px data-rows: lift | value 72px | date 88px
+   293→// ─────────────────────────────────────────────────────────────────────────────
+   294→
+   295→/** 32px section header — deliberately NOT a data-row (height law). */
+   296→function SectionHeader({ label }: { label: string }) {
+   297→  return (
+   298→    <h2 className="flex h-8 flex-none items-center gap-2 overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+   299→      <span className="truncate">{label}</span>
+   300→      <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
+   301→    </h2>
+   302→  );
+   303→}
+   304→
+   305→type RecordRow = { lift: string; value: string; date: string | null; dim?: boolean };
+   306→
+   307→function RecordRowLine({ row }: { row: RecordRow }) {
+   308→  return (
+   309→    <div
+   310→      data-row
+   311→      aria-label={`${row.lift}: ${row.value}${row.date ? `, ${row.date}` : ""}`}
+   312→      className={cn(
+   313→        "flex h-10 items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 px-1 text-sm",
+   314→        row.dim && "opacity-50",
+   315→      )}
+   316→    >
+   317→      <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.lift}</span>
+   318→      <span className="w-[72px] flex-none text-right text-sm font-bold tabular-nums">
+   319→        {row.value}
+   320→      </span>
+   321→      <span className="w-[88px] flex-none text-right text-xs tabular-nums text-muted-foreground">
+   322→        {row.date ?? "–"}
+   323→      </span>
+   324→    </div>
+   325→  );
+   326→}
+   327→
+   328→function RecordsTab({ exercise }: { exercise: ExerciseDTO }) {
+   329→  const settings = useApp((s) => s.settings);
+   330→  const unit = exerciseUnit(exercise, settings);
+   331→  const fields = useMemo(() => new Set(fieldsForType(exercise.type)), [exercise.type]);
+   332→  const tracksWeightReps = fields.has("weight") && fields.has("reps");
+   333→
+   334→  const recordsQuery = useQuery({
+   335→    queryKey: qk.exerciseRecords(exercise.id),
+   336→    queryFn: () => exercisesApi.records(exercise.id),
+   337→    staleTime: 60_000,
+   338→  });
+   339→  const historyQuery = useQuery({
+   340→    queryKey: qk.exerciseHistory(exercise.id),
+   341→    queryFn: () => exercisesApi.history(exercise.id),
+   342→    staleTime: 60_000,
+   343→  });
+   344→
+   345→  const rows = useMemo<{ out: RecordRow[]; actual: RecordRow[]; estimated: RecordRow[] }>(() => {
+   346→    const out: RecordRow[] = [];
+   347→    const entries = historyQuery.data ?? [];
+   348→    const records: RecordsDTO | undefined = recordsQuery.data;
+   349→
+   350→    // ---- bests from the logged sets (legacy records-tab computations) ----
+   351→    let bestWeight: { w: number; day: string } | null = null;
+   352→    let bestVolume: { v: number; day: string } | null = null;
+   353→    let bestE1rm: { v: number; day: string } | null = null;
+   354→    let bestDistance: { v: number; day: string } | null = null;
+   355→    let bestTime: { v: number; day: string } | null = null;
+   356→    const repLimit = settings?.estOneRmRepLimit ?? 10;
+   357→    const method = settings?.e1rmMethod ?? "BRZYCKI";
+   358→
+   359→    for (const en of entries) {
+   360→      const day = dayKeyOf(en.date);
+   361→      for (const s of en.sets) {
+   362→        if (s.weight != null && (bestWeight == null || s.weight > bestWeight.w)) {
+   363→          bestWeight = { w: s.weight, day };
+   364→        }
+   365→        if (
+   366→          s.weight != null &&
+   367→          s.reps != null &&
+   368→          s.weight > 0 &&
+   369→          s.reps > 0 &&
+   370→          (bestVolume == null || s.weight * s.reps > bestVolume.v)
+   371→        ) {
+   372→          bestVolume = { v: s.weight * s.reps, day };
+   373→        }
+   374→        // same guard as the server: failure sets are not e1RM inputs
+   375→        if (
+   376→          s.weight != null &&
+   377→          s.reps != null &&
+   378→          s.reps >= 1 &&
+   379→          s.reps <= repLimit &&
+   380→          s.setType !== "FAILURE"
+   381→        ) {
+   382→          const e = estOneRmByMethod(s.weight, s.reps, method, s.rpe);
+   383→          if (e > 0 && (bestE1rm == null || e > bestE1rm.v)) bestE1rm = { v: e, day };
+   384→        }
+   385→        if (s.distance != null && s.distance > 0 && (bestDistance == null || s.distance > bestDistance.v)) {
+   386→          bestDistance = { v: s.distance, day };
+   387→        }
+   388→        if (s.timeSec != null && s.timeSec > 0 && (bestTime == null || s.timeSec > bestTime.v)) {
+   389→          bestTime = { v: s.timeSec, day };
+   390→        }
+   391→      }
+   392→    }
+   393→
+   394→    if (tracksWeightReps) {
+   395→      if (bestWeight) {
+   396→        out.push({ lift: "Best weight", value: weightLabel(bestWeight.w, unit), date: formatDayShort(bestWeight.day) });
+   397→      }
+   398→      if (bestVolume) {
+   399→        out.push({ lift: "Best volume set", value: `${round1(bestVolume.v)} ${unit}`, date: formatDayShort(bestVolume.day) });
+   400→      }
+   401→      if (bestE1rm) {
+   402→        // value prefers the server computation when loaded (authoritative)
+   403→        const v = records && records.estimatedOneRm > 0 ? records.estimatedOneRm : bestE1rm.v;
+   404→        out.push({ lift: "Estimated 1RM", value: `${round1(v)} ${unit}`, date: formatDayShort(bestE1rm.day) });
+   405→      }
+   406→    }
+   407→    if (bestDistance) out.push({ lift: "Best distance", value: `${round2(bestDistance.v)} km`, date: formatDayShort(bestDistance.day) });
+   408→    if (bestTime) out.push({ lift: "Best time", value: formatDuration(bestTime.v), date: formatDayShort(bestTime.day) });
+   409→
+   410→    // ---- per-reps actual PRs (records API, superseded dimmed) ----
+   411→    const actual: RecordRow[] = (records?.actual ?? []).map((r) => ({
+   412→      lift: `Best set at ${r.reps} ${r.reps === 1 ? "rep" : "reps"}`,
+   413→      value: weightLabel(r.weight, unit),
+   414→      date: formatDayShort(dayKeyOf(r.date)),
+   415→      dim: r.superseded,
+   416→    }));
+   417→
+   418→    // ---- estimated rep maxes (nRM, legacy grid → rows; 1RM row above) ----
+   419→    const estimated: RecordRow[] = (records?.estimated ?? [])
+   420→      .filter((r) => r.reps > 1)
+   421→      .map((r) => ({ lift: `Estimated ${r.reps}RM`, value: `${round1(r.weight)} ${unit}`, date: null }));
+   422→
+   423→    return { out, actual, estimated };
+   424→  }, [historyQuery.data, recordsQuery.data, settings, unit, tracksWeightReps]);
+   425→
+   426→  if (historyQuery.isLoading || recordsQuery.isLoading) {
+   427→    return (
+   428→      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading records">
+   429→        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+   430→          <Skeleton key={i} className="h-10 rounded-lg" />
+   431→        ))}
+   432→      </div>
+   433→    );
+   434→  }
+   435→
+   436→  const nothing = rows.out.length === 0 && rows.actual.length === 0 && rows.estimated.length === 0;
+   437→
+   438→  return (
+   439→    <div className="flex flex-col gap-3">
+   440→      {nothing ? (
+   441→        <div
+   442→          data-row
+   443→          className="flex h-12 items-center overflow-hidden whitespace-nowrap px-1 text-sm text-muted-foreground"
+   444→        >
+   445→          No records yet — log a set to start tracking.
+   446→        </div>
+   447→      ) : null}
+   448→
+   449→      {rows.out.length > 0 ? (
+   450→        <section className="flex flex-col gap-1" aria-label="Bests">
+   451→          <SectionHeader label="Bests" />
+   452→          {rows.out.map((r) => (
+   453→            <RecordRowLine key={r.lift} row={r} />
+   454→          ))}
+   455→        </section>
+   456→      ) : null}
+   457→
+   458→      {!tracksWeightReps && (rows.out.length > 0 || nothing) ? (
+   459→        <p className="px-1 text-xs text-muted-foreground">
+   460→          Weight × reps records need a weighted exercise — showing bests only.
+   461→        </p>
+   462→      ) : null}
+   463→
+   464→      {rows.actual.length > 0 ? (
+   465→        <section className="flex flex-col gap-1" aria-label="Rep records">
+   466→          <SectionHeader label="Rep records" />
+   467→          {rows.actual.map((r) => (
+   468→            <RecordRowLine key={r.lift} row={r} />
+   469→          ))}
+   470→        </section>
+   471→      ) : null}
+   472→
+   473→      {rows.estimated.length > 0 ? (
+   474→        <section className="flex flex-col gap-1" aria-label="Estimated maxes">
+   475→          <SectionHeader label="Estimated maxes" />
+   476→          {rows.estimated.map((r) => (
+   477→            <RecordRowLine key={r.lift} row={r} />
+   478→          ))}
+   479→        </section>
+   480→      ) : null}
+   481→
+   482→      {rows.actual.length > 0 ? (
+   483→        <p className="px-1 text-xs text-muted-foreground">
+   484→          A PR is superseded when a heavier set at the same-or-higher rep count was logged later.
+   485→        </p>
+   486→      ) : null}
+   487→    </div>
+   488→  );
+   489→}
+   490→
+   491→// ─────────────────────────────────────────────────────────────────────────────
+   492→// GOALS — 40px data-rows + 96px inline expansions (p3-7 goals pattern)
+   493→// ─────────────────────────────────────────────────────────────────────────────
+   494→
+   495→function GoalsTab({ exercise }: { exercise: ExerciseDTO }) {
+   496→  const settings = useApp((s) => s.settings);
+   497→  const unit = exerciseUnit(exercise, settings);
+   498→
+   499→  const { data, isLoading } = useQuery({
+   500→    queryKey: ["goals", exercise.id],
+   501→    queryFn: () => goalsApi.list(exercise.id),
+   502→  });
+   503→  const goals = data?.goals ?? [];
+   504→
+   505→  const [expandedId, setExpandedId] = useState<string | null>(null);
+   506→  const [creating, setCreating] = useState(false);
+   507→
+   508→  if (isLoading) {
+   509→    return (
+   510→      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading goals">
+   511→        {[0, 1, 2, 3].map((i) => (
+   512→          <Skeleton key={i} className="h-10 rounded-lg" />
+   513→        ))}
+   514→      </div>
+   515→    );
+   516→  }
+   517→
+   518→  return (
+   519→    <div className="flex flex-col gap-1">
+   520→      {/* add-goal row (48px data-row) → inline 96px creator */}
+   521→      <button
+   522→        type="button"
+   523→        data-row
+   524→        aria-expanded={creating}
+   525→        {...tourAttrs({ id: "exerciseOverview.addGoal", label: "Add goal", help: "Create a goal for this exercise.", order: 70 })}
+   526→        onClick={() => {
+   527→          setCreating((c) => !c);
+   528→          setExpandedId(null);
+   529→        }}
+   530→        className="flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-dashed px-3 text-left text-sm font-semibold text-primary transition-colors hover:bg-accent/50"
+   531→      >
+   532→        <Plus className="h-4 w-4 flex-none" aria-hidden />
+   533→        <span className="min-w-0 flex-1 truncate">Add goal for {exercise.name}</span>
+   534→      </button>
+   535→      {creating ? (
+   536→        <GoalCreator
+   537→          exercise={exercise}
+   538→          unit={unit}
+   539→          onDone={() => setCreating(false)}
+   540→        />
+   541→      ) : null}
+   542→
+   543→      {goals.length === 0 ? (
+   544→        <div
+   545→          data-row
+   546→          className="flex h-12 items-center overflow-hidden whitespace-nowrap px-1 text-sm text-muted-foreground"
+   547→        >
+   548→          No goals for this exercise yet.
+   549→        </div>
+   550→      ) : (
+   551→        goals.map((g) => (
+   552→          <div key={g.id} className="flex flex-col">
+   553→            <button
+   554→              type="button"
+   555→              data-row
+   556→              aria-expanded={expandedId === g.id}
+   557→              {...tourAttrs({ id: "exerciseOverview.goalRow", label: "Goal row", help: "Tap to see progress and edit the target.", order: 80 })}
+   558→              onClick={() => setExpandedId((cur) => (cur === g.id ? null : g.id))}
+   559→              className="flex h-10 w-full items-center gap-2 overflow-hidden whitespace-nowrap border-b border-border/50 text-left transition-colors hover:bg-accent/50"
+   560→            >
+   561→              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+   562→                <Target className="h-3.5 w-3.5 flex-none text-muted-foreground" aria-hidden />
+   563→                <span className="min-w-0 truncate text-sm font-medium">
+   564→                  {goalTypeLabel(g.type)}
+   565→                  <span className="ml-1.5 font-normal text-muted-foreground">
+   566→                    {goalValueLabel(g.type, g.target, unit)}
+   567→                  </span>
+   568→                </span>
+   569→              </span>
+   570→              <span
+   571→                className={cn(
+   572→                  "w-[56px] flex-none text-right text-sm font-bold tabular-nums",
+   573→                  g.achieved ? "text-primary" : "",
+   574→                )}
+   575→              >
+   576→                {Math.round(g.pct)}%
+   577→              </span>
+   578→              <span className="flex w-[52px] flex-none items-center justify-end gap-1 text-xs font-semibold">
+   579→                {g.achieved ? (
+   580→                  <>
+   581→                    <Trophy className="h-3.5 w-3.5 flex-none text-emerald-500" aria-hidden />
+   582→                    <span className="text-emerald-500">hit</span>
+   583→                  </>
+   584→                ) : (
+   585→                  <span className="text-muted-foreground">open</span>
+   586→                )}
+   587→              </span>
+   588→            </button>
+   589→
+   590→            {expandedId === g.id ? (
+   591→              <GoalExpansion key={g.id} goal={g} unit={unit} onDone={() => setExpandedId(null)} />
+   592→            ) : null}
+   593→          </div>
+   594→        ))
+   595→      )}
+   596→    </div>
+   597→  );
+   598→}
+   599→
+   600→/** 96px inline goal creator (NOT a data-row): type select + target input. */
+   601→function GoalCreator({
+   602→  exercise,
+   603→  unit,
+   604→  onDone,
+   605→}: {
+   606→  exercise: ExerciseDTO;
+   607→  unit: WeightUnit;
+   608→  onDone: () => void;
+   609→}) {
+   610→  const run = useOfflineRun();
+   611→  const inv = useInvalidate();
+   612→  const [type, setType] = useState<string>("ONE_RM");
+   613→  const [target, setTarget] = useState("");
+   614→  const [saving, setSaving] = useState(false);
+   615→
+   616→  const field = goalTargetField(type);
+   617→  const placeholder =
+   618→    field === "targetWeight"
+   619→      ? `Target ${unit}`
+   620→      : field === "targetReps"
+   621→        ? "Target reps"
+   622→        : field === "targetDistance"
+   623→          ? "Target km"
+   624→          : "Target sec";
+   625→
+   626→  const save = async () => {
+   627→    const n = Number(target);
+   628→    if (target.trim() === "" || !Number.isFinite(n) || n <= 0) {
+   629→      toast.error("Set a target value above zero");
+   630→      return;
+   631→    }
+   632→    setSaving(true);
+   633→    const payload: GoalInput = {
+   634→      type,
+   635→      targetWeight: field === "targetWeight" ? n : null,
+   636→      targetReps: field === "targetReps" ? n : null,
+   637→      targetDistance: field === "targetDistance" ? n : null,
+   638→      targetTimeSec: field === "targetTimeSec" ? n : null,
+   639→    };
+   640→    const ok = await run({
+   641→      label: "Goal",
+   642→      path: "/api/goals",
+   643→      method: "POST",
+   644→      body: { ...payload, exerciseId: exercise.id },
+   645→      run: () => goalsApi.create({ ...payload, exerciseId: exercise.id }),
+   646→      successMsg: "Goal created",
+   647→      onDone: () => inv.goals(),
+   648→    });
+   649→    setSaving(false);
+   650→    if (ok) onDone();
+   651→  };
+   652→
+   653→  return (
+   654→    <div className="flex h-24 flex-none flex-col gap-1 rounded-lg border bg-card p-1.5">
+   655→      <div className="flex min-h-0 flex-1 items-center overflow-hidden">
+   656→        <Select value={type} onValueChange={setType} {...tourAttrs({ skipTour: true, reason: "Goal-type select root renders no DOM node" })}>
+   657→          <SelectTrigger
+   658→            className="h-full w-full rounded-lg"
+   659→            aria-label="Goal type"
+   660→            {...tourAttrs({ id: "exerciseOverview.goalType", label: "Goal type", help: "Choose what the goal measures.", order: 90 })}
+   661→          >
+   662→            <SelectValue />
+   663→          </SelectTrigger>
+   664→          <SelectContent>
+   665→            {["ONE_RM", "MAX_WEIGHT", "MAX_REPS", "MAX_DISTANCE", "MAX_TIME", "VOLUME"].map((t) => (
+   666→              <SelectItem key={t} value={t}>
+   667→                {goalTypeLabel(t)}
+   668→              </SelectItem>
+   669→            ))}
+   670→          </SelectContent>
+   671→        </Select>
+   672→      </div>
+   673→      <div className="flex min-h-0 flex-1 gap-2">
+   674→        <Input
+   675→          type="number"
+   676→          inputMode="decimal"
+   677→          step="any"
+   678→          min="0"
+   679→          className="h-full flex-1 rounded-lg tabular-nums"
+   680→          value={target}
+   681→          onChange={(e) => setTarget(e.target.value)}
+   682→          placeholder={placeholder}
+   683→          aria-label={placeholder}
+   684→          {...tourAttrs({ id: "exerciseOverview.goalTarget", label: "Target", help: "The value you are aiming for.", order: 100 })}
+   685→        />
+   686→        <Button
+   687→          type="button"
+   688→          className="h-full flex-1 rounded-lg font-semibold"
+   689→          disabled={saving}
+   690→          tour={{ id: "exerciseOverview.goalCreate", label: "Create goal", help: "Save the goal for this exercise.", order: 110 }}
+   691→          onClick={() => void save()}
+   692→        >
+   693→          {saving ? "Saving…" : "Add goal"}
+   694→        </Button>
+   695→      </div>
+   696→    </div>
+   697→  );
+   698→}
+   699→
+   700→/** 96px inline expansion (NOT a data-row): progress + target editor + delete. */
+   701→function GoalExpansion({
+   702→  goal,
+   703→  unit,
+   704→  onDone,
+   705→}: {
+   706→  goal: GoalDTO;
+   707→  unit: WeightUnit;
+   708→  onDone: () => void;
+   709→}) {
+   710→  const run = useOfflineRun();
+   711→  const inv = useInvalidate();
+   712→  const field = goalTargetField(goal.type);
+   713→  const initial =
+   714→    field === "targetWeight"
+   715→      ? goal.targetWeight
+   716→      : field === "targetReps"
+   717→        ? goal.targetReps
+   718→        : field === "targetDistance"
+   719→          ? goal.targetDistance
+   720→          : goal.targetTimeSec;
+   721→
+   722→  const [target, setTarget] = useState<string>(initial != null ? String(initial) : "");
+   723→  const [saving, setSaving] = useState(false);
+   724→  const [armed, setArmed] = useState(false);
+   725→
+   726→  // auto-disarm the two-tap delete after a pause
+   727→  useEffect(() => {
+   728→    if (!armed) return;
+   729→    const t = window.setTimeout(() => setArmed(false), 4000);
+   730→    return () => window.clearTimeout(t);
+   731→  }, [armed]);
+   732→
+   733→  const save = async () => {
+   734→    const n = Number(target);
+   735→    if (target.trim() === "" || !Number.isFinite(n) || n <= 0) {
+   736→      toast.error("Set a target value above zero");
+   737→      return;
+   738→    }
+   739→    setSaving(true);
+   740→    const payload: GoalInput = {
+   741→      type: goal.type,
+   742→      targetWeight: field === "targetWeight" ? n : null,
+   743→      targetReps: field === "targetReps" ? n : null,
+   744→      targetDistance: field === "targetDistance" ? n : null,
+   745→      targetTimeSec: field === "targetTimeSec" ? n : null,
+   746→    };
+   747→    const ok = await run({
+   748→      label: "Goal update",
+   749→      path: `/api/goals/${goal.id}`,
+   750→      method: "PATCH",
+   751→      body: payload,
+   752→      run: () => goalsApi.update(goal.id, payload),
+   753→      successMsg: "Goal updated",
+   754→      onDone: () => inv.goals(),
+   755→    });
+   756→    setSaving(false);
+   757→    if (ok) onDone();
+   758→  };
+   759→
+   760→  const remove = async () => {
+   761→    if (!armed) {
+   762→      setArmed(true);
+   763→      return;
+   764→    }
+   765→    const ok = await run({
+   766→      label: "Goal delete",
+   767→      path: `/api/goals/${goal.id}`,
+   768→      method: "DELETE",
+   769→      run: () => goalsApi.remove(goal.id),
+   770→      successMsg: "Goal deleted",
+   771→      onDone: () => inv.goals(),
+   772→    });
+   773→    if (ok) onDone();
+   774→  };
+   775→
+   776→  return (
+   777→    <div className="flex h-24 flex-none flex-col gap-1 rounded-lg border bg-card p-1.5">
+   778→      <div className="flex min-h-0 flex-1 items-center gap-2 overflow-hidden whitespace-nowrap">
+   779→        <Progress
+   780→          value={Math.min(100, goal.pct)}
+   781→          className={cn("h-2 flex-1", goal.achieved && "*:data-[slot=progress-indicator]:bg-emerald-500")}
+   782→          aria-label={`${goal.pct}% of goal`}
+   783→        />
+   784→        <span className="flex-none truncate text-xs font-semibold tabular-nums text-muted-foreground">
+   785→          {goalValueLabel(goal.type, goal.current, unit)} / {goalValueLabel(goal.type, goal.target, unit)}
+   786→        </span>
+   787→      </div>
+   788→      <div className="flex min-h-0 flex-1 gap-2">
+   789→        <Input
+   790→          type="number"
+   791→          inputMode="decimal"
+   792→          step="any"
+   793→          min="0"
+   794→          className="h-full flex-1 rounded-lg tabular-nums"
+   795→          value={target}
+   796→          onChange={(e) => setTarget(e.target.value)}
+   797→          aria-label="Goal target"
+   798→          {...tourAttrs({ id: "exerciseOverview.goalSaveTarget", label: "New target", help: "Type the goal's new target value.", order: 120 })}
+   799→        />
+   800→        <Button
+   801→          type="button"
+   802→          className="h-full flex-1 rounded-lg font-semibold"
+   803→          disabled={saving}
+   804→          tour={{ id: "exerciseOverview.goalSave", label: "Save target", help: "Update the goal's target value.", order: 120 }}
+   805→          onClick={() => void save()}
+   806→        >
+   807→          {saving ? "Saving…" : "Save target"}
+   808→        </Button>
+   809→        <Button
+   810→          type="button"
+   811→          variant="outline"
+   812→          className={cn(
+   813→            "h-full flex-none gap-1 rounded-lg",
+   814→            armed ? "border-destructive/50 text-destructive" : "text-muted-foreground",
+   815→          )}
+   816→          tour={{ id: "exerciseOverview.goalDelete", label: "Delete goal", help: "Tap twice to delete the goal for good.", order: 130 }}
+   817→          onClick={() => void remove()}
+   818→        >
+   819→          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+   820→          {armed ? "Sure?" : "Delete"}
+   821→        </Button>
+   822→      </div>
+   823→    </div>
+   824→  );
+   825→}
+   826→
+   827→// ─────────────────────────────────────────────────────────────────────────────
+   828→// HISTORY — DateGroup×N (32px headers) + ONE GroupCard read mode per date
+   829→// ─────────────────────────────────────────────────────────────────────────────
+   830→
+   831→function HistoryTab({
+   832→  exercise,
+   833→  visibleColumns,
+   834→}: {
+   835→  exercise: ExerciseDTO;
+   836→  visibleColumns: CardVisibleColumns;
+   837→}) {
+   838→  const navigate = useApp((s) => s.navigate);
+   839→  const settings = useApp((s) => s.settings);
+   840→
+   841→  const historyQuery = useQuery({
+   842→    queryKey: qk.exerciseHistory(exercise.id),
+   843→    queryFn: () => exercisesApi.history(exercise.id),
+   844→    staleTime: 60_000,
+   845→  });
+   846→  // records → date-level PR badges (legacy history-tab pattern)
+   847→  const recordsQuery = useQuery({
+   848→    queryKey: qk.exerciseRecords(exercise.id),
+   849→    queryFn: () => exercisesApi.records(exercise.id),
+   850→    staleTime: 60_000,
+   851→  });
+   852→
+   853→  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+   854→  const [notesEntryId, setNotesEntryId] = useState<string | null>(null);
+   855→
+   856→  const groups = useMemo(() => {
+   857→    const map = new Map<string, HistoryEntry[]>();
+   858→    for (const en of historyQuery.data ?? []) {
+   859→      const key = dayKeyOf(en.date);
+   860→      const list = map.get(key);
+   861→      if (list) list.push(en);
+   862→      else map.set(key, [en]);
+   863→    }
+   864→    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+   865→  }, [historyQuery.data]);
+   866→
+   867→  const prDates = useMemo(
+   868→    () => new Set((recordsQuery.data?.actual ?? []).map((r) => dayKeyOf(r.date))),
+   869→    [recordsQuery.data],
+   870→  );
+   871→
+   872→  if (historyQuery.isLoading) {
+   873→    return (
+   874→      <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading history">
+   875→        {[0, 1, 2, 3].map((i) => (
+   876→          <Skeleton key={i} className="h-14 rounded-lg" />
+   877→        ))}
+   878→      </div>
+   879→    );
+   880→  }
+   881→
+   882→  if (groups.length === 0) {
+   883→    return (
+   884→      <div
+   885→        data-row
+   886→        className="flex h-12 items-center overflow-hidden whitespace-nowrap px-1 text-sm text-muted-foreground"
+   887→      >
+   888→        No history yet — every set you log appears here.
+   889→      </div>
+   890→    );
+   891→  }
+   892→
+   893→  const cardEx: CardExercise = {
+   894→    id: exercise.id,
+   895→    name: exercise.name,
+   896→    categoryLabel: exercise.category?.name ?? "Exercise",
+   897→    categoryColour: exercise.category?.colour ?? "#71717a",
+   898→    modality: exercise.type,
+   899→    unit: exerciseUnit(exercise, settings),
+   900→    weightIncrement: exercise.weightIncrement ?? settings?.defaultWeightIncrement ?? 2.5,
+   901→  };
+   902→
+   903→  /** SetDTO → CardSet (distance km → CardSet metres, as in workout-block). */
+   904→  const toCardSets = (sets: SetDTO[]): CardSet[] =>
+   905→    [...sets]
+   906→      .sort((a, b) => a.sortOrder - b.sortOrder)
+   907→      .map((s, i) =>
+   908→        toCardSet({ ...s, distance: s.distance != null ? s.distance * 1000 : null }, i + 1),
+   909→      );
+   910→
+   911→  const toggleCollapsed = (weId: string) =>
+   912→    setCollapsedIds((prev) => {
+   913→      const next = new Set(prev);
+   914→      if (next.has(weId)) next.delete(weId);
+   915→      else next.add(weId);
+   916→      return next;
+   917→    });
+   918→
+   919→  return (
+   920→    <div className="flex flex-col gap-3">
+   921→      {groups.map(([day, entries]) => {
+   922→        const setCount = entries.reduce((a, e) => a + e.sets.length, 0);
+   923→        const isPr = prDates.has(day);
+   924→        return (
+   925→          <section key={day} className="flex flex-col gap-2" aria-label={formatDayLabel(day)}>
+   926→            <h2 className="flex h-8 items-center gap-2 overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+   927→              <span className="flex-none truncate">{formatDayLabel(day)}</span>
+   928→              {isPr ? (
+   929→                <Trophy className="h-3.5 w-3.5 flex-none text-primary" aria-label="Personal record day" />
+   930→              ) : null}
+   931→              <span className="truncate text-[10px] font-medium normal-case tracking-normal text-muted-foreground/70">
+   932→                {setCount} {setCount === 1 ? "set" : "sets"}
+   933→              </span>
+   934→              <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
+   935→            </h2>
+   936→
+   937→            {entries.map((entry) => {
+   938→              const collapsed = collapsedIds.has(entry.workoutExerciseId);
+   939→              const notesOpen = notesEntryId === entry.workoutExerciseId;
+   940→              return (
+   941→                <div key={entry.workoutExerciseId} className="flex flex-col">
+   942→                  <div
+   943→                    role="button"
+   944→                    tabIndex={0}
+   945→                    aria-label={`${collapsed ? "Expand" : "Collapse"} sets from ${formatDayLabel(day)}`}
+   946→                    {...tourAttrs({ id: "exerciseOverview.historyCard", label: "Session card", help: "Tap to expand that day's sets.", order: 140 })}
+   947→                    className="flex-none cursor-pointer"
+   948→                    onClick={(e) => {
+   949→                      // taps on the card's own controls (buttons/inputs) never toggle
+   950→                      if ((e.target as HTMLElement).closest("button, input, textarea, a")) return;
+   951→                      toggleCollapsed(entry.workoutExerciseId);
+   952→                    }}
+   953→                    onKeyDown={(e) => {
+   954→                      if (e.target !== e.currentTarget) return;
+   955→                      if (e.key === "Enter" || e.key === " ") {
+   956→                        e.preventDefault();
+   957→                        toggleCollapsed(entry.workoutExerciseId);
+   958→                      }
+   959→                    }}
+   960→                  >
+   961→                    <SoloCard
+   962→                      mode="read"
+   963→                      collapsed={collapsed}
+   964→                      exercise={cardEx}
+   965→                      sets={toCardSets(entry.sets)}
+   966→                      visibleColumns={visibleColumns}
+   967→                      onAction={(action: CardAction) => {
+   968→                        switch (action.type) {
+   969→                          case "toggle-collapse":
+   970→                            toggleCollapsed(entry.workoutExerciseId);
+   971→                            break;
+   972→                          case "open":
+   973→                            navigate(`/today/${entry.workoutExerciseId}?date=${day}`);
+   974→                            break;
+   975→                          case "notes":
+   976→                            setNotesEntryId(entry.workoutExerciseId);
+   977→                            break;
+   978→                          default:
+   979→                            break;
+   980→                        }
+   981→                      }}
+   982→                    />
+   983→                  </div>
+   984→                  {notesOpen ? (
+   985→                    <div className="relative flex-none">
+   986→                      <ExerciseNotesPopover
+   987→                        exercise={exercise}
+   988→                        open
+   989→                        onClose={() => setNotesEntryId(null)}
+   990→                      />
+   991→                    </div>
+   992→                  ) : null}
+   993→                </div>
+   994→              );
+   995→            })}
+   996→          </section>
+   997→        );
+   998→      })}
+   999→      {(historyQuery.data?.length ?? 0) >= 100 ? (
+  1000→        <p className="px-1 text-xs text-muted-foreground">Showing the most recent 100 sessions.</p>
+  1001→      ) : null}
+  1002→    </div>
+  1003→  );
+  1004→}
+  1005→

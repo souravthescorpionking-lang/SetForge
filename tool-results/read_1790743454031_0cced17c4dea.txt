@@ -1,0 +1,938 @@
+     1→// Typed API client — THE contract between UI features and the backend.
+     2→// All feature components use these functions (never raw fetch).
+     3→"use client";
+     4→
+     5→import type {
+     6→  BackupDTO,
+     7→  CategoryDTO,
+     8→  DashboardDTO,
+     9→  ExerciseDTO,
+    10→  GoalDTO,
+    11→  GraphDTO,
+    12→  MeasurementDTO,
+    13→  MeasurementRecordDTO,
+    14→  PlateDTO,
+    15→  ProgramSummaryDTO,
+    16→  ProjectedDayDTO,
+    17→  RecordsDTO,
+    18→  RoutineDTO,
+    19→  ScheduleEntryDTO,
+    20→  SessionDTO,
+    21→  SetDTO,
+    22→  SettingsDTO,
+    23→  StatsDTO,
+    24→  TimerPresetDTO,
+    25→  UnitDTO,
+    26→  WorkoutDTO,
+    27→  WorkoutSummaryDTO,
+    28→} from "@/lib/types";
+    29→
+    30→export class ApiError extends Error {
+    31→  constructor(
+    32→    public status: number,
+    33→    public code: string,
+    34→    message: string,
+    35→    public details?: unknown,
+    36→  ) {
+    37→    super(message);
+    38→  }
+    39→}
+    40→
+    41→async function request<T>(path: string, init?: RequestInit): Promise<T> {
+    42→  const res = await fetch(path, {
+    43→    ...init,
+    44→    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    45→    credentials: "same-origin",
+    46→  });
+    47→  if (!res.ok) {
+    48→    let code = "INTERNAL";
+    49→    let message = res.statusText || "Request failed";
+    50→    let details: unknown;
+    51→    try {
+    52→      const json = await res.json();
+    53→      if (json?.error) {
+    54→        code = json.error.code ?? code;
+    55→        message = json.error.message ?? message;
+    56→        details = json.error.details;
+    57→      }
+    58→    } catch {
+    59→      /* non-JSON error */
+    60→    }
+    61→    throw new ApiError(res.status, code, message, details);
+    62→  }
+    63→  if (res.status === 204) return undefined as T;
+    64→  return (await res.json()) as T;
+    65→}
+    66→
+    67→const body = (data: unknown) => JSON.stringify(data);
+    68→const qs = (params: Record<string, string | number | boolean | undefined>) => {
+    69→  const search = new URLSearchParams();
+    70→  for (const [k, v] of Object.entries(params)) {
+    71→    if (v !== undefined && v !== "") search.set(k, String(v));
+    72→  }
+    73→  const s = search.toString();
+    74→  return s ? `?${s}` : "";
+    75→};
+    76→
+    77→// ===================== Auth =====================
+    78→
+    79→export const authApi = {
+    80→  signup: (data: { email: string; password: string; name?: string; timezone?: string }) =>
+    81→    request<SessionDTO>("/api/auth/signup", { method: "POST", body: body(data) }),
+    82→  login: (data: { email: string; password: string }) =>
+    83→    request<SessionDTO>("/api/auth/login", { method: "POST", body: body(data) }),
+    84→  logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
+    85→  session: () => request<SessionDTO | { user: null; settings: null }>("/api/auth/session"),
+    86→  requestReset: (data: { email: string }) =>
+    87→    request<{ ok: true; emailConfigured: boolean }>("/api/auth/reset", { method: "POST", body: body(data) }),
+    88→  confirmReset: (data: { token: string; newPassword: string }) =>
+    89→    request<{ ok: true }>("/api/auth/reset/confirm", { method: "POST", body: body(data) }),
+    90→};
+    91→
+    92→// ===================== Categories =====================
+    93→
+    94→export const categoriesApi = {
+    95→  list: () => request<CategoryDTO[]>("/api/categories"),
+    96→  create: (data: { name: string; colour?: string }) =>
+    97→    request<CategoryDTO>("/api/categories", { method: "POST", body: body(data) }),
+    98→  update: (id: string, data: { name?: string; colour?: string }) =>
+    99→    request<CategoryDTO>(`/api/categories/${id}`, { method: "PATCH", body: body(data) }),
+   100→  remove: (id: string) => request<{ ok: true }>(`/api/categories/${id}`, { method: "DELETE" }),
+   101→  reorder: (ids: string[]) =>
+   102→    request<{ ok: true }>("/api/categories/reorder", { method: "POST", body: body({ ids }) }),
+   103→};
+   104→
+   105→// ===================== Exercises =====================
+   106→
+   107→export type SetInput = {
+   108→  weight?: number | null;
+   109→  reps?: number | null;
+   110→  distance?: number | null;
+   111→  timeSec?: number | null;
+   112→  comment?: string | null;
+   113→  isComplete?: boolean;
+   114→  isWarmup?: boolean;
+   115→  // ---- Part 2 ----
+   116→  setType?: string;
+   117→  rpe?: number | null;
+   118→  tempo?: string | null;
+   119→  restPlannedSec?: number | null;
+   120→  restActualSec?: number | null;
+   121→  completedAt?: string | null;
+   122→};
+   123→
+   124→export type ExerciseInput = {
+   125→  name?: string;
+   126→  categoryId?: string;
+   127→  type?: string;
+   128→  notes?: string | null;
+   129→  weightUnit?: string | null;
+   130→  weightIncrement?: number | null;
+   131→  restSec?: number | null;
+   132→  defaultGraph?: string | null;
+   133→  barWeight?: number | null;
+   134→  autoWarmup?: boolean;
+   135→  isFavorite?: boolean;
+   136→  unitChangeMode?: "convert" | "change";
+   137→  // ---- Part 2 ----
+   138→  defaultSetType?: string | null;
+   139→  defaultRpeTarget?: number | null;
+   140→  defaultTempo?: string | null;
+   141→};
+   142→
+   143→export const exercisesApi = {
+   144→  list: (params?: { search?: string; categoryId?: string; favoritesOnly?: boolean }) =>
+   145→    request<ExerciseDTO[]>(`/api/exercises${qs(params ?? {})}`),
+   146→  get: (id: string) => request<ExerciseDTO>(`/api/exercises/${id}`),
+   147→  create: (data: ExerciseInput) =>
+   148→    request<ExerciseDTO>("/api/exercises", { method: "POST", body: body(data) }),
+   149→  update: (id: string, data: ExerciseInput) =>
+   150→    request<ExerciseDTO>(`/api/exercises/${id}`, { method: "PATCH", body: body(data) }),
+   151→  remove: (id: string) => request<{ ok: true }>(`/api/exercises/${id}`, { method: "DELETE" }),
+   152→  history: (id: string, limit = 100) =>
+   153→    request<
+   154→      Array<{
+   155→        workoutId: string;
+   156→        date: string;
+   157→        workoutExerciseId: string;
+   158→        sets: SetDTO[];
+   159→      }>
+   160→    >(`/api/exercises/${id}/history${qs({ limit })}`),
+   161→  records: (id: string) => request<RecordsDTO>(`/api/exercises/${id}/records`),
+   162→  graph: (
+   163→    id: string,
+   164→    params: { metric: string; reps?: number; rm?: number; from?: string; to?: string },
+   165→  ) => request<GraphDTO>(`/api/exercises/${id}/graph${qs(params)}`),
+   166→  lastSets: (id: string, before?: string) =>
+   167→    request<{ date: string | null; sets: SetDTO[] }>(`/api/exercises/${id}/lastsets${qs({ before })}`),
+   168→};
+   169→
+   170→// ===================== Workouts =====================
+   171→
+   172→export const workoutsApi = {
+   173→  byDate: (dateKey: string) =>
+   174→    request<{ workout: WorkoutDTO | null }>(`/api/workouts${qs({ date: dateKey })}`),
+   175→  /** Part 8 §3.10: the in-progress session (null → redirect to #/workout). */
+   176→  active: () => request<{ workout: WorkoutDTO | null }>("/api/workouts/active"),
+   177→  list: (params?: { from?: string; to?: string; search?: string }) =>
+   178→    request<{ workouts: WorkoutSummaryDTO[] }>(`/api/workouts${qs(params ?? {})}`),
+   179→  get: (id: string) => request<WorkoutDTO>(`/api/workouts/${id}`),
+   180→  createOrGet: (date: string) =>
+   181→    request<WorkoutDTO>("/api/workouts", { method: "POST", body: body({ date }) }),
+   182→  update: (id: string, data: { date?: string; comment?: string | null; startAt?: string | null; endAt?: string | null }) =>
+   183→    request<WorkoutDTO>(`/api/workouts/${id}`, { method: "PATCH", body: body(data) }),
+   184→  remove: (id: string) => request<{ ok: true }>(`/api/workouts/${id}`, { method: "DELETE" }),
+   185→  copy: (id: string, data: { fromDate?: string; setIds?: string[] }) =>
+   186→    request<WorkoutDTO>(`/api/workouts/${id}/copy`, { method: "POST", body: body(data) }),
+   187→  move: (id: string, data: { toDate: string; workoutExerciseIds?: string[] }) =>
+   188→    request<WorkoutDTO>(`/api/workouts/${id}/move`, { method: "POST", body: body(data) }),
+   189→
+   190→  // ---- Part 5: finish / undo-finish ----
+   191→  finish: (id: string) =>
+   192→    request<{ workoutId: string; finishedAt: string; advanced: boolean; nextDay: { id: string; name: string; dayType: string } | null }>(
+   193→      `/api/workouts/${id}/finish`,
+   194→      { method: "POST" },
+   195→    ),
+   196→  undoFinish: (id: string) =>
+   197→    request<{ ok: true }>(`/api/workouts/${id}/finish`, { method: "DELETE" }),
+   198→
+   199→  addExercise: (workoutId: string, exerciseId: string) =>
+   200→    request<{ workoutExerciseId: string; exerciseId: string; sets: SetDTO[] }>(
+   201→      `/api/workouts/${workoutId}/exercises`,
+   202→      { method: "POST", body: body({ exerciseId }) },
+   203→    ),
+   204→  updateExercise: (workoutId: string, weId: string, data: { sortOrder?: number; groupId?: string | null }) =>
+   205→    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/${weId}`, {
+   206→      method: "PATCH",
+   207→      body: body(data),
+   208→    }),
+   209→  removeExercise: (workoutId: string, weId: string) =>
+   210→    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/${weId}`, { method: "DELETE" }),
+   211→  reorderExercises: (workoutId: string, ids: string[]) =>
+   212→    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/order`, {
+   213→      method: "PUT",
+   214→      body: body({ ids }),
+   215→    }),
+   216→
+   217→  addSet: (workoutId: string, weId: string, data: SetInput) =>
+   218→    request<SetDTO>(`/api/workouts/${workoutId}/exercises/${weId}/sets`, {
+   219→      method: "POST",
+   220→      body: body(data),
+   221→    }),
+   222→  updateSet: (workoutId: string, weId: string, setId: string, data: SetInput) =>
+   223→    request<SetDTO>(`/api/workouts/${workoutId}/exercises/${weId}/sets/${setId}`, {
+   224→      method: "PATCH",
+   225→      body: body(data),
+   226→    }),
+   227→  removeSet: (workoutId: string, weId: string, setId: string) =>
+   228→    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/${weId}/sets/${setId}`, {
+   229→      method: "DELETE",
+   230→    }),
+   231→  reorderSets: (workoutId: string, weId: string, ids: string[]) =>
+   232→    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/${weId}/sets/order`, {
+   233→      method: "PUT",
+   234→      body: body({ ids }),
+   235→    }),
+   236→
+   237→  createGroup: (workoutId: string, data: { name: string; colour?: string; exerciseIds?: string[] }) =>
+   238→    request<WorkoutDTO["groups"][number]>(`/api/workouts/${workoutId}/groups`, {
+   239→      method: "POST",
+   240→      body: body(data),
+   241→    }),
+   242→  updateGroup: (workoutId: string, groupId: string, data: { name?: string; colour?: string }) =>
+   243→    request<WorkoutDTO["groups"][number]>(`/api/workouts/${workoutId}/groups/${groupId}`, {
+   244→      method: "PATCH",
+   245→      body: body(data),
+   246→    }),
+   247→  removeGroup: (workoutId: string, groupId: string) =>
+   248→    request<{ ok: true }>(`/api/workouts/${workoutId}/groups/${groupId}`, { method: "DELETE" }),
+   249→};
+   250→
+   251→// ===================== Records / Stats / Goals =====================
+   252→
+   253→export type AllRecordsRow = {
+   254→  exerciseId: string;
+   255→  exerciseName: string;
+   256→  categoryColour: string | null;
+   257→  setCount: number;
+   258→  bestWeight: number | null;
+   259→  bestWeightReps: number | null;
+   260→  bestWeightDate: string | null;
+   261→  estimatedOneRm: number | null;
+   262→  volume: number;
+   263→};
+   264→
+   265→export const recordsApi = {
+   266→  all: () => request<{ records: AllRecordsRow[] }>("/api/records"),
+   267→  forExercise: (exerciseId: string) => exercisesApi.records(exerciseId),
+   268→  recalculate: (exerciseId?: string) =>
+   269→    request<{ ok: true; recalculated: number }>("/api/records/recalculate", {
+   270→      method: "POST",
+   271→      body: body({ ...(exerciseId ? { exerciseId } : {}) }),
+   272→    }),
+   273→};
+   274→
+   275→export const statsApi = {
+   276→  get: (period: "week" | "month" | "year" | "all" | "custom", from?: string, to?: string) =>
+   277→    request<StatsDTO>(`/api/stats${qs({ period, from, to })}`),
+   278→};
+   279→
+   280→export type GoalInput = {
+   281→  exerciseId?: string;
+   282→  type?: string;
+   283→  targetWeight?: number | null;
+   284→  targetReps?: number | null;
+   285→  targetDistance?: number | null;
+   286→  targetTimeSec?: number | null;
+   287→};
+   288→
+   289→export const goalsApi = {
+   290→  list: (exerciseId?: string) => request<{ goals: GoalDTO[] }>(`/api/goals${qs({ exerciseId })}`),
+   291→  create: (data: GoalInput & { exerciseId: string }) =>
+   292→    request<GoalDTO>("/api/goals", { method: "POST", body: body(data) }),
+   293→  update: (id: string, data: GoalInput) =>
+   294→    request<GoalDTO>(`/api/goals/${id}`, { method: "PATCH", body: body(data) }),
+   295→  remove: (id: string) => request<{ ok: true }>(`/api/goals/${id}`, { method: "DELETE" }),
+   296→};
+   297→
+   298→// ===================== Routines =====================
+   299→
+   300→export type PredefinedSetInput = {
+   301→  weight?: number | null;
+   302→  reps?: number | null;
+   303→  distance?: number | null;
+   304→  timeSec?: number | null;
+   305→  // ---- Part 2 ----
+   306→  setType?: string | null;
+   307→  rpe?: number | null;
+   308→  tempo?: string | null;
+   309→  restPlannedSec?: number | null;
+   310→  // ---- Part 8 §6.4 weight prescription ----
+   311→  weightKind?: "FIXED" | "COPY_LAST" | "PERCENT_1RM" | null;
+   312→  pct?: number | null;
+   313→};
+   314→
+   315→export const routinesApi = {
+   316→  list: () => request<{ routines: RoutineDTO[] }>("/api/routines"),
+   317→  get: (id: string) => request<RoutineDTO>(`/api/routines/${id}`),
+   318→  create: (data: { name: string; notes?: string | null; kind?: "ROUTINE" | "SESSION" }) =>
+   319→    request<RoutineDTO>("/api/routines", { method: "POST", body: body(data) }),
+   320→  update: (
+   321→    id: string,
+   322→    data: {
+   323→      name?: string;
+   324→      notes?: string | null;
+   325→      sortOrder?: number;
+   326→      difficulty?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+   327→      kind?: "ROUTINE" | "SESSION";
+   328→    },
+   329→  ) => request<RoutineDTO>(`/api/routines/${id}`, { method: "PATCH", body: body(data) }),
+   330→  remove: (id: string) => request<{ ok: true }>(`/api/routines/${id}`, { method: "DELETE" }),
+   331→  copy: (id: string) => request<RoutineDTO>(`/api/routines/${id}/copy`, { method: "POST" }),
+   332→  logDay: (id: string, data: { dayId: string; date: string }) =>
+   333→    request<WorkoutDTO>(`/api/routines/${id}/log`, { method: "POST", body: body(data) }),
+   334→
+   335→  addDay: (routineId: string, name: string, dayType?: "WORKOUT" | "REST") =>
+   336→    request<RoutineDTO>(`/api/routines/${routineId}/days`, {
+   337→      method: "POST",
+   338→      body: body({ name, ...(dayType ? { dayType } : {}) }),
+   339→    }),
+   340→  updateDay: (
+   341→    routineId: string,
+   342→    dayId: string,
+   343→    data: { name?: string; sortOrder?: number; dayType?: "WORKOUT" | "REST" },
+   344→  ) =>
+   345→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}`, { method: "PATCH", body: body(data) }),
+   346→  removeDay: (routineId: string, dayId: string) =>
+   347→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}`, { method: "DELETE" }),
+   348→
+   349→  addExercise: (routineId: string, dayId: string, exerciseId: string) =>
+   350→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises`, {
+   351→      method: "POST",
+   352→      body: body({ exerciseId }),
+   353→    }),
+   354→  updateExercise: (routineId: string, dayId: string, reId: string, data: { sortOrder?: number; groupId?: string | null }) =>
+   355→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}`, {
+   356→      method: "PATCH",
+   357→      body: body(data),
+   358→    }),
+   359→  removeExercise: (routineId: string, dayId: string, reId: string) =>
+   360→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}`, { method: "DELETE" }),
+   361→  reorderExercises: (routineId: string, dayId: string, ids: string[]) =>
+   362→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/order`, {
+   363→      method: "PUT",
+   364→      body: body({ ids }),
+   365→    }),
+   366→
+   367→  addSet: (routineId: string, dayId: string, reId: string, data: PredefinedSetInput) =>
+   368→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}/sets`, {
+   369→      method: "POST",
+   370→      body: body(data),
+   371→    }),
+   372→  updateSet: (routineId: string, dayId: string, reId: string, setId: string, data: PredefinedSetInput) =>
+   373→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}/sets/${setId}`, {
+   374→      method: "PATCH",
+   375→      body: body(data),
+   376→    }),
+   377→  removeSet: (routineId: string, dayId: string, reId: string, setId: string) =>
+   378→    request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}/sets/${setId}`, {
+   379→      method: "DELETE",
+   380→    }),
+   381→  // ---- Part 8 §3.8 builder groups (additive) ----
+   382→  addGroup: (routineId: string, data: { name?: string; assignReId?: string }) =>
+   383→    request<{ groupId: string }>(`/api/routines/${routineId}/groups`, {
+   384→      method: "POST",
+   385→      body: body(data),
+   386→    }),
+   387→  removeGroup: (routineId: string, groupId: string) =>
+   388→    request<{ ok: true }>(`/api/routines/${routineId}/groups/${groupId}`, { method: "DELETE" }),
+   389→};
+   390→
+   391→// ===================== Part 5: Programs / Sessions / Schedule / Dashboard =====================
+   392→
+   393→/** Cursor ops return the new cursor position + day shape. */
+   394→export type CursorResult = { dayIndex: number; day: { id: string; name: string; dayType: string } };
+   395→
+   396→export const programsApi = {
+   397→  /** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION (omit = all). */
+   398→  list: (kind?: "ROUTINE" | "SESSION") =>
+   399→    request<ProgramSummaryDTO[]>(`/api/programs${qs({ kind })}`),
+   400→  follow: (routineId: string, startDayIndex?: number) =>
+   401→    request<{ routineId: string; dayIndex: number; day: { id: string; name: string; dayType: string } }>(
+   402→      `/api/programs/${routineId}/follow`,
+   403→      { method: "POST", body: body({ ...(startDayIndex != null ? { startDayIndex } : {}) }) },
+   404→    ),
+   405→  unfollow: () => request<{ ok: true }>("/api/programs/follow", { method: "DELETE" }),
+   406→  advanceCursor: (n = 1) =>
+   407→    request<CursorResult>("/api/programs/cursor/advance", { method: "POST", body: body({ n }) }),
+   408→  skipCursorDay: () =>
+   409→    request<{ skipped: { id: string; name: string; dayType: string }; dayIndex: number; day: { id: string; name: string; dayType: string } }>(
+   410→      "/api/programs/cursor/skip",
+   411→      { method: "POST" },
+   412→    ),
+   413→  jumpCursor: (dayIndex: number) =>
+   414→    request<CursorResult>("/api/programs/cursor/jump", {
+   415→      method: "POST",
+   416→      body: body({ dayIndex }),
+   417→    }),
+   418→  markRestDone: () =>
+   419→    request<CursorResult>("/api/programs/cursor/rest-done", { method: "POST" }),
+   420→  /** Atomic day start: workout + predefined sets + provenance + schedule DONE entry. */
+   421→  startDay: (routineId: string, data: { dayId?: string; date?: string } = {}) =>
+   422→    request<WorkoutDTO>(`/api/programs/${routineId}/start-day`, {
+   423→      method: "POST",
+   424→      body: body(data),
+   425→    }),
+   426→};
+   427→
+   428→export const dashboardApi = {
+   429→  get: () => request<DashboardDTO>("/api/dashboard"),
+   430→};
+   431→
+   432→export const sessionsApi = {
+   433→  /** Promote a logged workout into a reusable SESSION-kind routine. */
+   434→  fromWorkout: (workoutId: string, name?: string) =>
+   435→    request<RoutineDTO>("/api/sessions/from-workout", {
+   436→      method: "POST",
+   437→      body: body({ workoutId, ...(name ? { name } : {}) }),
+   438→    }),
+   439→};
+   440→
+   441→export type ScheduleCreateInput = {
+   442→  date: string; // YYYY-MM-DD
+   443→  routineId: string;
+   444→  dayId?: string;
+   445→  note?: string | null;
+   446→  replace?: boolean;
+   447→};
+   448→
+   449→export type ScheduleListResult = {
+   450→  entries: ScheduleEntryDTO[];
+   451→  projected: ProjectedDayDTO[];
+   452→};
+   453→
+   454→export const scheduleApi = {
+   455→  list: (params?: { from?: string; to?: string }) =>
+   456→    request<ScheduleListResult>(`/api/schedule${qs(params ?? {})}`),
+   457→  create: (data: ScheduleCreateInput) =>
+   458→    request<ScheduleEntryDTO>("/api/schedule", { method: "POST", body: body(data) }),
+   459→  update: (id: string, data: { date?: string; status?: "PLANNED" | "SKIPPED"; note?: string | null }) =>
+   460→    request<ScheduleEntryDTO>(`/api/schedule/${id}`, { method: "PUT", body: body(data) }),
+   461→  remove: (id: string) => request<{ ok: true }>(`/api/schedule/${id}`, { method: "DELETE" }),
+   462→};
+   463→
+   464→// ===================== Measurements =====================
+   465→
+   466→export const measurementsApi = {
+   467→  list: () => request<{ measurements: MeasurementDTO[] }>("/api/measurements"),
+   468→  create: (data: { name: string; unitId: string; goalType?: string; targetValue?: number | null; isEnabled?: boolean }) =>
+   469→    request<MeasurementDTO>("/api/measurements", { method: "POST", body: body(data) }),
+   470→  update: (id: string, data: { goalType?: string; targetValue?: number | null; isEnabled?: boolean; unitId?: string }) =>
+   471→    request<MeasurementDTO>(`/api/measurements/${id}`, { method: "PATCH", body: body(data) }),
+   472→  remove: (id: string) => request<{ ok: true }>(`/api/measurements/${id}`, { method: "DELETE" }),
+   473→  reorder: (ids: string[]) =>
+   474→    request<{ ok: true }>("/api/measurements/reorder", { method: "POST", body: body({ ids }) }),
+   475→  records: (measurementId: string) =>
+   476→    request<{ records: MeasurementRecordDTO[] }>(`/api/measurements/${measurementId}/records`),
+   477→  addRecord: (measurementId: string, data: { value: number; recordedAt?: string; comment?: string | null }) =>
+   478→    request<MeasurementRecordDTO>(`/api/measurements/${measurementId}/records`, {
+   479→      method: "POST",
+   480→      body: body(data),
+   481→    }),
+   482→  updateRecord: (measurementId: string, recordId: string, data: { value?: number; recordedAt?: string; comment?: string | null }) =>
+   483→    request<MeasurementRecordDTO>(`/api/measurements/${measurementId}/records/${recordId}`, {
+   484→      method: "PATCH",
+   485→      body: body(data),
+   486→    }),
+   487→  removeRecord: (measurementId: string, recordId: string) =>
+   488→    request<{ ok: true }>(`/api/measurements/${measurementId}/records/${recordId}`, {
+   489→      method: "DELETE",
+   490→    }),
+   491→};
+   492→
+   493→export const unitsApi = {
+   494→  list: () => request<{ units: UnitDTO[] }>("/api/units"),
+   495→  create: (name: string) =>
+   496→    request<UnitDTO>("/api/units", { method: "POST", body: body({ name }) }),
+   497→};
+   498→
+   499→// ===================== Settings / Plates / Account =====================
+   500→
+   501→export const settingsApi = {
+   502→  get: () => request<SettingsDTO>("/api/settings"),
+   503→  update: (data: Partial<SettingsDTO>) =>
+   504→    request<SettingsDTO>("/api/settings", { method: "PATCH", body: body(data) }),
+   505→};
+   506→
+   507→export type TimerPresetInput = {
+   508→  name?: string;
+   509→  prepareSec?: number;
+   510→  workSec?: number;
+   511→  restSec?: number;
+   512→  rounds?: number;
+   513→};
+   514→
+   515→export const timerPresetsApi = {
+   516→  list: () => request<{ presets: TimerPresetDTO[] }>("/api/timer-presets"),
+   517→  create: (data: TimerPresetInput) =>
+   518→    request<TimerPresetDTO>("/api/timer-presets", { method: "POST", body: body(data) }),
+   519→  update: (id: string, data: TimerPresetInput) =>
+   520→    request<TimerPresetDTO>(`/api/timer-presets/${id}`, { method: "PATCH", body: body(data) }),
+   521→  remove: (id: string) => request<{ ok: true }>(`/api/timer-presets/${id}`, { method: "DELETE" }),
+   522→};
+   523→
+   524→export const platesApi = {
+   525→  list: (unitSystem?: string) => request<{ plates: PlateDTO[] }>(`/api/plates${qs({ unitSystem })}`),
+   526→  replace: (data: {
+   527→    unitSystem: string;
+   528→    plates: Array<{ weight: number; colour: string; count: number; isAvailable: boolean }>;
+   529→  }) => request<{ plates: PlateDTO[] }>("/api/plates", { method: "PUT", body: body(data) }),
+   530→};
+   531→
+   532→export const accountApi = {
+   533→  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+   534→    request<{ ok: true }>("/api/account/password", { method: "POST", body: body(data) }),
+   535→  delete: () => request<{ ok: true }>("/api/account", { method: "DELETE" }),
+   536→  exportBackup: () => request<BackupDTO>("/api/account/export"),
+   537→  exportCsv: (type: "workouts" | "body") =>
+   538→    fetch(`/api/account/export?format=csv&type=${type}`, { credentials: "same-origin" }).then((r) => {
+   539→      if (!r.ok) throw new ApiError(r.status, "EXPORT_FAILED", "Export failed");
+   540→      return r.blob();
+   541→    }),
+   542→  importBackup: (data: unknown, mode: "replace" | "merge") =>
+   543→    request<{ ok: true; importedWorkouts: number }>("/api/account/import", {
+   544→      method: "POST",
+   545→      body: body({ data, mode }),
+   546→    }),
+   547→  deleteHistory: (data: { mode: "all" | "range" | "exercise"; from?: string; to?: string; exerciseId?: string }) =>
+   548→    request<{ ok: true; deletedWorkouts: number }>("/api/account/history", {
+   549→      method: "DELETE",
+   550→      body: body(data),
+   551→    }),
+   552→};
+   553→
+   554→// ===================== Sync =====================
+   555→
+   556→export const syncApi = {
+   557→  pull: (since?: string) =>
+   558→    request<{
+   559→      serverTime: string;
+   560→      workouts: WorkoutDTO[];
+   561→      measurementRecords: MeasurementRecordDTO[];
+   562→      exerciseIdsChanged: string[];
+   563→    }>(`/api/sync${qs({ since })}`),
+   564→};
+   565→
+   566→// ===================== Part 6: library / profile / media / programs meta =====================
+   567→
+   568→import type {
+   569→  DictionaryTermDTO,
+   570→  RemovedWorkoutDTO,
+   571→  LibraryEntryDTO,
+   572→  MediaUploadResultDTO,
+   573→  ProgramMetaDTO,
+   574→  ProgramTotalsDTO,
+   575→  ProgressPhotoDTO,
+   576→  UserProfileDTO,
+   577→  WeightTableDTO,
+   578→} from "@/lib/types";
+   579→
+   580→export type BuilderSetInput = { weight?: number | null; reps?: number | null; restPlannedSec?: number | null; setType?: string | null };
+   581→export type BuilderProgramInput = {
+   582→  name: string;
+   583→  difficulty?: string | null;
+   584→  daysPerWeek?: number | null;
+   585→  estMinutes?: number | null;
+   586→  labels?: string[];
+   587→  phases: Array<{ name: string; weeks: number }>;
+   588→  weekly: Array<{ weekday: number; type: string; name?: string | null }>;
+   589→  exercises?: Record<string, Array<{ exerciseId: string; sets?: BuilderSetInput[] }>>;
+   590→};
+   591→
+   592→export const libraryApi = {
+   593→  list: (params: { search?: string; muscle?: string[]; equipment?: string[]; fav?: boolean; mine?: boolean } = {}) => {
+   594→    const sp = new URLSearchParams();
+   595→    if (params.search) sp.set("search", params.search);
+   596→    for (const m of params.muscle ?? []) sp.append("muscle", m);
+   597→    for (const e of params.equipment ?? []) sp.append("equipment", e);
+   598→    if (params.fav) sp.set("fav", "1");
+   599→    if (params.mine) sp.set("mine", "1");
+   600→    const query = sp.toString();
+   601→    return request<LibraryEntryDTO[]>(`/api/library${query ? `?${query}` : ""}`);
+   602→  },
+   603→  get: (key: string) => request<LibraryEntryDTO>(`/api/library/${encodeURIComponent(key)}`),
+   604→  adopt: (key: string, favourite?: boolean) =>
+   605→    request<{ exerciseId: string; created: boolean; favourite: boolean }>(
+   606→      `/api/library/${encodeURIComponent(key)}/adopt`,
+   607→      { method: "POST", body: body({ ...(favourite != null ? { favourite } : {}) }) },
+   608→    ),
+   609→  adoptMany: (keys: string[]) =>
+   610→    request<{ adopted: number }>("/api/library/adopt-many", { method: "POST", body: body({ keys }) }),
+   611→};
+   612→
+   613→export const profileApi = {
+   614→  get: () => request<UserProfileDTO>("/api/profile"),
+   615→  update: (patch: Partial<{ age: number | null; heightCm: number | null; weightKg: number | null; level: string | null; goal: string | null; daysPerWeekTarget: number | null }>) =>
+   616→    request<UserProfileDTO>("/api/profile", { method: "PUT", body: body(patch) }),
+   617→  completeOnboarding: (payload: {
+   618→    unitSystem?: string; goal?: string | null; level?: string | null; daysPerWeekTarget?: number | null;
+   619→    heightCm?: number | null; weightKg?: number | null; age?: number | null; skipped?: boolean;
+   620→  }) => request<{ profile: UserProfileDTO; startedTemplate: { id: string; name: string; dayCount: number } | null }>(
+   621→      "/api/onboarding/complete",
+   622→      { method: "POST", body: body(payload) },
+   623→    ),
+   624→};
+   625→
+   626→
+   627→export const dictionaryApi = {
+   628→  get: () => request<{ terms: DictionaryTermDTO[] }>("/api/dictionary"),
+   629→};
+   630→
+   631→export const mediaApi = {
+   632→  upload: async (file: File): Promise<MediaUploadResultDTO> => {
+   633→    const form = new FormData();
+   634→    form.append("file", file);
+   635→    const res = await fetch("/api/media/upload", { method: "POST", body: form, credentials: "same-origin" });
+   636→    const json = (await res.json().catch(() => null)) as unknown;
+   637→    if (!res.ok) {
+   638→      const err = json as { error?: { message?: string; code?: string } } | null;
+   639→      throw new ApiError(res.status, err?.error?.code ?? "REQUEST_FAILED", err?.error?.message ?? "Upload failed");
+   640→    }
+   641→    return json as MediaUploadResultDTO;
+   642→  },
+   643→  /** Resolve a media key to a servable URL (auth-scoped API path or direct public URL). */
+   644→  url: (key: string) => `/api/media/${key.split("/").map(encodeURIComponent).join("/")}`,
+   645→};
+   646→
+   647→export const photosApi = {
+   648→  list: (params: { measurementId?: string; recordId?: string } = {}) => {
+   649→    const sp = new URLSearchParams();
+   650→    if (params.measurementId) sp.set("measurementId", params.measurementId);
+   651→    if (params.recordId) sp.set("recordId", params.recordId);
+   652→    const query = sp.toString();
+   653→    return request<{ photos: ProgressPhotoDTO[] }>(`/api/photos${query ? `?${query}` : ""}`);
+   654→  },
+   655→  attach: (measurementId: string, recordId: string, data: { slot: string; mediaKey: string; width: number; height: number }) =>
+   656→    request<ProgressPhotoDTO>(`/api/measurements/${measurementId}/records/${recordId}/photos`, { method: "POST", body: body(data) }),
+   657→  remove: (id: string) => request<{ ok: true }>(`/api/photos/${id}`, { method: "DELETE" }),
+   658→};
+   659→
+   660→export const programsMetaApi = {
+   661→  get: (routineId: string) => request<ProgramMetaDTO>(`/api/programs/${routineId}/meta`),
+   662→  update: (routineId: string, patch: Record<string, unknown>) =>
+   663→    request<ProgramMetaDTO>(`/api/programs/${routineId}/meta`, { method: "PUT", body: body(patch) }),
+   664→  markOff: (routineId: string, dayId: string) =>
+   665→    request<{ completedDayIds: string[]; advanced: boolean }>(`/api/programs/${routineId}/days/${dayId}/mark-off`, { method: "POST" }),
+   666→  unmarkOff: (routineId: string, dayId: string) =>
+   667→    request<{ completedDayIds: string[] }>(`/api/programs/${routineId}/days/${dayId}/mark-off`, { method: "DELETE" }),
+   668→  favouriteDay: (routineId: string, dayId: string) =>
+   669→    request<{ isFavorite: boolean }>(`/api/programs/${routineId}/days/${dayId}/favourite`, { method: "POST" }),
+   670→  totals: (routineId: string) => request<ProgramTotalsDTO>(`/api/programs/${routineId}/totals`),
+   671→  build: (input: BuilderProgramInput) =>
+   672→    request<{ id: string; dayCount: number }>("/api/programs/builder", { method: "POST", body: body(input) }),
+   673→};
+   674→
+   675→export const historyApi = {
+   676→  search: (search: string) =>
+   677→    request<{ workouts: WorkoutSummaryDTO[] }>(`/api/history${qs({ search })}`),
+   678→};
+   679→
+   680→export const exercisesWeightTableApi = {
+   681→  get: (exerciseId: string, opts: { limit?: number; before?: string } = {}) =>
+   682→    request<WeightTableDTO>(`/api/exercises/${exerciseId}/weight-table${qs({ limit: opts.limit, before: opts.before })}`),
+   683→};
+   684→
+   685→export const workoutLifecycleApi = {
+   686→  discard: (id: string) => request<{ ok: true; discardedAt: string }>(`/api/workouts/${id}/discard`, { method: "POST" }),
+   687→  restore: (id: string) => request<{ ok: true }>(`/api/workouts/${id}/restore`, { method: "POST" }),
+   688→  /** Part 8 §6.9: delete a removed workout permanently. */
+   689→  purge: (id: string) => request<{ ok: true }>(`/api/workouts/${id}/purge`, { method: "POST" }),
+   690→  hidden: () => request<{ workouts: RemovedWorkoutDTO[] }>("/api/workouts/hidden"),
+   691→};
+   692→
+   693→export const scheduleTimeApi = {
+   694→  set: (id: string, time: string | null) =>
+   695→    request<ScheduleEntryDTO>(`/api/schedule/${id}/time`, { method: "POST", body: body({ time }) }),
+   696→};
+   697→
+   698→export const authConfirmApi = {
+   699→  confirm: (token: string) =>
+   700→    request<{ ok: true }>("/api/auth/confirm", { method: "POST", body: body({ token }) }),
+   701→  resend: (email: string) =>
+   702→    request<{ ok: true; emailConfigured: boolean }>("/api/auth/resend-confirmation", { method: "POST", body: body({ email }) }),
+   703→};
+   704→
+   705→export const clientErrorsApi = {
+   706→  report: (payload: { message: string; stack?: string; route?: string; url?: string }) => {
+   707→    void fetch("/api/client-errors", {
+   708→      method: "POST",
+   709→      headers: { "Content-Type": "application/json" },
+   710→      credentials: "same-origin",
+   711→      body: JSON.stringify(payload).slice(0, 2048),
+   712→    }).catch(() => undefined);
+   713→  },
+   714→};
+   715→
+   716→// ===================== Part 7: tour system =====================
+   717→
+   718→import type { TourStateDTO, TourStatus, ToursStateResponseDTO } from "@/lib/types";
+   719→
+   720→export const toursApi = {
+   721→  /** Full tour + hint state for the signed-in user. */
+   722→  getState: () => request<ToursStateResponseDTO>("/api/tours/state"),
+   723→  /** Upsert the outcome of one screen's tour (screenId = route name or "__welcome"). */
+   724→  putState: (screenId: string, data: { version: string; status: TourStatus; stepReached: number }) =>
+   725→    request<TourStateDTO>(`/api/tours/state/${encodeURIComponent(screenId)}`, {
+   726→      method: "PUT",
+   727→      body: body(data),
+   728→    }),
+   729→  /** Mark a contextual hint as seen (idempotent). */
+   730→  markHint: (hintId: string) =>
+   731→    request<{ hintId: string; seenAt: string }>(`/api/tours/hints/${encodeURIComponent(hintId)}`, {
+   732→      method: "PUT",
+   733→      body: body({}),
+   734→    }),
+   735→  /** Wipe tour state (all, or one screen's tour). */
+   736→  reset: (scope: { scope: "all" } | { scope: "screen"; screenId: string }) =>
+   737→    request<{ ok: true; scope: "all" | "screen"; deleted?: number }>("/api/tours/reset", {
+   738→      method: "POST",
+   739→      body: body(scope),
+   740→    }),
+   741→};
+   742→
+   743→// ---------- Part 8: exercise meta (warm-up + progression) & backups ----------
+   744→
+   745→export type ExerciseMetaProgression = {
+   746→  type: "LINEAR" | "DOUBLE" | "NONE";
+   747→  increment: number;
+   748→  unit: "kg" | "lbs" | "%";
+   749→  condition: "ALL_SETS_HIT" | "LAST_SET_HIT";
+   750→  failStreakForDeload: number;
+   751→  deloadPct: number;
+   752→};
+   753→
+   754→export type ExerciseMetaDTO = {
+   755→  warmupScheme: "NONE" | "STANDARD" | "LIGHT" | "CUSTOM";
+   756→  warmupCustom: Array<{ pct: number; reps: number }> | null;
+   757→  progression: ExerciseMetaProgression | null;
+   758→  state: { nextWeightDelta: number; failStreak: number };
+   759→};
+   760→
+   761→export const exerciseMetaApi = {
+   762→  get: (routineId: string, reId: string) =>
+   763→    request<ExerciseMetaDTO>(`/api/routines/${routineId}/exercise/${reId}/meta`),
+   764→  put: (
+   765→    routineId: string,
+   766→    reId: string,
+   767→    data: {
+   768→      warmupScheme?: "NONE" | "STANDARD" | "LIGHT" | "CUSTOM";
+   769→      warmupCustom?: Array<{ pct: number; reps: number }> | null;
+   770→      progression?: ExerciseMetaProgression | null;
+   771→    },
+   772→  ) =>
+   773→    request<{ ok: true }>(`/api/routines/${routineId}/exercise/${reId}/meta`, {
+   774→      method: "PUT",
+   775→      body: body(data),
+   776→    }),
+   777→};
+   778→
+   779→export type BackupRunDTO = {
+   780→  id: string;
+   781→  target: string;
+   782→  status: string;
+   783→  bytes: number | null;
+   784→  at: string;
+   785→};
+   786→
+   787→export const backupApi = {
+   788→  runs: () => request<{ runs: BackupRunDTO[] }>("/api/backup/runs"),
+   789→  runNow: () => request<{ ok: true; run: BackupRunDTO }>("/api/backup/run-now", { method: "POST" }),
+   790→};
+   791→
+   792→// ---------- Part 9: difficulty, variants, days, on-demand, challenges, account ----------
+   793→
+   794→export const userApi = {
+   795→  /** PATCH /api/user/difficulty (§2) — global difficulty switch. */
+   796→  setDifficulty: (difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED") =>
+   797→    request<{ difficulty: string; oldDifficulty: string; switched: boolean; variantKept: string | null }>(
+   798→      "/api/user/difficulty",
+   799→      { method: "PATCH", body: body({ difficulty }) },
+   800→    ),
+   801→};
+   802→
+   803→export const programStartApi = {
+   804→  /** POST /api/programs/:id/start { phaseIdx } (§4). */
+   805→  start: (routineId: string, phaseIdx?: number) =>
+   806→    request<{ routineId: string; variantId: string | null; difficulty: string; phaseIdx: number; dayIndex: number }>(
+   807→      `/api/programs/${routineId}/start`,
+   808→      { method: "POST", body: body({ ...(phaseIdx != null ? { phaseIdx } : {}) }) },
+   809→    ),
+   810→};
+   811→
+   812→export const phaseOrderApi = {
+   813→  /** PUT /api/phases/:id/order { dayOrder } (§4) — PhaseOverride save. */
+   814→  put: (phaseId: string, dayOrder: string[]) =>
+   815→    request<{ phaseId: string; dayOrder: string[] }>(`/api/phases/${phaseId}/order`, {
+   816→      method: "PUT",
+   817→      body: body({ dayOrder }),
+   818→    }),
+   819→  /** DELETE /api/phases/:id/order — Reset Order (§4). */
+   820→  reset: (phaseId: string) =>
+   821→    request<{ ok: true }>(`/api/phases/${phaseId}/order`, { method: "DELETE" }),
+   822→};
+   823→
+   824→export type DayOverridePatch = {
+   825→  seriesOrder?: string[][] | null;
+   826→  replacements?: Record<string, string> | null;
+   827→  notes?: Record<string, string> | null;
+   828→};
+   829→
+   830→export const dayApi = {
+   831→  /** GET /api/days/:id (§5) — override-merged day detail. */
+   832→  get: (dayId: string) => request<unknown>(`/api/days/${dayId}`),
+   833→  /** PUT /api/days/:id/override (§5.1/5.2/5.4). */
+   834→  putOverride: (dayId: string, patch: DayOverridePatch) =>
+   835→    request<{ ok: true }>(`/api/days/${dayId}/override`, { method: "PUT", body: body(patch) }),
+   836→  /** POST /api/days/:id/favorite (§5) — toggle DayFavorite. */
+   837→  favourite: (dayId: string) =>
+   838→    request<{ isFavorite: boolean }>(`/api/days/${dayId}/favorite`, { method: "POST" }),
+   839→  /** DELETE /api/days/:id/favorite. */
+   840→  unfavourite: (dayId: string) =>
+   841→    request<{ isFavorite: boolean }>(`/api/days/${dayId}/favorite`, { method: "DELETE" }),
+   842→  /** POST /api/days/:id/mark-off (§5). */
+   843→  markOff: (dayId: string) =>
+   844→    request<{ completedDayIds: string[]; advanced: boolean }>(`/api/days/${dayId}/mark-off`, { method: "POST" }),
+   845→};
+   846→
+   847→export const exerciseSuggestionsApi = {
+   848→  /** GET /api/exercises/:id/suggestions (§5.2). */
+   849→  list: (exerciseId: string) =>
+   850→    request<{ suggestions: unknown[] }>(`/api/exercises/${exerciseId}/suggestions`),
+   851→};
+   852→
+   853→export type OnDemandQuery = {
+   854→  q?: string;
+   855→  category?: string;
+   856→  intensity?: string[];
+   857→  muscles?: string[];
+   858→  duration?: string;
+   859→  equipment?: string[];
+   860→};
+   861→
+   862→export const onDemandApi = {
+   863→  /** GET /api/on-demand (§7) — server-side filtered sessions. */
+   864→  list: (params: OnDemandQuery = {}) => {
+   865→    const flat: Record<string, string | number | boolean | undefined> = {
+   866→      q: params.q,
+   867→      category: params.category,
+   868→      duration: params.duration,
+   869→      intensity: params.intensity?.join(","),
+   870→      muscles: params.muscles?.join(","),
+   871→      equipment: params.equipment?.join(","),
+   872→    };
+   873→    return request<unknown[]>(`/api/on-demand${qs(flat)}`);
+   874→  },
+   875→};
+   876→
+   877→export const scheduleReconcileApi = {
+   878→  /** POST /api/schedule/reconcile-missed (§6) — idempotent MISSED sweep. */
+   879→  run: () =>
+   880→    request<{ missed: number; completed: number; checked: number }>("/api/schedule/reconcile-missed", {
+   881→      method: "POST",
+   882→    }),
+   883→};
+   884→
+   885→export type ChallengeDTO = {
+   886→  id: string;
+   887→  name: string;
+   888→  startsOn: string;
+   889→  weeks: number;
+   890→  isActive: boolean;
+   891→  variantId: string;
+   892→  programName: string;
+   893→  userVariantId: string | null;
+   894→  joined: boolean;
+   895→};
+   896→
+   897→export const challengesApi = {
+   898→  /** GET /api/challenges/active (§10). */
+   899→  active: () => request<{ challenge: ChallengeDTO | null }>("/api/challenges/active"),
+   900→  /** POST /api/challenges/:id/join (§10). */
+   901→  join: (challengeId: string) =>
+   902→    request<{ routineId: string; variantId: string | null; startsOn: string; weeks: number }>(
+   903→      `/api/challenges/${challengeId}/join`,
+   904→      { method: "POST" },
+   905→    ),
+   906→  /** DELETE /api/challenges/:id/dismiss (§10). */
+   907→  dismiss: (challengeId: string) =>
+   908→    request<{ ok: true }>(`/api/challenges/${challengeId}/dismiss`, { method: "DELETE" }),
+   909→};
+   910→
+   911→export const supportApi = {
+   912→  /** POST /api/support (§9) — rate limit 5/day/user. */
+   913→  create: (data: { subject: string; body: string }) =>
+   914→    request<{ ok: true }>("/api/support", { method: "POST", body: body(data) }),
+   915→};
+   916→
+   917→export const socialApi = {
+   918→  /** GET /api/account/social (§9). */
+   919→  list: () => request<{ providers: Array<{ id: string; label: string; linked: boolean }> }>("/api/account/social"),
+   920→  /** POST /api/account/social (§9) — link (env-gated in sandbox). */
+   921→  link: (providerId: string) =>
+   922→    request<{ ok: boolean; redirectUrl?: string }>("/api/account/social", {
+   923→      method: "POST",
+   924→      body: body({ provider: providerId, action: "link" }),
+   925→    }),
+   926→  /** DELETE /api/account/social (§9) — unlink. */
+   927→  unlink: (providerId: string) =>
+   928→    request<{ ok: boolean }>("/api/account/social", {
+   929→      method: "DELETE",
+   930→      body: body({ provider: providerId, action: "unlink" }),
+   931→    }),
+   932→};
+   933→
+   934→export const accountDeleteApi = {
+   935→  /** POST /api/account/delete (§9) — soft delete + anonymize + sign out. */
+   936→  delete: () => request<{ ok: true }>("/api/account/delete", { method: "POST", body: body({ confirm: "DELETE" }) }),
+   937→};
+   938→

@@ -464,43 +464,113 @@ export async function appendDayToWorkout(
   workoutId: string,
   date: Date,
 ): Promise<Set<string>> {
-  // recreate routine groups in the workout
-  const routineGroupIds = new Set(day.exercises.map((e) => e.groupId).filter(Boolean));
+  // ---- Part 9 §5.1/§5.2: the workout mirrors the OVERRIDE-MERGED day ----
+  // (series order + replacements). Without an override this is the template
+  // order; sets always come from the original RoutineExercise rows (kept).
+  const override = await tx.dayOverride.findUnique({
+    where: { userId_dayId: { userId, dayId: day.id } },
+  });
+  // Tolerant parse: legacy rows stored JSON.stringify'd values; new rows store
+  // parsed Json. Both shapes work here.
+  const parseJson = <T,>(v: unknown): T | null => {
+    if (v == null) return null;
+    if (typeof v === "string") {
+      try {
+        return JSON.parse(v) as T;
+      } catch {
+        return null;
+      }
+    }
+    return v as T;
+  };
+  let seriesOrder: string[][] | null = null;
+  let replacements: Record<string, string> = {};
+  if (override) {
+    const so = parseJson<unknown[]>(override.seriesOrder);
+    if (Array.isArray(so) && so.length > 0 && so.every((s) => Array.isArray(s))) {
+      seriesOrder = (so as unknown[][]).map((s) => s.filter((x) => typeof x === "string")) as string[][];
+    }
+    const r = parseJson<Record<string, string>>(override.replacements);
+    if (r && typeof r === "object" && !Array.isArray(r)) replacements = r;
+  }
+  const byId = new Map(day.exercises.map((e) => [e.id, e]));
+  const ordered: typeof day.exercises = [];
+  if (seriesOrder) {
+    for (const series of seriesOrder) {
+      for (const id of series) {
+        const re = byId.get(id);
+        if (re) {
+          ordered.push(re);
+          byId.delete(id);
+        }
+      }
+    }
+    for (const re of byId.values()) ordered.push(re); // leftovers keep template order
+  } else {
+    ordered.push(...day.exercises);
+  }
+  const exerciseIdOf = (re: (typeof day.exercises)[number]) => replacements[re.id] ?? re.exerciseId;
+
+  // ---- groups: override series (label by size) or template groups ----
   const groupMap = new Map<string, string>();
-  for (const gid of routineGroupIds) {
-    const rg = await tx.routineGroup.findFirst({ where: { id: gid!, userId } });
-    if (!rg) continue;
-    const existing = await tx.workoutGroup.findFirst({ where: { workoutId, name: rg.name } });
-    const g =
-      existing ??
-      (await tx.workoutGroup.create({
-        data: { id: uuid7(), userId, workoutId, name: rg.name, colour: rg.colour },
-      }));
-    groupMap.set(gid!, g.id);
+  const groupIdOf = (re: (typeof day.exercises)[number]): string | null => {
+    if (seriesOrder) return groupMap.get(`series:${re.id}`) ?? null;
+    return re.groupId ? groupMap.get(re.groupId) ?? null : null;
+  };
+  if (seriesOrder) {
+    const label = (n: number) => (n === 2 ? "Superset" : n === 3 ? "Triset" : "Giant set");
+    for (const series of seriesOrder) {
+      if (series.length < 2) continue;
+      const name = label(series.length);
+      const existing = await tx.workoutGroup.findFirst({ where: { workoutId, name } });
+      const g =
+        existing ??
+        (await tx.workoutGroup.create({
+          data: { id: uuid7(), userId, workoutId, name, colour: "#f97316" },
+        }));
+      for (const id of series) groupMap.set(`series:${id}`, g.id);
+    }
+  } else {
+    const routineGroupIds = new Set(day.exercises.map((e) => e.groupId).filter(Boolean));
+    for (const gid of routineGroupIds) {
+      const rg = await tx.routineGroup.findFirst({ where: { id: gid!, userId } });
+      if (!rg) continue;
+      const existing = await tx.workoutGroup.findFirst({ where: { workoutId, name: rg.name } });
+      const g =
+        existing ??
+        (await tx.workoutGroup.create({
+          data: { id: uuid7(), userId, workoutId, name: rg.name, colour: rg.colour },
+        }));
+      groupMap.set(gid!, g.id);
+    }
   }
 
   const affected = new Set<string>();
   let sortOrder = await tx.workoutExercise.count({ where: { workoutId } });
 
-  for (const re of day.exercises) {
-    affected.add(re.exerciseId);
-    let twe = await tx.workoutExercise.findFirst({ where: { workoutId, exerciseId: re.exerciseId } });
+  for (const re of ordered) {
+    const exerciseId = exerciseIdOf(re);
+    affected.add(exerciseId);
+    let twe = await tx.workoutExercise.findFirst({ where: { workoutId, exerciseId } });
     if (!twe) {
       twe = await tx.workoutExercise.create({
         data: {
           id: uuid7(),
           userId,
           workoutId,
-          exerciseId: re.exerciseId,
+          exerciseId,
           sortOrder: sortOrder++,
-          groupId: re.groupId ? groupMap.get(re.groupId) ?? null : null,
+          groupId: groupIdOf(re),
         },
       });
-    } else if (re.groupId && !twe.groupId) {
-      await tx.workoutExercise.update({
-        where: { id: twe.id },
-        data: { groupId: groupMap.get(re.groupId) ?? null },
-      });
+    } else if (!twe.groupId) {
+      const gid = groupIdOf(re);
+      if (gid) {
+        await tx.workoutExercise.update({
+          where: { id: twe.id },
+          data: { groupId: gid },
+        });
+      }
     }
 
     const predefined = re.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder);
@@ -516,13 +586,13 @@ export async function appendDayToWorkout(
     };
 
     // ---- Part 8 §6.4: %1RM resolution (falls back to copy-last without e1RM) ----
-    const prs = await tx.personalRecord.findMany({ where: { userId, exerciseId: re.exerciseId } });
+    const prs = await tx.personalRecord.findMany({ where: { userId, exerciseId } });
     const e1rmMethod = (await tx.userSettings.findUnique({ where: { userId } }))?.e1rmMethod ?? "BRZYCKI";
     const e1rm =
       prs.length > 0
         ? Math.max(...prs.map((pr) => estOneRmByMethod(pr.weight, pr.reps, e1rmMethod)))
         : null;
-    const plateStep = (await tx.exercise.findUnique({ where: { id: re.exerciseId } }))?.weightIncrement
+    const plateStep = (await tx.exercise.findUnique({ where: { id: exerciseId } }))?.weightIncrement
       ?? (await tx.userSettings.findUnique({ where: { userId } }))?.defaultWeightIncrement
       ?? 2.5;
     const resolveWeight = (s: { weightKind: string | null; pct: number | null; weight: number | null }): number | null => {
@@ -565,7 +635,7 @@ export async function appendDayToWorkout(
     const prev =
       anyBlank || isBlank
         ? await tx.workoutExercise.findFirst({
-            where: { userId, exerciseId: re.exerciseId, workout: { date: { lt: date } } },
+            where: { userId, exerciseId, workout: { date: { lt: date } } },
             include: { sets: { orderBy: { sortOrder: "asc" } } },
             orderBy: { workout: { date: "desc" } },
           })

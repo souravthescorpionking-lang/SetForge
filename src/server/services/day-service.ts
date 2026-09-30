@@ -337,9 +337,11 @@ export async function putDayOverride(userId: string, dayId: string, patch: DayOv
 
   const data = {
     // SQLite Json null = the Prisma.DbNull sentinel (typed null for Json fields).
-    seriesOrder: next.seriesOrder ? JSON.stringify(next.seriesOrder) : Prisma.DbNull,
-    replacements: Object.keys(next.replacements).length > 0 ? JSON.stringify(next.replacements) : Prisma.DbNull,
-    notes: Object.keys(next.notes).length > 0 ? JSON.stringify(next.notes) : Prisma.DbNull,
+    // Values are stored as PARSED Json (arrays/objects) — Part 9 §5 read paths
+    // (day merge + appendDayToWorkout) tolerate legacy string-encoded rows.
+    seriesOrder: next.seriesOrder ? (next.seriesOrder as Prisma.InputJsonValue) : Prisma.DbNull,
+    replacements: Object.keys(next.replacements).length > 0 ? (next.replacements as Prisma.InputJsonValue) : Prisma.DbNull,
+    notes: Object.keys(next.notes).length > 0 ? (next.notes as Prisma.InputJsonValue) : Prisma.DbNull,
   };
 
   await db.dayOverride.upsert({

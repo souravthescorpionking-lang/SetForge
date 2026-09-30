@@ -1,0 +1,586 @@
+   468→        toast.success(`“${day.name}” unmarked`, {
+   469→          action: { label: "Undo", onClick: () => void markDayDone(day, true) },
+   470→        });
+   471→      }
+   472→    } catch (e) {
+   473→      toast.error(errorMessage(e));
+   474→    }
+   475→  };
+   476→
+   477→  // ---------- group cards (view mode) ----------
+   478→  const handleGroupAction =
+   479→    (members: RoutineExerciseDTO[]) =>
+   480→    (action: CardAction, entryIndex: number): void => {
+   481→      const re = members[entryIndex];
+   482→      switch (action.type) {
+   483→        case "detail":
+   484→        case "history":
+   485→        case "graph":
+   486→        case "records":
+   487→          // action.exerciseId carries the card entry id — navigate by the
+   488→          // underlying library exercise id instead.
+   489→          if (re) navigate(`/exercise-overview/${re.exerciseId}`);
+   490→          break;
+   491→        case "notes":
+   492→          if (re) setNotesReId(re.id);
+   493→          break;
+   494→        default:
+   495→          break; // view mode emits only the … nav + notes actions
+   496→      }
+   497→    };
+   498→
+   499→  const renderDayBody = (day: RoutineDayDTO) => {
+   500→    const isRest = (day.dayType ?? "WORKOUT") === "REST";
+   501→    if (isRest) {
+   502→      return (
+   503→        <div
+   504→          data-row
+   505→          className="flex h-10 items-center overflow-hidden whitespace-nowrap px-3 text-sm text-muted-foreground"
+   506→        >
+   507→          Rest day — nothing to log
+   508→        </div>
+   509→      );
+   510→    }
+   511→    const exercises = [...day.exercises].sort((a, b) => a.sortOrder - b.sortOrder);
+   512→    if (exercises.length === 0) {
+   513→      return (
+   514→        <p className="flex-none rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+   515→          No exercises in this day yet.
+   516→        </p>
+   517→      );
+   518→    }
+   519→    // §2.1 grouping: ungrouped exercises are their own group of 1; grouped
+   520→    // members get A1/A2 member codes, singletons show the bare group letter.
+   521→    const groups = deriveGroups(exercises);
+   522→    return (
+   523→      <div className="flex-none p-2">
+   524→        <GroupCardStack>
+   525→          {groups.map((g) => {
+   526→            const notesMember = g.members.find((m) => m.id === notesReId) ?? null;
+   527→            return (
+   528→              <div key={g.key} className="relative flex-none">
+   529→                <GroupCard
+   530→                  mode="view"
+   531→                  group={{ code: g.code, label: g.label }}
+   532→                  entries={g.members.map((re, i) => ({
+   533→                    exercise: toCardExercise(re, settings),
+   534→                    sets: [...re.sets]
+   535→                      .sort((a, b) => a.sortOrder - b.sortOrder)
+   536→                      .map((s, j) => toCardSet(s, j + 1)),
+   537→                    code: g.size > 1 ? memberCode(g.code, i) : g.code,
+   538→                  }))}
+   539→                  visibleColumns={visibleColumns}
+   540→                  onAction={handleGroupAction(g.members)}
+   541→                />
+   542→                {notesMember ? (
+   543→                  <ExerciseNotesPopover
+   544→                    exerciseName={notesMember.exercise.name}
+   545→                    notes={notesMember.exercise.notes ?? null}
+   546→                    open
+   547→                    onClose={() => setNotesReId(null)}
+   548→                  />
+   549→                ) : null}
+   550→              </div>
+   551→            );
+   552→          })}
+   553→        </GroupCardStack>
+   554→      </div>
+   555→    );
+   556→  };
+   557→
+   558→  // ---------- day header (56px accordion row) ----------
+   559→  const renderDayHeader = (day: RoutineDayDTO, index: number) => {
+   560→    const open = effectiveOpen(day.id);
+   561→    const isRest = (day.dayType ?? "WORKOUT") === "REST";
+   562→    const isCursorDay = !!followed && index === followed.cursorDayIndex;
+   563→    const isDone = completedIds.has(day.id);
+   564→    return (
+   565→      <div
+   566→        data-row
+   567→        role="button"
+   568→        tabIndex={0}
+   569→        aria-expanded={open}
+   570→        aria-label={`Day ${index + 1} ${day.name}${isRest ? " — rest day" : ""}${isCursorDay ? " — today" : ""}${isDone ? " — completed" : ""}`}
+   571→        {...tourAttrs({ id: "programDetail.dayRow", label: "Day row", help: "Open to see this day's exercise groups.", order: 70 })}
+   572→        className="relative flex h-14 cursor-pointer select-none items-center gap-1 overflow-hidden whitespace-nowrap pl-3 pr-1 transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+   573→        onClick={() => {
+   574→          if (suppressClick.current) {
+   575→            suppressClick.current = false;
+   576→            return;
+   577→          }
+   578→          toggleDay(day.id);
+   579→        }}
+   580→        onKeyDown={(e) => {
+   581→          if (e.target !== e.currentTarget) return;
+   582→          if (e.key === "Enter" || e.key === " ") {
+   583→            e.preventDefault();
+   584→            toggleDay(day.id);
+   585→          }
+   586→        }}
+   587→        onPointerDown={beginLongPress(day.id)}
+   588→        onPointerMove={longPressMove}
+   589→        onPointerUp={cancelLongPress}
+   590→        onPointerLeave={cancelLongPress}
+   591→        onPointerCancel={cancelLongPress}
+   592→        onContextMenu={openDayMenu(day.id)}
+   593→      >
+   594→        {/* 4px cursor accent bar — the followed program's current day */}
+   595→        {isCursorDay ? (
+   596→          <span className="absolute inset-y-0 left-0 w-1 bg-primary" aria-hidden />
+   597→        ) : null}
+   598→        <Button
+   599→          type="button"
+   600→          variant="ghost"
+   601→          className="h-11 w-6 flex-none p-0"
+   602→          onClick={(e) => {
+   603→            e.stopPropagation();
+   604→            toggleDay(day.id);
+   605→          }}
+   606→          aria-label={open ? `Collapse ${day.name}` : `Expand ${day.name}`}
+   607→          aria-expanded={open}
+   608→          tour={{ id: "programDetail.dayToggle", label: "Day chevron", help: "Expand or collapse this day's exercises.", order: 80 }}
+   609→        >
+   610→          <ChevronDown
+   611→            className={cn("h-4 w-4 transition-transform", open ? "" : "-rotate-90")}
+   612→            aria-hidden
+   613→          />
+   614→        </Button>
+   615→        <span className="w-14 flex-none text-xs font-semibold leading-none text-muted-foreground">
+   616→          Day {index + 1}
+   617→        </span>
+   618→        <span
+   619→          className={cn(
+   620→            "min-w-0 flex-1 truncate text-sm font-semibold leading-none",
+   621→            isRest && "text-muted-foreground",
+   622→          )}
+   623→        >
+   624→          {isRest ? (
+   625→            <Moon className="mr-1 inline h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+   626→          ) : null}
+   627→          {day.name}
+   628→        </span>
+   629→        {/* right status chip: ✓ completed · "Today" cursor day */}
+   630→        {isDone ? (
+   631→          <span
+   632→            {...tourAttrs({ id: "programDetail.doneChip", label: "Done chip", help: "This day is already completed.", order: 90 })}
+   633→            className="flex h-6 flex-none items-center gap-1 rounded-full border border-emerald-600/30 bg-emerald-600/15 px-2 text-[10px] font-bold uppercase leading-none text-emerald-600 dark:border-emerald-400/30 dark:text-emerald-400"
+   634→            aria-label={`${day.name} completed`}
+   635→          >
+   636→            <Check className="h-3.5 w-3.5" aria-hidden />
+   637→          </span>
+   638→        ) : isCursorDay ? (
+   639→          <span
+   640→            {...tourAttrs({ id: "programDetail.todayChip", label: "Today chip", help: "The current day in your followed program.", order: 100 })}
+   641→            className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/5 px-2 text-[10px] font-bold uppercase leading-none text-primary"
+   642→          >
+   643→            Today
+   644→          </span>
+   645→        ) : null}
+   646→        {/* ⋮ = the same menu long-press opens (Schedule · Favourite · Mark off · History) */}
+   647→        <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
+   648→          <DropdownMenu open={menuDayId === day.id} onOpenChange={(o) => setMenuDayId(o ? day.id : null)}>
+   649→            <DropdownMenuTrigger asChild>
+   650→              <Button
+   651→                type="button"
+   652→                variant="ghost"
+   653→                className="h-11 w-11 p-0"
+   654→                aria-label={`Actions for ${day.name}`}
+   655→                tour={{ id: "programDetail.dayMenu", label: "Day menu", help: "Schedule, favourite, mark off or check this day's history.", order: 140 }}
+   656→              >
+   657→                <MoreVertical className="h-5 w-5" aria-hidden />
+   658→              </Button>
+   659→            </DropdownMenuTrigger>
+   660→            <DropdownMenuContent align="end" className="w-44">
+   661→              <DropdownMenuItem onClick={() => setScheduleDay(day)}>
+   662→                <CalendarClock className="h-4 w-4" aria-hidden /> Schedule…
+   663→              </DropdownMenuItem>
+   664→              <DropdownMenuItem onClick={() => void toggleDayFavourite(day)}>
+   665→                <Star className="h-4 w-4" aria-hidden fill={day.isFavorite ? "currentColor" : "none"} />
+   666→                {day.isFavorite ? "Unfavourite" : "Favourite"}
+   667→              </DropdownMenuItem>
+   668→              <DropdownMenuItem
+   669→                onClick={() =>
+   670→                  completedIds.has(day.id) ? void unmarkDayDone(day) : void markDayDone(day)
+   671→                }
+   672→              >
+   673→                <CheckCircle2 className="h-4 w-4" aria-hidden />
+   674→                {completedIds.has(day.id) ? "Unmark off" : "Mark off"}
+   675→              </DropdownMenuItem>
+   676→              <DropdownMenuItem onClick={() => navigate(`/logs?routineId=${routineId}&dayId=${day.id}`)}>
+   677→                <History className="h-4 w-4" aria-hidden /> History
+   678→              </DropdownMenuItem>
+   679→            </DropdownMenuContent>
+   680→          </DropdownMenu>
+   681→        </span>
+   682→      </div>
+   683→    );
+   684→  };
+   685→
+   686→  // ---------- render ----------
+   687→  return (
+   688→    <Screen
+   689→      topBar={
+   690→        <TopBar
+   691→          leading={<BackButton fallbackHash="#/programs" label="Back to Programs" />}
+   692→          title={routine ? routine.name : "Program"}
+   693→          actions={
+   694→            routine ? (
+   695→              <>
+   696→                <DropdownMenu>
+   697→                  <DropdownMenuTrigger asChild>
+   698→                    <Button
+   699→                      type="button"
+   700→                      variant="ghost"
+   701→                      size="icon"
+   702→                      className="h-11 w-11 flex-none"
+   703→                      aria-label="More actions"
+   704→                      tour={{ id: "programDetail.menu", label: "Program menu", help: "Edit in Builder, schedule, skip, jump, unfollow, copy or delete.", order: 50 }}
+   705→                    >
+   706→                      <MoreVertical className="h-5 w-5" aria-hidden />
+   707→                    </Button>
+   708→                  </DropdownMenuTrigger>
+   709→                  <DropdownMenuContent align="end" className="w-48">
+   710→                    <DropdownMenuItem onClick={() => navigate(`/builder/program/${routineId}`)}>
+   711→                      <Hammer className="h-4 w-4" aria-hidden /> Edit in Builder
+   712→                    </DropdownMenuItem>
+   713→                    <DropdownMenuItem
+   714→                      disabled={!scheduleTargetDay}
+   715→                      onClick={() => scheduleTargetDay && setScheduleDay(scheduleTargetDay)}
+   716→                    >
+   717→                      <CalendarClock className="h-4 w-4" aria-hidden /> Schedule day…
+   718→                    </DropdownMenuItem>
+   719→                    <DropdownMenuItem disabled={!followed} onClick={() => void skipCursorDay()}>
+   720→                      <SkipForward className="h-4 w-4" aria-hidden /> Skip day
+   721→                    </DropdownMenuItem>
+   722→                    <DropdownMenuItem disabled={!followed} onClick={() => setJumpOpen((o) => !o)}>
+   723→                      <ArrowDownUp className="h-4 w-4" aria-hidden /> Jump to day…
+   724→                    </DropdownMenuItem>
+   725→                    <DropdownMenuItem disabled={!followed} onClick={() => setUnfollowOpen(true)}>
+   726→                      <StarOff className="h-4 w-4" aria-hidden /> Unfollow
+   727→                    </DropdownMenuItem>
+   728→                    <DropdownMenuItem onClick={() => void copyRoutine()}>
+   729→                      <Copy className="h-4 w-4" aria-hidden /> Copy
+   730→                    </DropdownMenuItem>
+   731→                    <DropdownMenuItem
+   732→                      className="text-destructive focus:text-destructive"
+   733→                      onClick={() => setDeleteRoutineOpen(true)}
+   734→                    >
+   735→                      <Trash2 className="h-4 w-4" aria-hidden /> Delete
+   736→                    </DropdownMenuItem>
+   737→                  </DropdownMenuContent>
+   738→                </DropdownMenu>
+   739→                <TopBarHelp />
+   740→              </>
+   741→            ) : (
+   742→              <TopBarHelp />
+   743→            )
+   744→          }
+   745→        />
+   746→      }
+   747→      subBar={
+   748→        <SubBar>
+   749→          <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground" aria-label="Program details">
+   750→            {routine
+   751→              ? programMetaLine({
+   752→                  difficulty: routine.difficulty ?? null,
+   753→                  daysPerWeek: routine.daysPerWeek ?? null,
+   754→                  dayCount: routine.days.length,
+   755→                  estMinutes: routine.estMinutes ?? null,
+   756→                }) ||
+   757→                `${routine.days.length} ${routine.days.length === 1 ? "day" : "days"}`
+   758→              : "Program"}
+   759→          </p>
+   760→        </SubBar>
+   761→      }
+   762→      bottomBar={
+   763→        routine ? (
+   764→          <BottomBar>
+   765→            {followed ? (
+   766→              (followed.dayType ?? "WORKOUT") === "REST" ? (
+   767→                <Button
+   768→                  type="button"
+   769→                  className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   770→                  aria-label="Train anyway on this rest day"
+   771→                  tour={{ id: "programDetail.trainAnyway", label: "Train anyway", help: "Pick a ready session to train on a rest day.", order: 140 }}
+   772→                  onClick={() => navigate("/on-demand")}
+   773→                >
+   774→                  Train anyway
+   775→                </Button>
+   776→              ) : (
+   777→                <Button
+   778→                  type="button"
+   779→                  className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   780→                  disabled={startBusy}
+   781→                  aria-label={`Start day ${followed.cursorDayIndex + 1} of ${followed.dayCount}`}
+   782→                  tour={{ id: "programDetail.startDay", label: "Start day", help: "Create today's session from the current day and start logging.", order: 130 }}
+   783→                  onClick={() => void startDay()}
+   784→                >
+   785→                  {startBusy ? (
+   786→                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+   787→                  ) : (
+   788→                    <Play className="h-4 w-4" aria-hidden />
+   789→                  )}
+   790→                  {isSession ? "Start session" : `Start Day ${followed.cursorDayIndex + 1}`}
+   791→                </Button>
+   792→              )
+   793→            ) : hasWorkoutDay ? (
+   794→              <Button
+   795→                type="button"
+   796→                className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   797→                aria-label={`Follow ${routine.name}`}
+   798→                tour={{ id: "programDetail.follow", label: "Follow", help: "Make this program drive your daily workouts.", order: 120 }}
+   799→                onClick={onFollowClick}
+   800→              >
+   801→                Follow
+   802→              </Button>
+   803→            ) : (
+   804→              <Tooltip>
+   805→                <TooltipTrigger asChild>
+   806→                  <Button
+   807→                    type="button"
+   808→                    variant="outline"
+   809→                    disabled
+   810→                    className="h-11 w-full gap-1.5 whitespace-nowrap text-sm font-bold"
+   811→                    aria-label="Follow disabled — needs a workout day"
+   812→                    tour={{ skipTour: true, reason: "Disabled follow; program has no workout day" }}
+   813→                  >
+   814→                    Follow
+   815→                  </Button>
+   816→                </TooltipTrigger>
+   817→                <TooltipContent>Needs at least one workout day</TooltipContent>
+   818→              </Tooltip>
+   819→            )}
+   820→          </BottomBar>
+   821→        ) : undefined
+   822→      }
+   823→    >
+   824→      <ScrollBody>
+   825→        {error ? (
+   826→          <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+   827→            <p className="text-sm font-semibold">Program not found</p>
+   828→            <Button
+   829→              type="button"
+   830→              variant="outline"
+   831→              tour={{ skipTour: true, reason: "Error-state back link for a missing program" }}
+   832→              onClick={() => navigate("/programs")}
+   833→            >
+   834→              Back to programs
+   835→            </Button>
+   836→          </div>
+   837→        ) : isLoading ? (
+   838→          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading program">
+   839→            <div className="h-12 animate-pulse rounded-lg bg-muted/40" />
+   840→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   841→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   842→            <div className="h-14 animate-pulse rounded-lg bg-muted/40" />
+   843→          </div>
+   844→        ) : routine ? (
+   845→          <>
+   846→            {/* §3.5 following row — only when this program is the active one */}
+   847→            {followed ? (
+   848→              <div
+   849→                data-row
+   850→                aria-label="Program cursor"
+   851→                {...tourAttrs({ id: "programDetail.following", label: "Following day", help: "Where you are in this program — day number and day name.", order: 60 })}
+   852→                className="flex h-12 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-primary/40 bg-primary/5 px-3"
+   853→              >
+   854→                <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">
+   855→                  Day {followed.cursorDayIndex + 1}/{followed.dayCount} · {followed.dayName}
+   856→                </span>
+   857→              </div>
+   858→            ) : null}
+   859→
+   860→            {jumpOpen && followed ? (
+   861→              // ---------- Jump list — REPLACES the day sections ----------
+   862→              <div className="flex flex-col gap-2" aria-label="Jump to day">
+   863→                <p className="flex h-8 flex-none items-center overflow-hidden px-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+   864→                  <span className="truncate">Jump to day</span>
+   865→                </p>
+   866→                {days.map((day, index) => {
+   867→                  const isRest = (day.dayType ?? "WORKOUT") === "REST";
+   868→                  const isCurrent = index === followed.cursorDayIndex;
+   869→                  return (
+   870→                    <button
+   871→                      key={day.id}
+   872→                      type="button"
+   873→                      data-row
+   874→                      aria-label={`Jump to Day ${index + 1} · ${day.name}`}
+   875→                      aria-current={isCurrent ? "true" : undefined}
+   876→                      {...tourAttrs({ id: "programDetail.jumpRow", label: "Day row", help: "Move the program cursor to this day.", order: 110 })}
+   877→                      onClick={() => {
+   878→                        setJumpOpen(false);
+   879→                        void jumpToDay(index);
+   880→                      }}
+   881→                      className={cn(
+   882→                        "flex h-12 w-full items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border px-3 text-left text-sm transition-colors",
+   883→                        isCurrent
+   884→                          ? "border-primary/60 bg-primary/10"
+   885→                          : "border-border bg-card hover:border-primary/40 hover:bg-accent/40",
+   886→                        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+   887→                      )}
+   888→                    >
+   889→                      <span className="w-14 flex-none text-xs font-semibold text-muted-foreground">
+   890→                        Day {index + 1}
+   891→                      </span>
+   892→                      {isRest ? (
+   893→                        <Moon className="h-4 w-4 flex-none text-muted-foreground/70" aria-hidden />
+   894→                      ) : (
+   895→                        <Dumbbell className="h-4 w-4 flex-none text-primary" aria-hidden />
+   896→                      )}
+   897→                      <span className={cn("min-w-0 flex-1 truncate font-medium", isRest && "text-muted-foreground")}>
+   898→                        {day.name}
+   899→                      </span>
+   900→                      <span
+   901→                        className={cn(
+   902→                          "flex h-6 flex-none items-center rounded-full border px-2 text-[10px] font-bold uppercase leading-none",
+   903→                          isRest
+   904→                            ? "border-border text-muted-foreground"
+   905→                            : "border-primary/40 text-primary",
+   906→                        )}
+   907→                      >
+   908→                        {isRest ? "Rest" : "Workout"}
+   909→                      </span>
+   910→                      {isCurrent ? (
+   911→                        <Check className="h-4 w-4 flex-none text-primary" aria-label="Current day" />
+   912→                      ) : null}
+   913→                    </button>
+   914→                  );
+   915→                })}
+   916→                <Button
+   917→                  type="button"
+   918→                  variant="outline"
+   919→                  className="h-11 flex-none"
+   920→                  tour={{ skipTour: true, reason: "Cancel row inside the jump-to-day list" }}
+   921→                  onClick={() => setJumpOpen(false)}
+   922→                >
+   923→                  Cancel
+   924→                </Button>
+   925→              </div>
+   926→            ) : (
+   927→              <>
+   928→                {days.map((day, index) => (
+   929→                  <DaySection key={day.id} open={effectiveOpen(day.id)} header={renderDayHeader(day, index)}>
+   930→                    {renderDayBody(day)}
+   931→                  </DaySection>
+   932→                ))}
+   933→
+   934→                {days.length === 0 ? (
+   935→                  <div className="flex h-[200px] flex-none flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
+   936→                    <p className="text-sm font-semibold">No days yet</p>
+   937→                    <p className="max-w-[280px] text-center text-xs text-muted-foreground">
+   938→                      Build this program&apos;s training days in the Builder.
+   939→                    </p>
+   940→                    <Button
+   941→                      type="button"
+   942→                      variant="outline"
+   943→                      className="gap-1.5"
+   944→                      tour={{ id: "programDetail.openBuilder", label: "Open Builder", help: "Open this program in the Builder to add days.", order: 150, when: ["empty"] }}
+   945→                      onClick={() => navigate(`/builder/program/${routineId}`)}
+   946→                    >
+   947→                      <Hammer className="h-4 w-4" aria-hidden />
+   948→                      Open in Builder
+   949→                    </Button>
+   950→                  </div>
+   951→                ) : null}
+   952→              </>
+   953→            )}
+   954→
+   955→            {/* day scheduling (day ⋮ + TopBar ⋮ "Schedule day…") */}
+   956→            <DatePickerDialog
+   957→              open={scheduleDay != null}
+   958→              onOpenChange={(o) => !o && setScheduleDay(null)}
+   959→              initialKey={todayKey()}
+   960→              title={`Schedule ${scheduleDay?.name ?? "day"}`}
+   961→              description={`Which date should ${routine.name} · ${scheduleDay?.name ?? "this day"} land on?`}
+   962→              onSelect={(dayKey) => {
+   963→                const day = scheduleDay;
+   964→                setScheduleDay(null);
+   965→                if (day) scheduleRoutineDay(day, dayKey);
+   966→              }}
+   967→            />
+   968→            {scheduleCreate.conflictDialog}
+   969→          </>
+   970→        ) : null}
+   971→      </ScrollBody>
+   972→
+   973→      {/* confirm-destructive: program delete */}
+   974→      <AlertDialog open={deleteRoutineOpen} onOpenChange={(o) => !o && setDeleteRoutineOpen(false)}>
+   975→        <AlertDialogContent>
+   976→          <AlertDialogHeader>
+   977→            <AlertDialogTitle>Delete program?</AlertDialogTitle>
+   978→            <AlertDialogDescription>
+   979→              “{routine?.name}” and its {days.length} day{days.length === 1 ? "" : "s"} will be removed. Logged
+   980→              workouts stay untouched. This cannot be undone.
+   981→            </AlertDialogDescription>
+   982→          </AlertDialogHeader>
+   983→          <AlertDialogFooter>
+   984→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   985→            <AlertDialogAction
+   986→              className="bg-destructive text-white hover:bg-destructive/90"
+   987→              onClick={(e) => {
+   988→                e.preventDefault();
+   989→                setDeleteRoutineOpen(false);
+   990→                void removeRoutine();
+   991→              }}
+   992→            >
+   993→              Delete program
+   994→            </AlertDialogAction>
+   995→          </AlertDialogFooter>
+   996→        </AlertDialogContent>
+   997→      </AlertDialog>
+   998→
+   999→      {/* confirm: unfollow the program (⏪ no Undo — follow restarts at Day 1) */}
+  1000→      <AlertDialog open={unfollowOpen} onOpenChange={(o) => !o && setUnfollowOpen(false)}>
+  1001→        <AlertDialogContent>
+  1002→          <AlertDialogHeader>
+  1003→            <AlertDialogTitle>Unfollow {routine?.name ?? "this program"}?</AlertDialogTitle>
+  1004→            <AlertDialogDescription>
+  1005→              Your followed-program card and day rollover stop updating. Logged workouts stay untouched —
+  1006→              you can follow again any time.
+  1007→            </AlertDialogDescription>
+  1008→          </AlertDialogHeader>
+  1009→          <AlertDialogFooter>
+  1010→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1011→            <AlertDialogAction
+  1012→              onClick={(e) => {
+  1013→                e.preventDefault();
+  1014→                setUnfollowOpen(false);
+  1015→                void unfollowProgram();
+  1016→              }}
+  1017→            >
+  1018→              Unfollow
+  1019→            </AlertDialogAction>
+  1020→          </AlertDialogFooter>
+  1021→        </AlertDialogContent>
+  1022→      </AlertDialog>
+  1023→
+  1024→      {/* destructive confirm: replace the followed program */}
+  1025→      <AlertDialog open={followReplaceOpen} onOpenChange={(o) => !o && setFollowReplaceOpen(false)}>
+  1026→        <AlertDialogContent>
+  1027→          <AlertDialogHeader>
+  1028→            <AlertDialogTitle>
+  1029→              Unfollow {active?.routineName ?? "your program"} and start {routine?.name} from Day 1?
+  1030→            </AlertDialogTitle>
+  1031→            <AlertDialogDescription>
+  1032→              Only one program can drive your daily workouts and day rollover at a time. Your logged
+  1033→              workouts are never touched.
+  1034→            </AlertDialogDescription>
+  1035→          </AlertDialogHeader>
+  1036→          <AlertDialogFooter>
+  1037→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1038→            <AlertDialogAction
+  1039→              onClick={(e) => {
+  1040→                e.preventDefault();
+  1041→                setFollowReplaceOpen(false);
+  1042→                void followProgram();
+  1043→              }}
+  1044→            >
+  1045→              Start from Day 1
+  1046→            </AlertDialogAction>
+  1047→          </AlertDialogFooter>
+  1048→        </AlertDialogContent>
+  1049→      </AlertDialog>
+  1050→    </Screen>
+  1051→  );
+  1052→}
+  1053→
