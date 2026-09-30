@@ -112,7 +112,25 @@ export function mapSet(s: TrainingSet, newPr?: boolean): SetDTO {
   };
 }
 
-export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { exercise: ExerciseWithCategory; sets: TrainingSet[] }>; groups: WorkoutGroup[] }): WorkoutDTO {
+export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { exercise: ExerciseWithCategory; sets: TrainingSet[] }>; groups: WorkoutGroup[]; sourceRoutine?: { name: string } | null; sourceDay?: { name: string } | null }): WorkoutDTO {
+  // Part 9 §1/§8: Log provenance — sourceLabel/difficulty stored at start;
+  // derive a label when legacy rows predate the columns.
+  const derivedLabel = (() => {
+    if (w.sourceLabel) return w.sourceLabel;
+    const source = w.sourceType ?? "FREESTYLE";
+    if (source === "SESSION") return "On demand";
+    if (source === "ROUTINE_DAY") {
+      const program = w.sourceRoutine?.name;
+      const day = w.sourceDay?.name;
+      return program ? `${program}${day ? ` · ${day}` : ""}` : "Program";
+    }
+    return "Custom";
+  })();
+  const derivedDuration =
+    w.durationSec ??
+    (w.startAt && (w.endAt ?? w.finishedAt)
+      ? Math.max(0, Math.round(((w.endAt ?? w.finishedAt)!.getTime() - w.startAt.getTime()) / 1000))
+      : null);
   return {
     id: w.id,
     date: w.date.toISOString(),
@@ -124,6 +142,10 @@ export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { e
     sourceDayId: w.sourceDayId ?? null,
     scheduledStart: w.scheduledStart ?? false,
     finishedAt: w.finishedAt?.toISOString() ?? null,
+    // ---- Part 9: Log provenance ----
+    sourceLabel: derivedLabel,
+    difficulty: w.difficulty ?? null,
+    durationSec: derivedDuration,
     // ---- Part 8 §6.9: single remove semantics ----
     removedAt: w.removedAt?.toISOString() ?? null,
     removeReason: w.removeReason ?? null,
@@ -155,6 +177,8 @@ export function mapGroup(g: WorkoutGroup): WorkoutGroupDTO {
 export function mapWorkoutSummary(
   w: Workout & {
     exercises: Array<WorkoutExercise & { exercise: ExerciseWithCategory; sets: TrainingSet[] }>;
+    sourceRoutine?: { name: string } | null;
+    sourceDay?: { name: string } | null;
   },
 ): WorkoutSummaryDTO {
   let volume = 0;
@@ -175,7 +199,19 @@ export function mapWorkoutSummary(
     }
   }
   const durationSec =
-    w.startAt && w.endAt ? Math.max(0, Math.round((w.endAt.getTime() - w.startAt.getTime()) / 1000)) : 0;
+    w.durationSec ??
+    (w.startAt && w.endAt ? Math.max(0, Math.round((w.endAt.getTime() - w.startAt.getTime()) / 1000)) : 0);
+  const sourceLabel = (() => {
+    if (w.sourceLabel) return w.sourceLabel;
+    const source = w.sourceType ?? "FREESTYLE";
+    if (source === "SESSION") return "On demand";
+    if (source === "ROUTINE_DAY") {
+      const program = w.sourceRoutine?.name;
+      const day = w.sourceDay?.name;
+      return program ? `${program}${day ? ` · ${day}` : ""}` : "Program";
+    }
+    return "Custom";
+  })();
   return {
     id: w.id,
     date: w.date.toISOString(),
@@ -186,6 +222,13 @@ export function mapWorkoutSummary(
     durationSec,
     distance,
     categories: [...cats.values()],
+    // ---- Part 9 §8: list rows need the log's identity ----
+    sourceType: w.sourceType ?? "FREESTYLE",
+    sourceLabel,
+    difficulty: w.difficulty ?? null,
+    dayId: w.sourceDayId ?? null,
+    startAt: w.startAt?.toISOString() ?? null,
+    finishedAt: w.finishedAt?.toISOString() ?? null,
   };
 }
 
@@ -394,7 +437,7 @@ export function graphPointDayKey(date: Date | string): string {
 /** Map a ScheduleEntry row (with routine + day joined) to a DTO. `status` is the
  *  stored status — callers run `deriveEntryStatus` first for lazy transitions. */
 export function mapScheduleEntry(
-  e: ScheduleEntry & { routine: { name: string }; day?: { name: string } | null },
+  e: ScheduleEntry & { routine: { name: string }; day?: { name: string; dayType: string | null } | null },
 ): ScheduleEntryDTO {
   return {
     id: e.id,
@@ -411,5 +454,8 @@ export function mapScheduleEntry(
     timeOfDay: e.timeOfDay ?? null,
     estMinutes: e.estMinutes ?? null,
     missedAt: e.missedAt?.toISOString() ?? null,
+    // ---- Part 9 §6 ----
+    dayType: e.day?.dayType ?? null,
+    markedOff: e.markedOff ?? false,
   };
 }

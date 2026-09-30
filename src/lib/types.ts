@@ -188,6 +188,10 @@ export type WorkoutDTO = {
   sourceDayId: string | null;
   scheduledStart: boolean;
   finishedAt: string | null;
+  // ---- Part 9 §1/§8: Log provenance ----
+  sourceLabel: string | null; // PROGRAM "{program} · Day" · ON_DEMAND "On demand" · CUSTOM "Custom"
+  difficulty: string | null; // user difficulty at start; immutable
+  durationSec: number | null; // active seconds (set on finish; 0 = marked off)
   // ---- Part 8 §6.9: single remove semantics ----
   removedAt: string | null;
   removeReason: string | null;
@@ -205,6 +209,13 @@ export type WorkoutSummaryDTO = {
   durationSec: number;
   distance: number;
   categories: Array<{ name: string; colour: string }>;
+  // ---- Part 9 §8: list rows carry the log's identity ----
+  sourceType: string;
+  sourceLabel: string | null;
+  difficulty: string | null;
+  dayId: string | null;
+  startAt: string | null;
+  finishedAt: string | null;
 };
 
 export type RecordRowDTO = {
@@ -534,6 +545,9 @@ export type ScheduleEntryDTO = {
   timeOfDay?: string | null; // "HH:MM"
   estMinutes?: number | null;
   missedAt?: string | null;
+  // ---- Part 9 §6: dots + REST entries ----
+  dayType?: string | null; // WORKOUT | REST (REST entries render no dot)
+  markedOff?: boolean; // completed without training (§5 Mark off)
 };
 
 /** Ghost "projected" day for the calendar (showProjectedDays setting). */

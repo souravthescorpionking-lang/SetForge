@@ -1768,10 +1768,10 @@ export async function buildProgram(userId: string, input: BuilderInput): Promise
 
 /** POST /api/schedule/:id/time (§4.13) — set/clear time-of-day on an entry. */
 export async function setScheduleTime(userId: string, id: string, time: string | null): Promise<ReturnType<typeof mapScheduleEntry>> {
-  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: { routine: { select: { name: true } }, day: { select: { name: true } } } });
+  const entry = await db.scheduleEntry.findFirst({ where: { id, userId, deletedAt: null }, include: { routine: { select: { name: true } }, day: { select: { name: true, dayType: true } } } });
   if (!entry) throw notFound("Schedule entry not found");
   const updated = await db.scheduleEntry.update({ where: { id }, data: { timeOfDay: time } });
-  return mapScheduleEntry({ ...updated, routine: { name: entry.routine.name }, day: entry.day ? { name: entry.day.name } : null });
+  return mapScheduleEntry({ ...updated, routine: { name: entry.routine.name }, day: entry.day ? { name: entry.day.name, dayType: entry.day.dayType } : null });
 }
 
 // ---------- Part 9 §2: difficulty ----------

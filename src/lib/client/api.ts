@@ -178,7 +178,7 @@ export const workoutsApi = {
     request<{ workout: WorkoutDTO | null }>(`/api/workouts${qs({ date: dateKey })}`),
   /** Part 8 §3.10: the in-progress session (null → redirect to #/workout). */
   active: () => request<{ workout: WorkoutDTO | null }>("/api/workouts/active"),
-  list: (params?: { from?: string; to?: string; search?: string }) =>
+  list: (params?: { from?: string; to?: string; search?: string; dayId?: string }) =>
     request<{ workouts: WorkoutSummaryDTO[] }>(`/api/workouts${qs(params ?? {})}`),
   get: (id: string) => request<WorkoutDTO>(`/api/workouts/${id}`),
   createOrGet: (date: string) =>

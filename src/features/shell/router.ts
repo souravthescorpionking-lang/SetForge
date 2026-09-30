@@ -100,6 +100,8 @@ export type RouteName =
   | "account-support"
   | "account-social"
   | "account-delete"
+  | "account-privacy"
+  | "account-terms"
   | "dev";
 
 /** Params extracted from the URL contract (all optional — presence depends on route). */
@@ -166,6 +168,8 @@ export type Route =
   | ({ name: "account-support" } & RouteMeta)
   | ({ name: "account-social" } & RouteMeta)
   | ({ name: "account-delete" } & RouteMeta)
+  | ({ name: "account-privacy" } & RouteMeta)
+  | ({ name: "account-terms" } & RouteMeta)
   | ({ name: "dev" } & RouteMeta);
 
 /** Route used before the real hash is read (and on the server): #/workout. */
@@ -304,6 +308,8 @@ export function parseRoute(hash: string): Route | null {
       if (segs.length === 2 && segs[1] === "support") return { name: "account-support", ...meta };
       if (segs.length === 2 && segs[1] === "social") return { name: "account-social", ...meta };
       if (segs.length === 2 && segs[1] === "delete") return { name: "account-delete", ...meta };
+      if (segs.length === 2 && segs[1] === "privacy") return { name: "account-privacy", ...meta };
+      if (segs.length === 2 && segs[1] === "terms") return { name: "account-terms", ...meta };
       return null;
 
     case "library":

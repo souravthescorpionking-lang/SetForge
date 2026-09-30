@@ -14,11 +14,12 @@ export const GET = handler(async (req: NextRequest) => {
   const from = url.searchParams.get("from") ?? undefined;
   const to = url.searchParams.get("to") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
+  const dayId = url.searchParams.get("dayId") ?? undefined;
   if (date) {
     const w = await getWorkoutByDate(user.id, date);
     return { workout: w };
   }
-  return { workouts: await listWorkouts(user.id, { from, to, search }) };
+  return { workouts: await listWorkouts(user.id, { from, to, search, dayId }) };
 });
 
 export const POST = handler(async (req: NextRequest) => {

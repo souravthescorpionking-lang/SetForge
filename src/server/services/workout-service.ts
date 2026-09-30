@@ -16,6 +16,9 @@ export const workoutInclude = {
     },
   },
   groups: true,
+  // ---- Part 9 §8: sourceLabel derivation for legacy rows ----
+  sourceRoutine: { select: { name: true } },
+  sourceDay: { select: { name: true } },
 } satisfies Prisma.WorkoutInclude;
 
 type WorkoutFull = Prisma.WorkoutGetPayload<{ include: typeof workoutInclude }>;
@@ -110,7 +113,7 @@ export async function getWorkout(userId: string, id: string) {
 
 export async function listWorkouts(
   userId: string,
-  opts: { from?: string; to?: string; limit?: number; search?: string },
+  opts: { from?: string; to?: string; limit?: number; search?: string; dayId?: string },
 ) {
   const where: Prisma.WorkoutWhereInput = { userId, removedAt: null };
   if (opts.from || opts.to) {
@@ -119,6 +122,8 @@ export async function listWorkouts(
       ...(opts.to ? { lte: toDayUtc(opts.to) } : {}),
     };
   }
+  // Part 9 §8: ?dayId= filter (History action on a day).
+  if (opts.dayId) where.sourceDayId = opts.dayId;
   const rows = await db.workout.findMany({
     where,
     orderBy: { date: "desc" },
@@ -126,6 +131,7 @@ export async function listWorkouts(
     include: workoutInclude,
   });
   // Case-insensitive search across comment, exercise names and category names.
+  // Part 9 §8: also matches the sourceLabel (program name / "On demand" / routine name).
   // Done in JS (not Prisma `contains`) so behaviour is identical on SQLite and
   // Postgres (Prisma has no `mode: insensitive` on SQLite).
   if (opts.search && opts.search.trim()) {
@@ -134,6 +140,8 @@ export async function listWorkouts(
       .filter(
         (w) =>
           w.comment?.toLowerCase().includes(q) ||
+          (w.sourceLabel ?? "").toLowerCase().includes(q) ||
+          w.sourceRoutine?.name.toLowerCase().includes(q) ||
           w.exercises.some(
             (we) =>
               we.exercise.name.toLowerCase().includes(q) ||

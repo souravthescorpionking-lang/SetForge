@@ -44,6 +44,8 @@ import AccountSubscriptionScreen from "@/features/screens/account-subscription";
 import AccountSupportScreen from "@/features/screens/account-support";
 import AccountSocialScreen from "@/features/screens/account-social";
 import AccountDeleteScreen from "@/features/screens/account-delete";
+import AccountPrivacyScreen from "@/features/screens/account-privacy";
+import AccountTermsScreen from "@/features/screens/account-terms";
 import LibraryScreen from "@/features/screens/library";
 import LibraryEntryScreen from "@/features/screens/library-entry";
 import BuilderScreen from "@/features/screens/builder";
@@ -267,6 +269,10 @@ function renderScreen(route: Route): ReactNode {
       return <AccountSocialScreen />;
     case "account-delete":
       return <AccountDeleteScreen />;
+    case "account-privacy":
+      return <AccountPrivacyScreen />;
+    case "account-terms":
+      return <AccountTermsScreen />;
     case "dev":
       return <DevShowcaseScreen />;
   }
