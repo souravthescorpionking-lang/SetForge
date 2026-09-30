@@ -57,7 +57,6 @@ export function StatsTiles({ today }: { today: string }) {
         {/* Weight tile → #/progress */}
         <button
           type="button"
-          data-row
           {...tourAttrs({
             id: "dashboard.weightTile",
             label: "Weight tile",
@@ -92,7 +91,6 @@ export function StatsTiles({ today }: { today: string }) {
         {/* Steps tile → #/steps */}
         <button
           type="button"
-          data-row
           {...tourAttrs({
             id: "dashboard.stepsTile",
             label: "Steps tile",

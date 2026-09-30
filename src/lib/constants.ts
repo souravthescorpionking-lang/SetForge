@@ -119,12 +119,12 @@ export const E1RM_METHODS = ["BRZYCKI", "RPE", "EPLEY"] as const;
 export type E1rmMethod = (typeof E1RM_METHODS)[number];
 
 /** Parse a tempo string into segments; returns null when invalid.
- *  NOTE: segments containing "x" parse to NaN → use tempoTotalSec for
- *  arithmetic (x counts as 1s, explosive) or split manually for display. */
+ *  An "x" concentric segment parses to -1 (the explosive sentinel — §4.6);
+ *  use tempoTotalSec for arithmetic (x counts as 1s). */
 export function parseTempo(tempo: string): number[] | null {
   if (!TEMPO_REGEX.test(tempo)) return null;
-  const parts = tempo.split("-").map(Number);
-  return parts.every((n) => Number.isFinite(n) && n >= 0 && n <= 99) ? parts : null;
+  const parts = tempo.split("-").map((p) => (p === "x" ? -1 : Number(p)));
+  return parts.every((n) => Number.isFinite(n) && n >= -1 && n <= 99) ? parts : null;
 }
 
 /** Normalise a tempo string to canonical form (e.g. "3-1-1" → "3-1-1-0").

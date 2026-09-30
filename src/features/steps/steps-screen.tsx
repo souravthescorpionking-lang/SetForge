@@ -279,7 +279,6 @@ export default function StepsScreen() {
           ) : (
             <button
               type="button"
-              data-row
               {...tourAttrs({
                 id: "steps.goal",
                 label: "Daily goal",

@@ -103,7 +103,6 @@ export function ProgramProgressCard({
         {/* R1 (32px) — muted header label; whole card taps through to §7.1 */}
         <button
           type="button"
-          data-row
           {...tourAttrs({
             id: "dashboard.programCard",
             label: "Program card",
@@ -119,14 +118,14 @@ export function ProgramProgressCard({
           className="flex w-full flex-col overflow-hidden text-left transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none"
         >
           {/* R1 (32px) — "CURRENT PROGRAM" */}
-          <span className="flex h-8 w-full flex-none items-center overflow-hidden whitespace-nowrap px-4">
+          <span data-row className="flex h-8 w-full flex-none items-center overflow-hidden whitespace-nowrap px-4">
             <span className="min-w-0 flex-1 truncate text-[10px] font-bold uppercase leading-none tracking-wide text-muted-foreground">
               Current program
             </span>
             <ChevronRight className="h-4 w-4 flex-none text-muted-foreground/60" aria-hidden />
           </span>
           {/* R2 (40px) — program name · "{daysDone}/{daysTotal}" pill */}
-          <span className="flex h-10 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap px-4">
+          <span data-row className="flex h-10 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap px-4">
             <span className="min-w-0 flex-1 truncate text-base font-semibold leading-none">
               {isNone ? "No program selected" : model.programName}
             </span>
@@ -174,7 +173,7 @@ export function ProgramProgressCard({
           ) : null}
         </button>
         {/* CTA row (48px) — the shared card actions (same states as Home) */}
-        <div data-row className="flex h-12 w-full flex-none items-center px-3">
+        <div data-row className="flex h-12 w-full flex-none items-center overflow-hidden whitespace-nowrap px-3">
           {model.state === "none" ? (
             <Button
               type="button"

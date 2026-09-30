@@ -24,6 +24,7 @@
     "migrate:part8": "bun scripts/migrate-part8.ts",
     "migrate:part9": "bun scripts/migrate-part9.ts",
     "verify:part9": "bun scripts/qa/verify-part9.ts",
+    "verify:part10": "bun scripts/qa/verify-part10.ts",
     "db:backfill": "bun prisma/scripts/backfill-part10.ts"
   },
   "dependencies": {
