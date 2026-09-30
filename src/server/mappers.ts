@@ -149,6 +149,10 @@ export function mapWorkout(w: Workout & { exercises: Array<WorkoutExercise & { e
     // ---- Part 8 §6.9: single remove semantics ----
     removedAt: w.removedAt?.toISOString() ?? null,
     removeReason: w.removeReason ?? null,
+    // ---- Part 10 §1: finish metadata ----
+    markedComplete: w.markedComplete ?? false,
+    totalVolume: w.totalVolume ?? null,
+    totalSets: w.totalSets ?? null,
     groups: w.groups.map(mapGroup),
     exercises: w.exercises
       .slice()
@@ -318,6 +322,8 @@ export function mapRoutine(r: Routine & { days: Array<RoutineDay & { exercises: 
     highlights: jsonStringArray(r.highlights),
     isFavorite: r.isFavorite ?? false,
     labels: jsonStringArray(r.labels),
+    // ---- Part 10 §4: custom-workout provenance ----
+    source: r.source ?? null,
   };
 }
 

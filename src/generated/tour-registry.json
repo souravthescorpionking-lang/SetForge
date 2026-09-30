@@ -1,5 +1,5 @@
 {
-  "version": "aac01db7",
+  "version": "16a89524",
   "screens": {
     "account-delete": {
       "title": "Delete account",
@@ -63,6 +63,18 @@
       "steps": [],
       "version": "004d3b32"
     },
+    "builder-add": {
+      "title": "Add exercise",
+      "purpose": "Pick exercises for this workout; 2+ picks become a superset series.",
+      "steps": [],
+      "version": "6ec70cb7"
+    },
+    "builder-add-selected": {
+      "title": "Selected exercises",
+      "purpose": "Review, reorder or remove the exercises picked for the new series.",
+      "steps": [],
+      "version": "2580f755"
+    },
     "builder-new": {
       "title": "New program",
       "purpose": "Generate a program from your level, days per week and goal.",
@@ -76,10 +88,16 @@
       "version": "0131cd35"
     },
     "builder-session": {
-      "title": "Session editor",
-      "purpose": "Edit this single session's groups and predefined sets.",
+      "title": "Build workout",
+      "purpose": "Edit this workout's name, level, duration and exercise series.",
       "steps": [],
-      "version": "31787445"
+      "version": "7e04db5b"
+    },
+    "builder-session-new": {
+      "title": "Build workout",
+      "purpose": "Compose a custom workout: name, level, duration and exercise series.",
+      "steps": [],
+      "version": "f9a4c8bf"
     },
     "calendar": {
       "title": "Calendar",
@@ -168,6 +186,18 @@
       "emptyPurpose": "Create your first exercise or widen the filters.",
       "steps": [],
       "version": "1d638651"
+    },
+    "filters-equipment": {
+      "title": "Equipment filters",
+      "purpose": "Multi-select the equipment to filter by; the selection round-trips in the URL.",
+      "steps": [],
+      "version": "c1a6de7a"
+    },
+    "filters-muscle": {
+      "title": "Muscle filters",
+      "purpose": "Multi-select the target muscles; the selection round-trips in the URL.",
+      "steps": [],
+      "version": "37425daa"
     },
     "help": {
       "title": "Help & Shortcuts",
@@ -289,6 +319,12 @@
       "steps": [],
       "version": "f4a69c03"
     },
+    "session-settings": {
+      "title": "Session settings",
+      "purpose": "Live-session behaviour: auto-advance, countdown sounds, tempo row, video speed, and the workout exit.",
+      "steps": [],
+      "version": "7ef245d2"
+    },
     "sets-editor": {
       "title": "Sets editor",
       "purpose": "Edit one exercise's predefined sets, progression and warm-up.",
@@ -300,6 +336,12 @@
       "purpose": "Preferences, programs, session behaviour, display, tours, data and account controls.",
       "steps": [],
       "version": "e85ab438"
+    },
+    "tempo": {
+      "title": "Tempo",
+      "purpose": "Pick the eccentric-pause-concentric-pause timing for every set.",
+      "steps": [],
+      "version": "c5e16f76"
     },
     "tools": {
       "title": "Tools",
@@ -892,12 +934,12 @@
         }
       ]
     },
-    "builder": {
+    "build": {
       "steps": [
         {
-          "id": "builder.newProgram",
-          "label": "New program",
-          "help": "Open the wizard: level, days per week and a weekly template.",
+          "id": "build.cancel",
+          "label": "Cancel",
+          "help": "Leave the builder; unsaved edits ask first.",
           "order": 10,
           "when": [
             "always"
@@ -907,10 +949,170 @@
           "scope": "component"
         },
         {
+          "id": "build.title",
+          "label": "Build workout",
+          "help": "Name it, set a level and duration, then build the exercise series.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.save",
+          "label": "Save",
+          "help": "Validate, then save to your workouts.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.name",
+          "label": "Workout name",
+          "help": "Name this workout — required before saving.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.difficulty",
+          "label": "Level",
+          "help": "Label this workout's level.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.duration",
+          "label": "Duration",
+          "help": "Planned minutes (5–300); Estimate fills it from the sets.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.estimate",
+          "label": "Estimate",
+          "help": "Compute minutes from the sets' tempo and rest.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.addExercise",
+          "label": "Add exercise",
+          "help": "Pick exercises from the library — 2+ picked become a superset.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "build.dragHandle",
+          "label": "Drag handle",
+          "help": "Drag to move this series.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "builder": {
+      "steps": [
+        {
           "id": "builder.title",
-          "label": "Builder",
-          "help": "Create programs and sessions, or edit the ones you own.",
+          "label": "Your workouts",
+          "help": "Your custom workouts, plus program creation and editing.",
           "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.search",
+          "label": "Search",
+          "help": "Search workouts by name or muscle.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.build",
+          "label": "Build workout",
+          "help": "Start a new custom workout from scratch.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.workout",
+          "label": "Workout card",
+          "help": "Open this workout's day overview.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.workoutMenu",
+          "label": "Options",
+          "help": "Edit, duplicate or delete this workout.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.newProgram",
+          "label": "New program",
+          "help": "Open the wizard: level, days per week and a weekly template.",
+          "order": 60,
           "when": [
             "always"
           ],
@@ -921,8 +1123,8 @@
         {
           "id": "builder.newSession",
           "label": "New session",
-          "help": "Name it, then add exercises in the session editor.",
-          "order": 20,
+          "help": "Name it, then add exercises in the workout builder.",
+          "order": 70,
           "when": [
             "always"
           ],
@@ -934,19 +1136,7 @@
           "id": "builder.fromLog",
           "label": "From a log",
           "help": "Open a past log, tap ⋮, then “Save as session” to reuse it.",
-          "order": 30,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "builder.sessionName",
-          "label": "Session name",
-          "help": "Type a name for the new session.",
-          "order": 40,
+          "order": 80,
           "when": [
             "always"
           ],
@@ -958,7 +1148,31 @@
           "id": "builder.editRow",
           "label": "Edit row",
           "help": "Open this program or session in its editor.",
-          "order": 50,
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.searchClear",
+          "label": "Clear search",
+          "help": "Drop the search text.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.sessionName",
+          "label": "Session name",
+          "help": "Type a name for the new session.",
+          "order": 110,
           "when": [
             "always"
           ],
@@ -970,7 +1184,7 @@
           "id": "builder.sessionCreate",
           "label": "Create",
           "help": "Create the session and open its editor.",
-          "order": 50,
+          "order": 120,
           "when": [
             "always"
           ],
@@ -1055,6 +1269,258 @@
           "label": "Equipment",
           "help": "Auto-derived from the exercises; tap a chip to override.",
           "order": 260,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "builderAdd": {
+      "steps": [
+        {
+          "id": "builderAdd.title",
+          "label": "Add exercise",
+          "help": "Pick exercises for this workout.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.selected",
+          "label": "Selected",
+          "help": "Review, reorder or remove the picked exercises.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.search",
+          "label": "Search",
+          "help": "Search the catalog by exercise name.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.muscleFilter",
+          "label": "Muscle",
+          "help": "Filter the list by target muscles.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.equipmentFilter",
+          "label": "Equipment",
+          "help": "Filter the list by the gear it needs.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.row",
+          "label": "Exercise row",
+          "help": "Pick this exercise; 2+ picks form a series.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.apply",
+          "label": "Add",
+          "help": "Add the picked exercises and return to the workout.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderAdd.clearFilters",
+          "label": "Clear",
+          "help": "Drop the active filters and search.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "builderExercise": {
+      "steps": [
+        {
+          "id": "builderExercise.tempo",
+          "label": "Tempo",
+          "help": "Pick an eccentric-pause-concentric-pause tempo for every set.",
+          "order": 200,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.tip",
+          "label": "Trainer tip",
+          "help": "Author the 💡 coaching cue shown with this exercise.",
+          "order": 210,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.restAll",
+          "label": "Same for all",
+          "help": "One rest value applies to every set of this exercise.",
+          "order": 220,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.restPer",
+          "label": "Per set",
+          "help": "Each set row gets its own rest value.",
+          "order": 230,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.restMixed",
+          "label": "Per-set rest",
+          "help": "Each set's rest is edited on its own row below.",
+          "order": 240,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.restValue",
+          "label": "Rest value",
+          "help": "The shared rest between sets; tap to change.",
+          "order": 240,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.restNone",
+          "label": "Rest: none",
+          "help": "Skip the rest timer for this exercise entirely.",
+          "order": 250,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderExercise.addSet",
+          "label": "Add set",
+          "help": "Append another set that copies the last one.",
+          "order": 260,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "builderSelected": {
+      "steps": [
+        {
+          "id": "builderSelected.title",
+          "label": "Selected",
+          "help": "The exercises picked for this series.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderSelected.grip",
+          "label": "Drag handle",
+          "help": "Drag to reorder the picks.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderSelected.remove",
+          "label": "Remove",
+          "help": "Drop this exercise from the picks.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builderSelected.update",
+          "label": "Update",
+          "help": "Apply the reorder or removals to the picks.",
+          "order": 50,
           "when": [
             "always"
           ],
@@ -2348,6 +2814,198 @@
         }
       ]
     },
+    "filtersEquipment": {
+      "steps": [
+        {
+          "id": "filtersEquipment.title",
+          "label": "Equipment",
+          "help": "Filter exercises by the gear they need.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersEquipment.all",
+          "label": "All equipment",
+          "help": "Toggle every equipment row at once.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersEquipment.search",
+          "label": "Search",
+          "help": "Narrow the equipment list by name.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersEquipment.row",
+          "label": "Equipment row",
+          "help": "Toggle one or more equipment values.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersEquipment.clear",
+          "label": "Clear",
+          "help": "Empty the equipment selection.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersEquipment.apply",
+          "label": "Apply",
+          "help": "Save the selection and return.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "filtersMuscle": {
+      "steps": [
+        {
+          "id": "filtersMuscle.title",
+          "label": "Muscles",
+          "help": "Filter exercises by target muscles.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersMuscle.row",
+          "label": "Muscle row",
+          "help": "Toggle one or more muscles.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersMuscle.clear",
+          "label": "Clear",
+          "help": "Empty the muscle selection.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "filtersMuscle.apply",
+          "label": "Apply",
+          "help": "Save the selection and return.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "focusCard": {
+      "steps": [
+        {
+          "id": "focusCard.menu",
+          "label": "Exercise menu",
+          "help": "Note, reorder, group, replace, save as session, transition rest, add exercise.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "focusCard.speed",
+          "label": "Video speed",
+          "help": "Play the demo at 0.5× to 1.5× — saved for every session.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "focusCard.videoHide",
+          "label": "Hide video",
+          "help": "Collapse this exercise's demo video for the session.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "focusCard.videoShow",
+          "label": "Show video",
+          "help": "Bring back this exercise's demo video.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "focusCard.collapsed",
+          "label": "Focus summary",
+          "help": "Tap to scroll back to the full focus card.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
     "groupCard": {
       "steps": [
         {
@@ -2463,6 +3121,30 @@
           "label": "Expand",
           "help": "Show this exercise's sets.",
           "order": 180,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "groupCard.overviewTable",
+          "label": "Set table",
+          "help": "Every set of this exercise — tap a row to make it the focus set.",
+          "order": 190,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "groupCard.overviewRow",
+          "label": "Set row",
+          "help": "Tap to jump the focus to this set — logged rows show what you lifted.",
+          "order": 200,
           "when": [
             "always"
           ],
@@ -5020,8 +5702,8 @@
       "steps": [
         {
           "id": "session.close",
-          "label": "Close session",
-          "help": "Finish, discard, or keep logging — the session exit menu.",
+          "label": "End workout",
+          "help": "End, save or discard this session — logged sets are never lost.",
           "order": 10,
           "when": [
             "always"
@@ -5031,9 +5713,9 @@
           "scope": "component"
         },
         {
-          "id": "session.finish",
-          "label": "Finish",
-          "help": "Save this session to your history and advance the program.",
+          "id": "session.settings",
+          "label": "Session settings",
+          "help": "Auto-advance, countdown sounds, tempo row and video speed.",
           "order": 20,
           "when": [
             "always"
@@ -5043,9 +5725,21 @@
           "scope": "component"
         },
         {
-          "id": "session.discard",
-          "label": "Discard",
-          "help": "Remove this session and revert the program cursor and schedule.",
+          "id": "session.tabOverview",
+          "label": "Overview tab",
+          "help": "The full day — every series, set and logged value.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "session.tabLogs",
+          "label": "Logs tab",
+          "help": "Every set logged this session, oldest first.",
           "order": 30,
           "when": [
             "always"
@@ -5055,22 +5749,10 @@
           "scope": "component"
         },
         {
-          "id": "session.menu",
-          "label": "Session menu",
-          "help": "Note, reorder, groups, replace, save as session, transition rest.",
+          "id": "session.tabHistory",
+          "label": "History tab",
+          "help": "Your last five sessions of the focus exercise.",
           "order": 40,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "session.progress",
-          "label": "Sets progress",
-          "help": "Completed sets out of the session total — fills as you log.",
-          "order": 50,
           "when": [
             "always"
           ],
@@ -5189,7 +5871,7 @@
         {
           "id": "session.timerStart",
           "label": "Start timer",
-          "help": "Start the session clock — the title counts up from then.",
+          "help": "Start the session clock — total time counts up from then.",
           "order": 140,
           "when": [
             "always"
@@ -5235,6 +5917,70 @@
             "always"
           ],
           "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "sessionSettings": {
+      "steps": [
+        {
+          "id": "sessionSettings.autoAdvance",
+          "label": "Auto-advance",
+          "help": "Focus moves to the next set when rest ends.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "sessionSettings.countdownSounds",
+          "label": "Countdown sounds",
+          "help": "Beep the last three seconds of every rest.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "sessionSettings.showTempo",
+          "label": "Show tempo",
+          "help": "Display the tempo row on the focus card.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "sessionSettings.videoSpeed",
+          "label": "Video speed",
+          "help": "Play demo videos at 0.5× to 1.5× — saved for every session.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "sessionSettings.exit",
+          "label": "Exit workout",
+          "help": "End this workout — mark complete, save partial, or discard.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
           "placement": "auto",
           "scope": "component"
         }
@@ -5639,6 +6385,82 @@
           "label": "Account",
           "help": "Email, name, password and sign-out.",
           "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "tempo": {
+      "steps": [
+        {
+          "id": "tempo.title",
+          "label": "Tempo",
+          "help": "Pick the rep timing for every set.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tempo.row",
+          "label": "Preset row",
+          "help": "A standard tempo, e.g. 3-0-1-0.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tempo.none",
+          "label": "None",
+          "help": "Clear the tempo for this exercise.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tempo.custom",
+          "label": "Custom",
+          "help": "Write your own four tempo numbers.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tempo.customInput",
+          "label": "Tempo field",
+          "help": "One tempo segment — the third may be x for explosive.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "tempo.apply",
+          "label": "Apply",
+          "help": "Save this tempo to every set of the exercise.",
+          "order": 60,
           "when": [
             "always"
           ],

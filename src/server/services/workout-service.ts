@@ -224,6 +224,72 @@ export async function deleteWorkout(userId: string, id: string) {
 // ---------- Part 6: discard / restore / purge (§4.11 Finish ASK + §4.12) ----------
 
 /**
+ * Part 10 §1/§3.6: totals computed on EVERY finish path — Σ completed,
+ * non-warm-up reps×weight (kg; same rule as mapWorkoutSummary volume) and the
+ * completed set count.
+ */
+export function computeWorkoutTotals(w: {
+  exercises: Array<{ sets: Array<{ weight: number | null; reps: number | null; isComplete: boolean; isWarmup: boolean }> }>;
+}): { totalVolume: number; totalSets: number } {
+  let totalVolume = 0;
+  let totalSets = 0;
+  for (const we of w.exercises) {
+    for (const s of we.sets) {
+      if (!s.isComplete || s.isWarmup) continue; // planned/blank + warm-up ramp excluded
+      totalSets += 1;
+      totalVolume += (s.weight ?? 0) * (s.reps ?? 0);
+    }
+  }
+  return { totalVolume: Math.round(totalVolume * 100) / 100, totalSets };
+}
+
+/**
+ * Schedule revert shared by discard (§6.9) and the §3.6 partial end: linked
+ * DONE entries — past dates flip to MISSED (truthful), today/future flip back
+ * to PLANNED — and every entry unlinks the workout.
+ * Two collision cases need care (partial unique index: only ONE live PLANNED
+ * entry per userId+date):
+ *   • workout.scheduledStart === false → the DONE entry was auto-created by
+ *     the start flow (nothing was planned); revert = soft-delete, not PLANNED.
+ *   • another live PLANNED entry already occupies that date (the slot was
+ *     re-taken while the workout was live) → revert = soft-delete.
+ */
+async function revertDoneScheduleEntries(userId: string, workoutId: string, scheduledStart: boolean) {
+  const linked = await db.scheduleEntry.findMany({ where: { userId, workoutId } });
+  const now = new Date();
+  const todayUtc = toDayUtc(now);
+  for (const entry of linked) {
+    if (entry.status !== "DONE") continue;
+    if (entry.date.getTime() < todayUtc.getTime()) {
+      await db.scheduleEntry
+        .update({
+          where: { id: entry.id },
+          data: { status: "MISSED", workoutId: null, missedAt: entry.missedAt ?? now },
+        })
+        .catch(() => undefined);
+      continue;
+    }
+    const slotTaken =
+      scheduledStart === false ||
+      !!(await db.scheduleEntry.findFirst({
+        where: { userId, date: entry.date, status: "PLANNED", deletedAt: null, NOT: { id: entry.id } },
+        select: { id: true },
+      }));
+    if (slotTaken) {
+      await db.scheduleEntry
+        .update({ where: { id: entry.id }, data: { workoutId: null, deletedAt: now } })
+        .catch(() => undefined);
+    } else {
+      await db.scheduleEntry
+        .update({ where: { id: entry.id }, data: { status: "PLANNED", workoutId: null } })
+        .catch(() => undefined);
+    }
+  }
+}
+
+export { revertDoneScheduleEntries };
+
+/**
  * POST /api/workouts/:id/discard — session discard: sets removedAt (reason DISCARDED_SESSION), reverts
  * cursor/schedule effects best-effort, recomputes PRs. Hidden everywhere until
  * restored (10s client Undo window → restore).
@@ -252,43 +318,9 @@ export async function discardWorkout(userId: string, id: string) {
     }
   }
 
-  // Schedule revert: linked DONE entries — past dates flip to MISSED (truthful),
-  // today/future flip back to PLANNED — and every entry unlinks the workout.
-  // Two collision cases need care (partial unique index: only ONE live PLANNED
-  // entry per userId+date):
-  //   • workout.scheduledStart === false → the DONE entry was auto-created by
-  //     the start flow (nothing was planned); revert = soft-delete, not PLANNED.
-  //   • another live PLANNED entry already occupies that date (the slot was
-  //     re-taken while the workout was live) → revert = soft-delete.
-  const linked = await db.scheduleEntry.findMany({ where: { userId, workoutId: id } });
-  const todayUtc = toDayUtc(new Date());
-  for (const entry of linked) {
-    if (entry.status !== "DONE") continue;
-    if (entry.date.getTime() < todayUtc.getTime()) {
-      await db.scheduleEntry
-        .update({
-          where: { id: entry.id },
-          data: { status: "MISSED", workoutId: null, missedAt: entry.missedAt ?? now },
-        })
-        .catch(() => undefined);
-      continue;
-    }
-    const slotTaken =
-      w.scheduledStart === false ||
-      !!(await db.scheduleEntry.findFirst({
-        where: { userId, date: entry.date, status: "PLANNED", deletedAt: null, NOT: { id: entry.id } },
-        select: { id: true },
-      }));
-    if (slotTaken) {
-      await db.scheduleEntry
-        .update({ where: { id: entry.id }, data: { workoutId: null, deletedAt: now } })
-        .catch(() => undefined);
-    } else {
-      await db.scheduleEntry
-        .update({ where: { id: entry.id }, data: { status: "PLANNED", workoutId: null } })
-        .catch(() => undefined);
-    }
-  }
+  // Schedule revert (shared helper — see revertDoneScheduleEntries for the
+  // collision rules).
+  await revertDoneScheduleEntries(userId, id, w.scheduledStart ?? false);
 
   await db.$transaction(async (tx) => {
     await tx.workout.update({ where: { id }, data: { removedAt: now, removeReason: "DISCARDED_SESSION" } });

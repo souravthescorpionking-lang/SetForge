@@ -79,6 +79,13 @@ export const exerciseQuerySchema = z.object({
     .union([z.boolean(), z.string()])
     .optional()
     .transform((v) => v === true || v === "true"),
+  // ---- Part 10 §4.3: builder add-exercise filters ----
+  /** Search alias used by the builder add screen (`q`). */
+  q: z.string().optional(),
+  /** csv of primaryMuscle enum values (already expanded from §4.4 filter keys). */
+  muscles: z.string().optional(),
+  /** csv of canonical §4.4 equipment ids (raw enum ids also accepted). */
+  equipment: z.string().optional(),
 });
 
 // ---------- workouts ----------
@@ -185,6 +192,8 @@ export const routineCreateSchema = z.object({
   kind: z.enum(ROUTINE_KINDS).default("ROUTINE"),
   // ---- Part 8 §3.8 (builder Level row; additive) ----
   difficulty: z.enum(DIFFICULTIES).optional(),
+  // ---- Part 10 §4: provenance for user-built single workouts ----
+  source: z.literal("CUSTOM").optional(),
 });
 export const routineUpdateSchema = routineCreateSchema.partial().extend({
   sortOrder: z.number().int().min(0).optional(),
@@ -341,6 +350,10 @@ export const settingsUpdateSchema = z.object({
   notifScheduled: z.boolean().optional(),
   notifMissedDay: z.boolean().optional(),
   notifPr: z.boolean().optional(),
+  // ---- Part 10 §1: live-session switches (PATCH /api/workout-settings maps
+  // autoAdvance → autoMoveNextSet; the other keys share names) ----
+  countdownSounds: z.boolean().optional(),
+  videoSpeed: z.number().min(0.25).max(3).optional(),
 });
 export const platesUpdateSchema = z.object({
   unitSystem: z.enum(["metric", "imperial"]),
@@ -356,6 +369,31 @@ export const platesUpdateSchema = z.object({
     )
     .max(30),
 });
+
+// ---- Part 10 §3 ----
+
+/** PATCH /api/workout-settings — body keys use the spec's WorkoutSettings
+ *  names; autoAdvance maps onto the existing UserSettings.autoMoveNextSet. */
+export const workoutSettingsPatchSchema = z.object({
+  autoAdvance: z.boolean().optional(),
+  countdownSounds: z.boolean().optional(),
+  showTempo: z.boolean().optional(),
+  videoSpeed: z.number().refine((v) => [0.5, 0.75, 1, 1.25, 1.5].includes(v), "Unsupported video speed").optional(),
+});
+
+/** POST /api/workouts/:id/end — §3.6 exit semantics. */
+export const workoutEndSchema = z.object({
+  markComplete: z.boolean(),
+});
+
+/** GET /api/exercises/:id/history query — view "sessions" = finished
+ *  workouts only (§3.3 History tab); default keeps the legacy all-rows view. */
+export const exerciseHistoryQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(500).catch(100),
+    view: z.enum(["all", "sessions"]).catch("all"),
+  })
+  .catch({ limit: 100, view: "all" });
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordField,

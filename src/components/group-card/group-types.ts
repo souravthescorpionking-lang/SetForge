@@ -146,7 +146,15 @@ export type CardAction =
   | { type: "detail"; exerciseId: string }
   | { type: "edit-sets"; exerciseId: string }
   /** Part 9 §5: day … menu — open the §5.1 rearrange editor for this day. */
-  | { type: "rearrange-series" };
+  | { type: "rearrange-series" }
+  /** Part 10 §4.7: builder … menu — add another exercise to THIS series. */
+  | { type: "add-to-series" }
+  /** Part 10 §4.7: builder … menu — remove the whole series (confirm modal). */
+  | { type: "remove-series" }
+  /** Part 10 §3.1: live FocusCard … menu — open the session arrange screen. */
+  | { type: "reorder" }
+  /** Part 10 §3.1: live FocusCard … menu — save this workout as a reusable session. */
+  | { type: "save-session" };
 
 // ---------- toCardSet mapper ----------
 

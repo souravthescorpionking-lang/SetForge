@@ -4,6 +4,7 @@ import { uuid7 } from "@/lib/uuid7";
 import { toDayUtc } from "@/lib/dates";
 import { mapRoutine } from "../mappers";
 import { badRequest, notFound } from "../http";
+import { jsonStringArray } from "../media";
 import { recomputePRs } from "./workout-service";
 import { appendDayToWorkout, applyProgramRules } from "./program-service";
 import { workoutInclude as workoutIncludeTx } from "./workout-service";
@@ -35,11 +36,21 @@ export async function getRoutine(userId: string, id: string) {
   return mapRoutine(r);
 }
 
-export async function createRoutine(userId: string, input: { name: string; notes?: string | null; kind?: string }) {
+export async function createRoutine(userId: string, input: { name: string; notes?: string | null; kind?: string; difficulty?: string; source?: string }) {
   const kind = input.kind === "SESSION" ? "SESSION" : "ROUTINE";
   const count = await db.routine.count({ where: { userId } });
   const created = await db.routine.create({
-    data: { id: uuid7(), userId, name: input.name.trim(), notes: input.notes ?? null, kind, sortOrder: count },
+    data: {
+      id: uuid7(),
+      userId,
+      name: input.name.trim(),
+      notes: input.notes ?? null,
+      kind,
+      sortOrder: count,
+      // ---- Part 8 §3.8 / Part 10 §4 ----
+      ...(input.difficulty ? { difficulty: input.difficulty } : {}),
+      ...(input.source === "CUSTOM" ? { source: "CUSTOM" } : {}),
+    },
     include: routineInclude,
   });
   return mapRoutine(created);
@@ -48,7 +59,7 @@ export async function createRoutine(userId: string, input: { name: string; notes
 export async function updateRoutine(
   userId: string,
   id: string,
-  patch: { name?: string; notes?: string | null; sortOrder?: number; kind?: string; difficulty?: string },
+  patch: { name?: string; notes?: string | null; sortOrder?: number; kind?: string; difficulty?: string; source?: string },
 ) {
   const r = await db.routine.findFirst({ where: { id, userId }, include: routineInclude });
   if (!r) throw notFound("Routine not found");
@@ -78,6 +89,8 @@ export async function updateRoutine(
       ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
       // ---- Part 8 §3.8 builder Level row (additive) ----
       ...(patch.difficulty !== undefined ? { difficulty: patch.difficulty } : {}),
+      // ---- Part 10 §4: custom-workout provenance (additive) ----
+      ...(patch.source !== undefined ? { source: patch.source === "CUSTOM" ? "CUSTOM" : null } : {}),
     },
     include: routineInclude,
   });
@@ -122,6 +135,46 @@ export async function copyRoutine(userId: string, id: string) {
     }
   }
   return getRoutine(userId, created.id);
+}
+
+// ---------- Part 10 §4: custom workouts (kind=SESSION source=CUSTOM) ----------
+
+/** GET /api/days?source=CUSTOM — "Your workouts" list rows: the routine's
+ *  single workout day at a glance (muscles fall back to the union of the
+ *  exercises' primaryMuscles when the day stores none — §4.9 derivation). */
+export async function listCustomWorkouts(userId: string) {
+  const rows = await db.routine.findMany({
+    where: { userId, deletedAt: null, kind: "SESSION", source: "CUSTOM" },
+    orderBy: { sortOrder: "asc" },
+    include: {
+      days: {
+        orderBy: { sortOrder: "asc" as const },
+        include: {
+          exercises: {
+            orderBy: { sortOrder: "asc" as const },
+            include: { exercise: { select: { primaryMuscles: true } } },
+          },
+        },
+      },
+    },
+  });
+  return rows.map((r) => {
+    const day = r.days.find((d) => (d.dayType ?? "WORKOUT") !== "REST") ?? r.days[0] ?? null;
+    const stored = jsonStringArray(day?.primaryMuscles);
+    const muscles =
+      stored.length > 0
+        ? stored
+        : [...new Set(day?.exercises.flatMap((re) => jsonStringArray(re.exercise.primaryMuscles)) ?? [])];
+    return {
+      id: r.id,
+      dayId: day?.id ?? null,
+      name: r.name,
+      difficulty: r.difficulty ?? null,
+      muscles,
+      estMinutes: day?.estMinutes ?? r.estMinutes ?? null,
+      exerciseCount: day?.exercises.length ?? 0,
+    };
+  });
 }
 
 // ---------- days ----------

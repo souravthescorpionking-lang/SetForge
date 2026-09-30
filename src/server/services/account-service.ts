@@ -112,6 +112,9 @@ export async function exportBackup(userId: string): Promise<BackupDTO> {
       showTours: settings.showTours,
       showHints: settings.showHints,
       replayToursOnUpdate: settings.replayToursOnUpdate,
+      // ---- Part 10 §1: live-session switches ----
+      countdownSounds: settings.countdownSounds,
+      videoSpeed: settings.videoSpeed,
     },
     categories: categories.map((c) => ({ id: c.id, name: c.name, colour: c.colour, sortOrder: c.sortOrder })),
     exercises: exercises.map((e) => ({

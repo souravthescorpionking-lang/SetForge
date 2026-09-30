@@ -116,6 +116,10 @@ export interface RestStateOptions {
   /** Fired when the countdown reaches zero NATURALLY (skip suppresses it).
    * §4.11 autoMoveNextSet: advance the guided pointer + scroll into view. */
   onComplete?: () => void;
+  /** Part 10 §3.1: gate the engine's own end-of-rest beep (default true). The
+   *  live session passes settings.countdownSounds and drives the full
+   *  3-2-1 + long-0 sequence itself (visibility-gated) via countdown-audio. */
+  sounds?: boolean;
 }
 
 export function useRestState(options?: RestStateOptions): RestState {
@@ -132,8 +136,10 @@ export function useRestState(options?: RestStateOptions): RestState {
   // "Latest" callback ref — the consumer's closure stays fresh across renders
   // without re-subscribing the ticking engine.
   const onCompleteRef = useRef<(() => void) | undefined>(undefined);
+  const soundsRef = useRef<boolean>(options?.sounds ?? true);
   useEffect(() => {
     onCompleteRef.current = options?.onComplete;
+    soundsRef.current = options?.sounds ?? true;
   });
 
   const finish = useCallback(() => {
@@ -143,7 +149,7 @@ export function useRestState(options?: RestStateOptions): RestState {
     setActiveTotalSec(null);
     if (!finishedRef.current) {
       finishedRef.current = true;
-      beep();
+      if (soundsRef.current) beep();
       vibrate();
       notifyIfHidden();
       toast.success("Rest complete", {

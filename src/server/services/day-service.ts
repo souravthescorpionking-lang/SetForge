@@ -464,6 +464,112 @@ export async function unmarkDayOffV2(userId: string, dayId: string): Promise<{ c
   return { ...result, removedWorkouts: workouts.length };
 }
 
+// ---------- Part 10 §4.1: duplicate a custom workout ----------
+
+/**
+ * POST /api/days/:dayId/duplicate — full-fidelity copy of the day's owning
+ * routine as a NEW custom workout (kind=SESSION source=CUSTOM): day fields
+ * (minutes/muscles/equipment), series groups, per-exercise tip/restNone and
+ * every predefined-set field are cloned (the legacy routine copy drops them).
+ * Returns the copy's ids so the client can navigate/refresh.
+ */
+export async function duplicateCustomWorkout(
+  userId: string,
+  dayId: string,
+): Promise<{ routineId: string; dayId: string }> {
+  const day = await db.routineDay.findFirst({
+    where: { id: dayId, userId },
+    include: {
+      routine: true,
+      exercises: {
+        orderBy: { sortOrder: "asc" as const },
+        include: { sets: { orderBy: { sortOrder: "asc" as const } } },
+      },
+    },
+  });
+  if (!day) throw notFound("Day not found");
+
+  const count = await db.routine.count({ where: { userId } });
+  const created = await db.routine.create({
+    data: {
+      id: uuid7(),
+      userId,
+      name: `${day.routine.name} (Copy)`,
+      kind: "SESSION",
+      source: "CUSTOM",
+      difficulty: day.routine.difficulty ?? null,
+      estMinutes: day.estMinutes ?? day.routine.estMinutes ?? null,
+      sortOrder: count,
+    },
+  });
+  const newDay = await db.routineDay.create({
+    data: {
+      id: uuid7(),
+      userId,
+      routineId: created.id,
+      name: day.name,
+      dayType: day.dayType ?? "WORKOUT",
+      sortOrder: day.sortOrder,
+      estMinutes: day.estMinutes ?? null,
+      primaryMuscles: day.primaryMuscles ?? Prisma.DbNull,
+      equipment: day.equipment ?? Prisma.DbNull,
+    },
+  });
+
+  // Clone each distinct series group so memberships survive with new ids.
+  const groupIds = [...new Set(day.exercises.map((re) => re.groupId).filter((g): g is string => g != null))];
+  const groupIdMap = new Map<string, string>();
+  for (const gid of groupIds) {
+    const src = await db.routineGroup.findFirst({ where: { id: gid, routineId: day.routineId } });
+    const clone = await db.routineGroup.create({
+      data: {
+        id: uuid7(),
+        userId,
+        routineId: created.id,
+        name: src?.name ?? "Group",
+        colour: src?.colour ?? "#f97316",
+      },
+    });
+    groupIdMap.set(gid, clone.id);
+  }
+
+  for (const re of day.exercises) {
+    const nre = await db.routineExercise.create({
+      data: {
+        id: uuid7(),
+        userId,
+        dayId: newDay.id,
+        exerciseId: re.exerciseId,
+        sortOrder: re.sortOrder,
+        groupId: re.groupId != null ? (groupIdMap.get(re.groupId) ?? null) : null,
+        tip: re.tip ?? null,
+        restNone: re.restNone ?? false,
+      },
+    });
+    for (const s of re.sets) {
+      await db.predefinedSet.create({
+        data: {
+          id: uuid7(),
+          routineExerciseId: nre.id,
+          weight: s.weight,
+          reps: s.reps,
+          distance: s.distance,
+          timeSec: s.timeSec,
+          setType: s.setType ?? null,
+          rpe: s.rpe ?? null,
+          tempo: s.tempo ?? null,
+          restPlannedSec: s.restPlannedSec ?? null,
+          weightKind: s.weightKind ?? null,
+          pct: s.pct ?? null,
+          isAmrap: s.isAmrap ?? false,
+          sortOrder: s.sortOrder,
+        },
+      });
+    }
+  }
+  return { routineId: created.id, dayId: newDay.id };
+}
+
 // ---------- §5.2 suggestions ----------
 
 export async function getExerciseSuggestions(userId: string, exerciseId: string): Promise<{ suggestions: ExerciseSuggestionDTO[] }> {

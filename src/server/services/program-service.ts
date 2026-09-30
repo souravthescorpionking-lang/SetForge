@@ -27,7 +27,7 @@ import {
   shouldAdvanceCursor,
   type ProgramDay,
 } from "./program-rules";
-import { recomputePRs, workoutInclude } from "./workout-service";
+import { recomputePRs, workoutInclude, computeWorkoutTotals, revertDoneScheduleEntries, discardWorkout } from "./workout-service";
 
 // ---------- shared includes ----------
 
@@ -871,21 +871,135 @@ async function tryAdvanceForWorkout(userId: string, workout: Workout, opts: { fo
 }
 
 export async function finishWorkout(userId: string, workoutId: string) {
-  const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
+  const w = await db.workout.findFirst({
+    where: { id: workoutId, userId },
+    include: { exercises: { include: { sets: true } } },
+  });
   if (!w) throw notFound("Workout not found");
   const finishedAt = w.finishedAt ?? new Date();
   // Part 9 §1/§8: Log duration — active seconds from startAt (fallback: first set → finish).
   const startRef = w.startAt ?? w.createdAt;
   const durationSec = Math.max(0, Math.round((finishedAt.getTime() - startRef.getTime()) / 1000));
+  // Part 10 §3.6: the finish path stamps the completion metadata —
+  // markedComplete=true + totals (Σ completed reps×weight kg + set count).
+  const totals = computeWorkoutTotals(w);
   await db.workout.update({
     where: { id: w.id },
-    data: { finishedAt, endAt: w.endAt ?? finishedAt, durationSec },
+    data: {
+      finishedAt,
+      endAt: w.endAt ?? finishedAt,
+      durationSec,
+      markedComplete: true,
+      totalVolume: totals.totalVolume,
+      totalSets: totals.totalSets,
+    },
   });
   // Part 8 §6.3: evaluate progression rules for sessions sourced from a routine.
   await evaluateWorkoutProgression(userId, w.id);
   const refreshed = await db.workout.findUnique({ where: { id: w.id } });
   const { advanced, nextDay } = await tryAdvanceForWorkout(userId, refreshed!, { forceFinishPath: true });
-  return { workoutId: w.id, finishedAt: finishedAt.toISOString(), advanced, nextDay };
+  return {
+    workoutId: w.id,
+    finishedAt: finishedAt.toISOString(),
+    advanced,
+    nextDay,
+    markedComplete: true,
+    totalVolume: totals.totalVolume,
+    totalSets: totals.totalSets,
+  };
+}
+
+// ---------- Part 10 §3.6: the single exit flow ----------
+
+/**
+ * POST /api/workouts/:id/end — the §3.6 exit semantics, server-side:
+ *   markComplete=true  → the full finish flow (markedComplete, totals,
+ *                        progression, cursor advance).
+ *   markComplete=false → 0 completed sets → discard semantics (removedAt +
+ *                        cursor/schedule revert, PRs recomputed);
+ *                        >0 completed sets → finished but markedComplete=false,
+ *                        NO cursor advance, linked DONE schedule entries revert
+ *                        to PLANNED (the day did not count). Logged sets are
+ *                        never lost on any path.
+ * Idempotency: already finished → 409 carrying the current end state.
+ */
+export async function endWorkout(userId: string, workoutId: string, markComplete: boolean) {
+  const w = await db.workout.findFirst({
+    where: { id: workoutId, userId },
+    include: { exercises: { include: { sets: true } } },
+  });
+  if (!w) throw notFound("Workout not found");
+  if (w.finishedAt != null || w.removedAt != null) {
+    throw conflict("Workout already ended", {
+      workoutId: w.id,
+      finishedAt: w.finishedAt?.toISOString() ?? null,
+      markedComplete: w.markedComplete,
+      totalVolume: w.totalVolume ?? null,
+      totalSets: w.totalSets ?? null,
+      discarded: w.removedAt != null,
+    });
+  }
+
+  if (markComplete) {
+    // Mark ON → the finish flow (finishWorkout stamps markedComplete + totals).
+    const res = await finishWorkout(userId, workoutId);
+    return {
+      workoutId: res.workoutId,
+      finishedAt: res.finishedAt,
+      markedComplete: true,
+      totalVolume: res.totalVolume,
+      totalSets: res.totalSets,
+      discarded: false,
+      advanced: res.advanced,
+      nextDay: res.nextDay,
+    };
+  }
+
+  // Mark OFF — partial/empty exit; totals decide the branch.
+  const totals = computeWorkoutTotals(w);
+  if (totals.totalSets === 0) {
+    // n = 0 → discard semantics (existing §6.9 flow: removedAt + revert + PRs).
+    const res = await discardWorkout(userId, workoutId);
+    return {
+      workoutId: w.id,
+      finishedAt: null,
+      markedComplete: false,
+      totalVolume: 0,
+      totalSets: 0,
+      discarded: true,
+      advanced: false,
+      nextDay: null,
+      removedAt: res.removedAt,
+    };
+  }
+
+  // n > 0 → finished but NOT complete: no cursor advance, no progression
+  // evaluation (the day did not count), schedule entries revert to PLANNED.
+  const finishedAt = new Date();
+  const startRef = w.startAt ?? w.createdAt;
+  const durationSec = Math.max(0, Math.round((finishedAt.getTime() - startRef.getTime()) / 1000));
+  await db.workout.update({
+    where: { id: w.id },
+    data: {
+      finishedAt,
+      endAt: w.endAt ?? finishedAt,
+      durationSec,
+      markedComplete: false,
+      totalVolume: totals.totalVolume,
+      totalSets: totals.totalSets,
+    },
+  });
+  await revertDoneScheduleEntries(userId, w.id, w.scheduledStart ?? false);
+  return {
+    workoutId: w.id,
+    finishedAt: finishedAt.toISOString(),
+    markedComplete: false,
+    totalVolume: totals.totalVolume,
+    totalSets: totals.totalSets,
+    discarded: false,
+    advanced: false,
+    nextDay: null,
+  };
 }
 
 /**
@@ -941,13 +1055,15 @@ async function evaluateWorkoutProgression(userId: string, workoutId: string) {
   }
 }
 
-/** Undo within the 10s window: revert finishedAt and (best-effort) the cursor. */
+/** Undo within the 10s window: revert finishedAt and (best-effort) the cursor.
+ * Part 10 §3.6: also reverts the finish metadata (markedComplete/totals) so a
+ * re-finish recomputes them. */
 export async function undoFinishWorkout(userId: string, workoutId: string) {
   const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
   if (!w) throw notFound("Workout not found");
   await db.workout.update({
     where: { id: w.id },
-    data: { finishedAt: null },
+    data: { finishedAt: null, markedComplete: false, totalVolume: null, totalSets: null },
   });
 
   const active = await loadActive(userId);

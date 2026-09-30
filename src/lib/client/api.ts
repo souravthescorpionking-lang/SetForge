@@ -7,6 +7,8 @@ import type {
   CategoryDTO,
   DashboardDTO,
   ExerciseDTO,
+  ExerciseHistoryEntryDTO,
+  ExerciseMaxDTO,
   GoalDTO,
   GraphDTO,
   MeasurementDTO,
@@ -24,10 +26,13 @@ import type {
   TimerPresetDTO,
   UnitDTO,
   WorkoutDTO,
+  WorkoutEndResultDTO,
   WorkoutSummaryDTO,
   ProgramDetailDTO,
   DayDetailDTO,
   ExerciseSuggestionDTO,
+  CustomWorkoutRowDTO,
+  EquipmentOptionDTO,
 } from "@/lib/types";
 import type { Difficulty } from "@/lib/constants";
 
@@ -69,10 +74,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const body = (data: unknown) => JSON.stringify(data);
-const qs = (params: Record<string, string | number | boolean | undefined>) => {
+const qs = (params: Record<string, string | number | boolean | string[] | undefined>) => {
   const search = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== "") search.set(k, String(v));
+    if (Array.isArray(v)) {
+      const csv = v.filter(Boolean).join(",");
+      if (csv !== "") search.set(k, csv);
+    } else if (v !== undefined && v !== "") {
+      search.set(k, String(v));
+    }
   }
   const s = search.toString();
   return s ? `?${s}` : "";
@@ -145,23 +155,27 @@ export type ExerciseInput = {
 };
 
 export const exercisesApi = {
-  list: (params?: { search?: string; categoryId?: string; favoritesOnly?: boolean }) =>
-    request<ExerciseDTO[]>(`/api/exercises${qs(params ?? {})}`),
+  list: (params?: {
+    search?: string;
+    categoryId?: string;
+    favoritesOnly?: boolean;
+    /** Part 10 §4.3: builder add-exercise filters (q = name search alias). */
+    q?: string;
+    muscles?: string[];
+    equipment?: string[];
+  }) => request<ExerciseDTO[]>(`/api/exercises${qs(params ?? {})}`),
   get: (id: string) => request<ExerciseDTO>(`/api/exercises/${id}`),
   create: (data: ExerciseInput) =>
     request<ExerciseDTO>("/api/exercises", { method: "POST", body: body(data) }),
   update: (id: string, data: ExerciseInput) =>
     request<ExerciseDTO>(`/api/exercises/${id}`, { method: "PATCH", body: body(data) }),
   remove: (id: string) => request<{ ok: true }>(`/api/exercises/${id}`, { method: "DELETE" }),
-  history: (id: string, limit = 100) =>
-    request<
-      Array<{
-        workoutId: string;
-        date: string;
-        workoutExerciseId: string;
-        sets: SetDTO[];
-      }>
-    >(`/api/exercises/${id}/history${qs({ limit })}`),
+  history: (id: string, limit = 100, opts?: { finishedOnly?: boolean }) =>
+    request<ExerciseHistoryEntryDTO[]>(
+      `/api/exercises/${id}/history${qs({ limit, ...(opts?.finishedOnly ? { view: "sessions" } : {}) })}`,
+    ),
+  /** Part 10 §3.1 R3: heaviest completed non-warm-up weight ever logged. */
+  max: (id: string) => request<ExerciseMaxDTO>(`/api/exercises/${id}/max`),
   records: (id: string) => request<RecordsDTO>(`/api/exercises/${id}/records`),
   graph: (
     id: string,
@@ -199,6 +213,10 @@ export const workoutsApi = {
     ),
   undoFinish: (id: string) =>
     request<{ ok: true }>(`/api/workouts/${id}/finish`, { method: "DELETE" }),
+  /** Part 10 §3.6: the single exit flow (mark ON → finish · mark OFF →
+   *  discard (0 sets) or partial save). 409 when already ended. */
+  end: (id: string, data: { markComplete: boolean }) =>
+    request<WorkoutEndResultDTO>(`/api/workouts/${id}/end`, { method: "POST", body: body(data) }),
 
   addExercise: (workoutId: string, exerciseId: string) =>
     request<{ workoutExerciseId: string; exerciseId: string; sets: SetDTO[] }>(
@@ -321,7 +339,14 @@ export type PredefinedSetInput = {
 export const routinesApi = {
   list: () => request<{ routines: RoutineDTO[] }>("/api/routines"),
   get: (id: string) => request<RoutineDTO>(`/api/routines/${id}`),
-  create: (data: { name: string; notes?: string | null; kind?: "ROUTINE" | "SESSION" }) =>
+  create: (data: {
+    name: string;
+    notes?: string | null;
+    kind?: "ROUTINE" | "SESSION";
+    difficulty?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+    /** Part 10 §4: "CUSTOM" marks user-built single workouts. */
+    source?: "CUSTOM";
+  }) =>
     request<RoutineDTO>("/api/routines", { method: "POST", body: body(data) }),
   update: (
     id: string,
@@ -331,6 +356,7 @@ export const routinesApi = {
       sortOrder?: number;
       difficulty?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
       kind?: "ROUTINE" | "SESSION";
+      source?: "CUSTOM" | null;
     },
   ) => request<RoutineDTO>(`/api/routines/${id}`, { method: "PATCH", body: body(data) }),
   remove: (id: string) => request<{ ok: true }>(`/api/routines/${id}`, { method: "DELETE" }),
@@ -535,6 +561,22 @@ export const settingsApi = {
   get: () => request<SettingsDTO>("/api/settings"),
   update: (data: Partial<SettingsDTO>) =>
     request<SettingsDTO>("/api/settings", { method: "PATCH", body: body(data) }),
+};
+
+// ---- Part 10 §3.5: live-session settings (spec WorkoutSettings keys) ----
+
+export type WorkoutSettingsPatch = {
+  /** Spec autoAdvance → UserSettings.autoMoveNextSet. */
+  autoAdvance?: boolean;
+  countdownSounds?: boolean;
+  showTempo?: boolean;
+  videoSpeed?: number;
+};
+
+export const workoutSettingsApi = {
+  /** PATCH /api/workout-settings — returns the full refreshed settings row. */
+  update: (data: WorkoutSettingsPatch) =>
+    request<SettingsDTO>("/api/workout-settings", { method: "PATCH", body: body(data) }),
 };
 
 export type TimerPresetInput = {
@@ -863,6 +905,14 @@ export type DayOverridePatch = {
 export const dayApi = {
   /** GET /api/days/:id (§5) — override-merged day detail. */
   get: (dayId: string) => request<DayDetailDTO>(`/api/days/${dayId}`),
+  /** GET /api/days?source=CUSTOM (§4.1) — "Your workouts" list rows. */
+  listCustomWorkouts: () =>
+    request<{ workouts: CustomWorkoutRowDTO[] }>("/api/days?source=CUSTOM"),
+  /** POST /api/days/:id/duplicate (§4.1) — full-fidelity custom-workout copy. */
+  duplicate: (dayId: string) =>
+    request<{ routineId: string; dayId: string }>(`/api/days/${dayId}/duplicate`, {
+      method: "POST",
+    }),
   /** PUT /api/days/:id/override (§5.1/5.2/5.4). */
   putOverride: (dayId: string, patch: DayOverridePatch) =>
     request<{ ok: true }>(`/api/days/${dayId}/override`, { method: "PUT", body: body(patch) }),
@@ -890,6 +940,13 @@ export const exerciseSuggestionsApi = {
   /** GET /api/exercises/:id/suggestions (§5.2). */
   list: (exerciseId: string) =>
     request<{ suggestions: ExerciseSuggestionDTO[] }>(`/api/exercises/${exerciseId}/suggestions`),
+};
+
+// ---------- Part 10 §4.4: canonical equipment filter list ----------
+
+export const equipmentApi = {
+  /** GET /api/equipment — seed ∪ distinct catalog values. */
+  list: () => request<{ equipment: EquipmentOptionDTO[] }>("/api/equipment"),
 };
 
 export type OnDemandQuery = {

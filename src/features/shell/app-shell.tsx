@@ -25,6 +25,7 @@ import WorkoutScreen from "@/features/screens/workout";
 import DashboardScreen from "@/features/screens/dashboard";
 import MoreScreen from "@/features/screens/more";
 import SessionScreen from "@/features/screens/session";
+import SessionSettingsScreen from "@/features/screens/session-settings";
 import SessionExerciseScreen from "@/features/screens/session-exercise";
 import SessionArrangeScreen from "@/features/screens/session-arrange";
 import LogsScreen from "@/features/screens/logs";
@@ -52,6 +53,12 @@ import BuilderScreen from "@/features/screens/builder";
 import BuilderNewScreen from "@/features/screens/builder-new";
 import BuilderProgramScreen from "@/features/screens/builder-program";
 import BuilderSessionScreen from "@/features/screens/builder-session";
+import BuilderSessionNewScreen from "@/features/screens/builder-session-new";
+import BuilderAddScreen from "@/features/screens/builder-add";
+import BuilderAddSelectedScreen from "@/features/screens/builder-add-selected";
+import FiltersMuscleScreen from "@/features/screens/filters-muscle";
+import FiltersEquipmentScreen from "@/features/screens/filters-equipment";
+import TempoScreen from "@/features/screens/tempo";
 import SetsEditorScreen from "@/features/screens/sets-editor";
 import CalendarScreen from "@/features/screens/calendar";
 import CalendarFiltersScreen from "@/features/screens/calendar-filters";
@@ -175,6 +182,9 @@ function renderScreen(route: Route): ReactNode {
     // ---- Logging (§3.10): Start/Continue only; screen gates itself. ----
     case "session":
       return <SessionScreen />;
+    // ---- Part 10 §3.5: live-session settings (reachable from #/session ⚙). ----
+    case "session-settings":
+      return <SessionSettingsScreen />;
     case "session-exercise":
       return <SessionExerciseScreen exerciseId={route.params.exerciseId} />;
     case "session-arrange":
@@ -223,6 +233,19 @@ function renderScreen(route: Route): ReactNode {
       return <BuilderProgramScreen routineId={route.params.routineId} />;
     case "builder-session":
       return <BuilderSessionScreen routineId={route.params.routineId} />;
+    // ---- Part 10 §4: workout builder (draft build + add-exercise flow) ----
+    case "builder-session-new":
+      return <BuilderSessionNewScreen routineId="new" />;
+    case "builder-add":
+      return <BuilderAddScreen routineId={route.params.routineId} />;
+    case "builder-add-selected":
+      return <BuilderAddSelectedScreen routineId={route.params.routineId} />;
+    case "filters-muscle":
+      return <FiltersMuscleScreen />;
+    case "filters-equipment":
+      return <FiltersEquipmentScreen />;
+    case "tempo":
+      return <TempoScreen reId={route.params.reId} />;
     case "sets-editor":
       return <SetsEditorScreen routineId={route.params.routineId} reId={route.params.reId} />;
     // ---- Calendar (via 📅) ----

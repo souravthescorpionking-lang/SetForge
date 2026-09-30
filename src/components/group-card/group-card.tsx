@@ -32,6 +32,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Button } from "@/components/ui/button";
 import {
   BarChart3,
+  Check,
   ChevronDown,
   History,
   Info,
@@ -52,7 +53,7 @@ import { cn } from "@/lib/utils";
 import { rowBase } from "@/lib/ui/tokens";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { SetRow } from "../set-row/set-row";
-import { fieldsForType, type SetField } from "@/lib/constants";
+import { fieldsForType, formatRestSec, SET_TYPE_META, type SetField } from "@/lib/constants";
 import { Term } from "@/components/shared/term";
 import {
   trimNum,
@@ -92,6 +93,11 @@ export interface GroupCardEntry {
   collapsed?: boolean;
   /** edit mode: drag affordance replacing 💡. */
   dragHandle?: ReactNode;
+  /** Part 10 §4.5 (L2 extension): when present, REPLACES this entry's default
+   *  view/edit body block (reps/tempo/rest rows) with the consumer's editor
+   *  rows — the Workout Builder's per-exercise Tempo/Tip/Rest/Set-table block.
+   *  The code/name/⋮ header stays GroupCard-owned (one card, never forked). */
+  editor?: ReactNode;
   /** Guided pointer: this entry holds the current set (3px accent bar rows). */
   currentSetIndex?: number;
   /** Part 9 §8 (log detail): extra rows rendered at the bottom of THIS entry
@@ -125,7 +131,22 @@ export interface GroupCardProps {
    *  day overview passes Rearrange/Replace/Exercise info/Notes). Icons and
    *  actions follow the same GroupMenuItem contract as the built-ins. */
   menuItems?: GroupMenuItem[];
+  /** Part 10 §3.3 (L2 extension): OVERVIEW presentation for log mode —
+   *  each entry collapses to its header rows and expands into the compact
+   *  32px set table (Set | Type | Reps | Weight | Rest) instead of SetRow
+   *  inputs. Tap rows/headers jump the live focus (§3.4). */
+  overview?: GroupCardOverview;
   className?: string;
+}
+
+/** §3.3 Overview wiring (see GroupCardProps.overview). */
+export interface GroupCardOverview {
+  /** The live focus set's id — its table row carries the 4px accent bar (L4). */
+  focusSetId?: string | null;
+  /** §3.4: tap a set row → the focus jumps to that set. */
+  onJumpSet?: (setId: string) => void;
+  /** §3.4: tap an exercise header → focus its first unlogged set. */
+  onJumpEntry?: (entryIndex: number) => void;
 }
 
 // ---------- … menu (per-mode, §2.2) ----------
@@ -172,6 +193,97 @@ function menuForMode(mode: CardMode): GroupMenuItem[] {
 
 // ---------- reps cell text (§2.2 markers) ----------
 
+// ---------- Part 10 §3.3: Overview table (compact 32px read rows) ----------
+
+/** Overview table grid: Set | Type | Reps | Weight | Rest. Fixed rails keep the
+ *  two value columns filling leftover card width (same minmax law as SetRow). */
+const OVERVIEW_COLS = "grid-cols-[36px_36px_minmax(0,1fr)_minmax(0,1.1fr)_minmax(52px,64px)]";
+
+function overviewRestText(set: CardSet): string {
+  const planned = set.restPlannedSec ?? null;
+  const actual = set.restActualSec ?? null;
+  if (planned == null || planned <= 0) return "–";
+  if (actual != null) return `${planned}→${actual}`; // §3.3 “60→75” once performed
+  return formatRestSec(planned);
+}
+
+function OverviewSetTable({
+  entry,
+  unit,
+  focusSetId,
+  onJumpSet,
+}: {
+  entry: GroupCardEntry;
+  unit?: string | null;
+  focusSetId?: string | null;
+  onJumpSet?: (setId: string) => void;
+}) {
+  if (entry.sets.length === 0) {
+    return <p className="px-2 py-1 text-xs text-muted-foreground">No sets</p>;
+  }
+  return (
+    <div
+      {...tourAttrs({ id: "groupCard.overviewTable", label: "Set table", help: "Every set of this exercise — tap a row to make it the focus set.", order: 190 })}
+      className="mx-1 my-1 overflow-hidden rounded-md border border-border/60"
+    >
+      <div
+        data-row
+        aria-hidden
+        className={cn(
+          "grid h-8 w-full items-center gap-1 overflow-hidden whitespace-nowrap bg-muted/40 px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground",
+          OVERVIEW_COLS,
+        )}
+      >
+        <span className="text-center">Set</span>
+        <span className="text-center">Type</span>
+        <span className="min-w-0 truncate">Reps</span>
+        <span className="min-w-0 truncate text-right">Weight</span>
+        <span className="min-w-0 truncate text-right">Rest</span>
+      </div>
+      {entry.sets.map((s) => {
+        const isFocus = focusSetId != null && s.id === focusSetId;
+        const typeMeta = s.setType ? SET_TYPE_META[s.setType as "NORMAL"] : null;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            data-row
+            {...tourAttrs({ id: "groupCard.overviewRow", label: "Set row", help: "Tap to jump the focus to this set — logged rows show what you lifted.", order: 200 })}
+            aria-label={`Set ${s.index}${s.done ? " logged" : " planned"}`}
+            aria-current={isFocus ? "true" : undefined}
+            className={cn(
+              "relative grid h-8 w-full items-center gap-1 overflow-hidden whitespace-nowrap px-2 text-xs tabular-nums transition-colors hover:bg-accent/50",
+              OVERVIEW_COLS,
+              !s.done && "text-muted-foreground",
+              s.done && "bg-emerald-500/5 text-foreground",
+              isFocus && "bg-primary/5",
+            )}
+            style={isFocus ? { boxShadow: "inset 4px 0 0 0 var(--primary)" } : undefined}
+            onClick={() => onJumpSet?.(s.id)}
+          >
+            <span className="flex min-w-0 items-center justify-center gap-0.5">
+              {s.done ? <Check className="h-3 w-3 flex-none text-emerald-500" aria-hidden /> : null}
+              <span className="truncate">{s.index}</span>
+            </span>
+            <span className="flex min-w-0 justify-center">
+              {typeMeta ? (
+                <span className={cn("flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold", typeMeta.className)} title={typeMeta.label}>
+                  {typeMeta.letter}
+                </span>
+              ) : (
+                <span className="text-muted-foreground/50">–</span>
+              )}
+            </span>
+            <span className="min-w-0 truncate text-left">{s.reps != null ? trimNum(s.reps) : "–"}</span>
+            <span className="min-w-0 truncate text-right">{s.weightKg != null ? `${trimNum(s.weightKg)}${unit ? ` ${unit}` : ""}` : "–"}</span>
+            <span className="min-w-0 truncate text-right">{overviewRestText(s)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function repsCellText(set: CardSet, fields: Array<"weight" | "reps" | "distance" | "timeSec">): string {
   // Part 9 §5: AMRAP prescribed sets spell out "AMRAP" (tap → Term definition).
   // Part 9 §8: performed AMRAP sets carry their actual reps → "AMRAP→{n}".
@@ -217,6 +329,7 @@ export function GroupCard({
   restExpanded = false,
   onToggleRest,
   menuItems,
+  overview,
   className,
 }: GroupCardProps) {
   const [tipOpen, setTipOpen] = useState<string | null>(null);
@@ -277,8 +390,30 @@ export function GroupCard({
                 ) : null}
               </div>
 
-              {/* 40px name row */}
-              <div {...tourAttrs({ id: "groupCard.name", label: "Exercise name", help: "Exercise name; long-press options via the menu.", order: 110 })} className={NAME_ROW}>
+              {/* 40px name row — §3.3 overview: tappable (§3.4 jump-to-exercise:
+                  focus jumps to this exercise's first unlogged set); the ⋯ menu
+                  span stops propagation so it stays its own target. */}
+              <div
+                {...tourAttrs({ id: "groupCard.name", label: "Exercise name", help: "Exercise name; long-press options via the menu.", order: 110 })}
+                className={cn(
+                  NAME_ROW,
+                  overview?.onJumpEntry && "cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                )}
+                role={overview?.onJumpEntry ? "button" : undefined}
+                tabIndex={overview?.onJumpEntry ? 0 : undefined}
+                aria-label={overview?.onJumpEntry ? `Focus ${e.name} — jump to its next set` : undefined}
+                onClick={overview?.onJumpEntry ? () => overview.onJumpEntry?.(i) : undefined}
+                onKeyDown={
+                  overview?.onJumpEntry
+                    ? (ev) => {
+                        if (ev.key === "Enter" || ev.key === " ") {
+                          ev.preventDefault();
+                          overview.onJumpEntry?.(i);
+                        }
+                      }
+                    : undefined
+                }
+              >
                 <h3 className="min-w-0 flex-1 truncate text-base font-semibold leading-none">{e.name}</h3>
                 {entry.note != null ? (
                   <span className="flex flex-none items-center gap-1 text-xs leading-none text-muted-foreground" aria-label="Has a note">
@@ -290,7 +425,7 @@ export function GroupCard({
                     {e.progressionDeload ? "↓ deload" : `↑ +${trimNum(e.progressionDelta)} next`}
                   </span>
                 ) : null}
-                {collapsed ? (
+                {collapsed || overview ? (
                   <span className="flex-none text-xs tabular-nums leading-none text-muted-foreground">{doneCount}/{entry.sets.length}</span>
                 ) : null}
                 {hasActions && menuForEntry.length > 0 ? (
@@ -373,8 +508,12 @@ export function GroupCard({
                 </>
               ) : null}
 
-              {/* mode bodies */}
+              {/* mode bodies (§4.5: a consumer editor node replaces the
+                  default reps/tempo/rest block — the builder's editor rows) */}
               {(mode === "view" || mode === "edit") && !collapsed ? (
+                entry.editor != null ? (
+                  entry.editor
+                ) : (
                 <>
                   <div {...tourAttrs({ id: "groupCard.reps", label: "Reps row", help: "Planned reps per set; ↺ copies last time, % is 1RM-based.", order: 140 })} className={REPS_ROW}>
                     <span className="flex-none text-xs font-medium text-muted-foreground">Reps:</span>
@@ -421,6 +560,7 @@ export function GroupCard({
                     </button>
                   ) : null}
                 </>
+                )
               ) : null}
 
               {(mode === "read" || isLegacyRows) && mode !== "summary" ? (
@@ -433,38 +573,51 @@ export function GroupCard({
 
               {(mode === "log" || mode === "template" || mode === "edit-legacy") && !collapsed ? (
                 <div className="px-1">
-                  {anyTempo ? (
-                    <div className={cn(TEMPO_ROW, "px-2")}>
-                      <span className="flex-none text-xs font-medium text-muted-foreground">Tempo:</span>
-                      <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
-                        {entry.sets.find((s) => s.tempo)?.tempo?.replace(/-/g, "/") ?? "–"}
-                      </span>
-                    </div>
-                  ) : null}
-                  {entry.sets.map((s) => (
-                    <SetRow
-                      key={s.id}
-                      mode={mode === "log" ? "log" : mode}
-                      exercise={e}
-                      set={s}
-                      visibleColumns={effectiveCols(e, visibleColumns)}
-                      current={entry.currentSetIndex === s.index - 1}
-                      onAction={onAction != null ? (a) => dispatch(a, i) : undefined}
+                  {overview ? (
+                    /* §3.3 Overview: the compact Set|Type|Reps|Weight|Rest table
+                       replaces the SetRow inputs + add-set (jump taps only). */
+                    <OverviewSetTable
+                      entry={entry}
+                      unit={e.unit}
+                      focusSetId={overview.focusSetId}
+                      onJumpSet={overview.onJumpSet}
                     />
-                  ))}
-                  {hasActions ? (
-                    <button
-                      type="button"
-                      data-row
-                      {...tourAttrs({ id: "groupCard.addSet", label: "Add set", help: "Append another set to this exercise.", order: 170 })}
-                      aria-label={`Add set to ${e.name}`}
-                      className={cn(rowBase, "w-full gap-2 px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50")}
-                      onClick={() => dispatch({ type: "add-set" }, i)}
-                    >
-                      <Plus className="h-4 w-4" aria-hidden />
-                      Add set
-                    </button>
-                  ) : null}
+                  ) : (
+                    <>
+                      {anyTempo ? (
+                        <div className={cn(TEMPO_ROW, "px-2")}>
+                          <span className="flex-none text-xs font-medium text-muted-foreground">Tempo:</span>
+                          <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
+                            {entry.sets.find((s) => s.tempo)?.tempo?.replace(/-/g, "/") ?? "–"}
+                          </span>
+                        </div>
+                      ) : null}
+                      {entry.sets.map((s) => (
+                        <SetRow
+                          key={s.id}
+                          mode={mode === "log" ? "log" : mode}
+                          exercise={e}
+                          set={s}
+                          visibleColumns={effectiveCols(e, visibleColumns)}
+                          current={entry.currentSetIndex === s.index - 1}
+                          onAction={onAction != null ? (a) => dispatch(a, i) : undefined}
+                        />
+                      ))}
+                      {hasActions ? (
+                        <button
+                          type="button"
+                          data-row
+                          {...tourAttrs({ id: "groupCard.addSet", label: "Add set", help: "Append another set to this exercise.", order: 170 })}
+                          aria-label={`Add set to ${e.name}`}
+                          className={cn(rowBase, "w-full gap-2 px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50")}
+                          onClick={() => dispatch({ type: "add-set" }, i)}
+                        >
+                          <Plus className="h-4 w-4" aria-hidden />
+                          Add set
+                        </button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               ) : null}
 

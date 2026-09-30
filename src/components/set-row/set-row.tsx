@@ -86,12 +86,31 @@ type TrackKey = "index" | "setType" | "f1" | "f2" | "rpe" | "tempo" | "rest" | "
 
 type GridSpec = { keys: TrackKey[]; template: string };
 
+/** Part 10 §4.5 (L2 extension): exported so the Workout Builder's inline set
+ *  table can render a header row on the EXACT same computed grid as SetRow —
+ *  one grid engine, never a parallel implementation. */
+export function setRowGridSpec(
+  fields: SetField[],
+  visible: CardVisibleColumns,
+  mode: CardMode,
+  vw: number,
+  moreTrack: boolean,
+): GridSpec {
+  return buildGrid(fields, visible, mode, vw, moreTrack);
+}
+
+/** Viewport at which the focus variant's rest track joins the grid (§3.1 R5
+ *  inputs are Type·Reps·Weight·RPE; rest fits only once the viewport gives
+ *  ≈362px of card width — documented adaptation for 320/360px screens). */
+const FOCUS_REST_VIEWPORT = 400;
+
 function buildGrid(
   fields: SetField[],
   visible: CardVisibleColumns,
   mode: CardMode,
   vw: number,
   moreTrack: boolean,
+  focus = false,
 ): GridSpec {
   const keys: TrackKey[] = [];
   const parts: string[] = [];
@@ -100,18 +119,22 @@ function buildGrid(
     parts.push(css);
   };
 
-  push("index", `${TRACK.index}px`);
-  if (visible.setType) push("setType", `${TRACK.setType}px`);
+  // §3.1 R5 focus variant: no set-index column (context lives in the card).
+  if (!focus) push("index", `${TRACK.index}px`);
+  if (visible.setType) push("setType", `${TRACK.setType + (focus ? 4 : 0)}px`);
 
   // Value tracks: spec floor (−16 below 360px — documented adaptation so the
   // fixed small tracks still fit a 320px screen) + 1fr growth to fill the card.
   const narrow = vw < 360;
-  if (fields[0]) push("f1", `minmax(${TRACK.f1 - (narrow ? 16 : 0)}px, 1fr)`);
-  if (fields[1]) push("f2", `minmax(${TRACK.f2 - (narrow ? 16 : 0)}px, 1fr)`);
+  if (fields[0]) push("f1", `minmax(${TRACK.f1 - (narrow ? 16 : 0) + (focus ? 8 : 0)}px, 1fr)`);
+  if (fields[1]) push("f2", `minmax(${TRACK.f2 - (narrow ? 16 : 0) + (focus ? 8 : 0)}px, 1fr)`);
 
-  if (visible.rpe && vw >= WIDE_VIEWPORT) push("rpe", `${TRACK.rpe}px`);
-  if (visible.tempo && vw >= WIDE_VIEWPORT) push("tempo", `${TRACK.tempo}px`);
-  if (visible.rest) push("rest", `${TRACK.rest}px`);
+  // Focus: RPE is a spec'd input — it stays in the grid at EVERY width (the
+  // default row drops it below 468 into the ⋯ popover; the focus row has room
+  // because index+tempo tracks are gone).
+  if (visible.rpe && (focus || vw >= WIDE_VIEWPORT)) push("rpe", `${TRACK.rpe}px`);
+  if (!focus && visible.tempo && vw >= WIDE_VIEWPORT) push("tempo", `${TRACK.tempo}px`);
+  if (visible.rest && (!focus || vw >= FOCUS_REST_VIEWPORT)) push("rest", `${TRACK.rest}px`);
 
   // `done` never applies to routine templates → track removed.
   if (mode !== "template") push("done", `${TRACK.done}px`);
@@ -374,11 +397,14 @@ function TypeCell({
   set,
   mode,
   editable,
+  bigger,
   onAction,
 }: {
   set: CardSet;
   mode: CardMode;
   editable: boolean;
+  /** §3.1 focus variant: larger tap target + glyph. */
+  bigger?: boolean;
   onAction?: (a: CardAction) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -471,7 +497,8 @@ function TypeCell({
             setOpen(true);
           }}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold transition-transform active:scale-95",
+            "flex items-center justify-center rounded-md font-bold transition-transform active:scale-95",
+            bigger ? "h-8 w-8 text-xs" : "h-7 w-7 text-[11px]",
             templateBlank ? "border border-dashed border-border text-muted-foreground" : meta?.className,
           )}
         >
@@ -520,6 +547,7 @@ function ValueCell({
   exercise,
   mode,
   editable,
+  bigger,
   onAction,
 }: {
   field: SetField;
@@ -527,6 +555,8 @@ function ValueCell({
   exercise: CardExercise;
   mode: CardMode;
   editable: boolean;
+  /** §3.1 focus variant: larger type for the primary logging inputs. */
+  bigger?: boolean;
   onAction?: (a: CardAction) => void;
 }) {
   const key = FIELD_TO_KEY[field];
@@ -663,14 +693,17 @@ function ValueCell({
         }}
         onKeyDown={onInputKeyDown}
         onChange={(e) => setDraft(e.target.value)}
-        className="h-full min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent px-1 text-right text-sm tabular-nums text-foreground outline-none focus:bg-muted/40"
+        className={cn(
+          "h-full min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent px-1 text-right tabular-nums text-foreground outline-none focus:bg-muted/40",
+          bigger ? "text-base font-semibold" : "text-sm",
+        )}
       />
       {focused ? stepperButton(1) : null}
     </div>
   );
 }
 
-function RpeCell({ set, editable, onAction }: { set: CardSet; editable: boolean; onAction?: (a: CardAction) => void }) {
+function RpeCell({ set, editable, bigger, onAction }: { set: CardSet; editable: boolean; bigger?: boolean; onAction?: (a: CardAction) => void }) {
   const [open, setOpen] = useState(false);
   const value = set.rpe ?? null;
   if (!editable || !onAction) {
@@ -693,7 +726,7 @@ function RpeCell({ set, editable, onAction }: { set: CardSet; editable: boolean;
           type="button"
           {...tourAttrs({ id: "setRow.rpe", label: "RPE", help: "Effort rating; tap to pick 1–10.", order: 140 })}
           aria-label={value != null ? `RPE ${formatRpe(value)}, tap to change` : "RPE not set, tap to choose"}
-          className={cellButtonBase}
+          className={cn(cellButtonBase, bigger && "h-9 text-sm")}
         >
           {value != null ? formatRpe(value) : <span className="text-muted-foreground/50">–</span>}
         </button>
@@ -760,7 +793,7 @@ function TempoCell({
   );
 }
 
-function RestCell({ set, editable, onAction }: { set: CardSet; editable: boolean; onAction?: (a: CardAction) => void }) {
+function RestCell({ set, editable, bigger, onAction }: { set: CardSet; editable: boolean; bigger?: boolean; onAction?: (a: CardAction) => void }) {
   const [open, setOpen] = useState(false);
   const planned = set.restPlannedSec ?? null;
   const actual = set.restActualSec ?? null;
@@ -790,7 +823,7 @@ function RestCell({ set, editable, onAction }: { set: CardSet; editable: boolean
           type="button"
           {...tourAttrs({ id: "setRow.rest", label: "Rest", help: "Planned rest after this set; tap to edit.", order: 160 })}
           aria-label={planned ? `Planned rest ${formatRestSec(planned)}, tap to change` : "Rest not set, tap to edit"}
-          className={cellButtonBase}
+          className={cn(cellButtonBase, bigger && "h-9 text-sm")}
         >
           {planned ? text : <span className="text-muted-foreground/50">–</span>}
         </button>
@@ -960,6 +993,7 @@ function MoreCell({
   editable,
   showRpeEditor,
   showTempoEditor,
+  showRestEditor,
   allowRemoveSet,
   tempoPresets,
   onAction,
@@ -969,6 +1003,9 @@ function MoreCell({
   editable: boolean;
   showRpeEditor: boolean;
   showTempoEditor: boolean;
+  /** §3.1 focus variant <400px: the rest track is absent from the grid → its
+   *  editor lives here (same rule as rpe/tempo below the wide threshold). */
+  showRestEditor?: boolean;
   /** template mode: predefined sets can be deleted from the row ⋯ popover. */
   allowRemoveSet?: boolean;
   tempoPresets?: string[];
@@ -996,7 +1033,7 @@ function MoreCell({
     if (next) setNoteDraft(null);
   };
 
-  const dropped = showRpeEditor || showTempoEditor;
+  const dropped = showRpeEditor || showTempoEditor || showRestEditor;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1025,6 +1062,14 @@ function MoreCell({
                   value={set.tempo ?? null}
                   presets={tempoPresets}
                   onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { tempo: v } })}
+                />
+              </div>
+            ) : null}
+            {showRestEditor ? (
+              <div className="border-t border-border pt-3">
+                <RestEditor
+                  value={set.restPlannedSec ?? null}
+                  onChange={(v) => onAction({ type: "update-set", setId: set.id, patch: { restPlannedSec: v } })}
                 />
               </div>
             ) : null}
@@ -1110,6 +1155,14 @@ export interface SetRowProps {
   tempoPresets?: string[];
   /** Part 8 §2.4: guided pointer — 3px accent bar inside the row, left. */
   current?: boolean;
+  /** Part 10 §4.5 (L2 extension): override the modality-derived fields — the
+   *  builder's template table drops the weight track (weight is logged, not
+   *  prescribed). Omitted → fieldsForType(exercise.modality). */
+  fieldsOverride?: SetField[];
+  /** Part 10 §3.1 R5: focus variant — 56px row, no index column, bigger
+   *  inputs (Type · Reps · Weight · RPE stay in the grid at every width).
+   *  Same ONE SetRow (L2) — presentation variant only, never a fork. */
+  variant?: "default" | "focus";
   className?: string;
 }
 
@@ -1122,27 +1175,36 @@ export function SetRow({
   onAction,
   tempoPresets,
   current = false,
+  fieldsOverride,
+  variant = "default",
   className,
 }: SetRowProps) {
   const vw = useViewportWidth();
-  const fields = useMemo(() => fieldsForType(exercise.modality), [exercise.modality]);
+  const focus = variant === "focus";
+  const fields = useMemo(
+    () => fieldsOverride ?? fieldsForType(exercise.modality),
+    [fieldsOverride, exercise.modality],
+  );
   const editable = onAction != null && (mode === "log" || mode === "edit" || mode === "template" || mode === "preview");
   const effectiveMoreTrack =
     moreTrack ?? (mode === "read" || mode === "preview" ? !!(set.isNewPr || set.note) : true);
   const grid = useMemo(
-    () => buildGrid(fields, visibleColumns, mode, vw, effectiveMoreTrack),
-    [fields, visibleColumns, mode, vw, effectiveMoreTrack],
+    () => buildGrid(fields, visibleColumns, mode, vw, effectiveMoreTrack, focus),
+    [fields, visibleColumns, mode, vw, effectiveMoreTrack, focus],
   );
 
-  // rpe/tempo editors move into the more ⋯ popover below the wide threshold
-  const rpeDropped = visibleColumns.rpe && vw < WIDE_VIEWPORT;
-  const tempoDropped = visibleColumns.tempo && vw < WIDE_VIEWPORT;
+  // rpe/tempo editors move into the more ⋯ popover below the wide threshold;
+  // the focus variant has no tempo/rest grid tracks (§3.1 R5), so their
+  // editors live in the ⋯ popover whenever the columns are visible at all.
+  const rpeDropped = visibleColumns.rpe && !focus && vw < WIDE_VIEWPORT;
+  const tempoDropped = visibleColumns.tempo && (focus || vw < WIDE_VIEWPORT);
+  const restDropped = visibleColumns.rest && focus && vw < FOCUS_REST_VIEWPORT;
   const typeEditable = editable && (mode === "log" || mode === "edit" || mode === "template");
   const moreEditable = editable && (mode === "log" || mode === "edit" || mode === "template");
 
   const cells: Record<TrackKey, ReactNode> = {
     index: <IndexCell set={set} mode={mode} onAction={editable ? onAction : undefined} />,
-    setType: <TypeCell set={set} mode={mode} editable={typeEditable} onAction={typeEditable ? onAction : undefined} />,
+    setType: <TypeCell set={set} mode={mode} editable={typeEditable} bigger={focus} onAction={typeEditable ? onAction : undefined} />,
     f1: fields[0] ? (
       <ValueCell
         field={fields[0]}
@@ -1150,6 +1212,7 @@ export function SetRow({
         exercise={exercise}
         mode={mode}
         editable={editable}
+        bigger={focus}
         onAction={editable ? onAction : undefined}
       />
     ) : null,
@@ -1160,10 +1223,11 @@ export function SetRow({
         exercise={exercise}
         mode={mode}
         editable={editable}
+        bigger={focus}
         onAction={editable ? onAction : undefined}
       />
     ) : null,
-    rpe: <RpeCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
+    rpe: <RpeCell set={set} editable={editable} bigger={focus} onAction={editable ? onAction : undefined} />,
     tempo: (
       <TempoCell
         set={set}
@@ -1172,7 +1236,7 @@ export function SetRow({
         tempoPresets={tempoPresets}
       />
     ),
-    rest: <RestCell set={set} editable={editable} onAction={editable ? onAction : undefined} />,
+    rest: <RestCell set={set} editable={editable} bigger={focus} onAction={editable ? onAction : undefined} />,
     done: <DoneCell set={set} mode={mode} onAction={onAction} />,
     more: (
       <MoreCell
@@ -1181,6 +1245,7 @@ export function SetRow({
         editable={moreEditable}
         showRpeEditor={rpeDropped}
         showTempoEditor={tempoDropped}
+        showRestEditor={restDropped}
         allowRemoveSet={mode === "template"}
         tempoPresets={tempoPresets}
         onAction={moreEditable ? onAction : undefined}
@@ -1188,14 +1253,14 @@ export function SetRow({
     ),
   };
 
-  const tall = mode === "log" || mode === "read";
+  const tall = focus || mode === "log" || mode === "read";
   return (
     <div
       data-row
       role="group"
       aria-label={`Set ${set.index}`}
       aria-current={current ? "true" : undefined}
-      className={cn(rowGrid, tall && "h-12", rowTint(set), current && "relative", className)}
+      className={cn(rowGrid, tall && "h-12", focus && "h-14", rowTint(set), current && "relative", className)}
       style={{
         gridTemplateColumns: grid.template,
         ...(current

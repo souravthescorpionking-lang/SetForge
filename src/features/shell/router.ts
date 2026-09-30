@@ -7,6 +7,7 @@
 //   #/dashboard                                → screens/dashboard          (—)   tab 2
 //   #/more                                     → screens/more               (—)   tab 3
 //   #/session                                  → screens/session            (—)   Logging (Start/Continue only; gated)
+//   #/session/settings                         → screens/session-settings   (—)   Part 10 §3.5 live-session settings
 //   #/session/exercise/{workoutExerciseId}     → screens/session-exercise   { exerciseId }
 //   #/session/arrange                          → screens/session-arrange    (—)
 //   #/logs                                     → screens/logs               (—)
@@ -28,9 +29,14 @@
 //   #/builder                                  → screens/builder            (—)   hub
 //   #/builder/new                              → screens/builder-new        (—)   creation wizard
 //   #/builder/program/{id}                     → screens/builder-program    { routineId }
+//   #/builder/session/new                      → screens/builder-session-new (—)   Part 10 §4.2 draft build
 //   #/builder/session/{id}                     → screens/builder-session    { routineId }
+//   #/builder/session/{id|new}/add             → screens/builder-add        { routineId }   Part 10 §4.3
+//   #/builder/session/{id|new}/add/selected    → screens/builder-add-selected { routineId } §4.3
 //   #/builder/program/{id}/exercise/{reId}     → screens/sets-editor        { routineId, reId }
 //   #/builder/session/{id}/exercise/{reId}     → screens/sets-editor        { routineId, reId }
+//   #/filters/muscle · #/filters/equipment     → screens/filters-*          (—)   Part 10 §4.4 shared
+//   #/tempo/{reId}                             → screens/tempo              { reId }        Part 10 §4.6
 //   #/calendar                                 → screens/calendar           (—)   via 📅
 //   #/calendar/filters                         → screens/calendar-filters   (—)
 //   #/schedule/pick?date=YYYY-MM-DD            → screens/schedule-pick      (—)
@@ -59,6 +65,7 @@ export type RouteName =
   | "dashboard"
   | "more"
   | "session"
+  | "session-settings"
   | "session-exercise"
   | "session-arrange"
   | "logs"
@@ -80,7 +87,13 @@ export type RouteName =
   | "builder-new"
   | "builder-program"
   | "builder-session"
+  | "builder-session-new"
+  | "builder-add"
+  | "builder-add-selected"
   | "sets-editor"
+  | "filters-muscle"
+  | "filters-equipment"
+  | "tempo"
   | "calendar"
   | "calendar-filters"
   | "schedule-pick"
@@ -127,6 +140,7 @@ export type Route =
   | ({ name: "dashboard" } & RouteMeta)
   | ({ name: "more" } & RouteMeta)
   | ({ name: "session" } & RouteMeta)
+  | ({ name: "session-settings" } & RouteMeta)
   | ({ name: "session-exercise"; params: RouteParams & { exerciseId: string } } & RouteMeta)
   | ({ name: "session-arrange" } & RouteMeta)
   | ({ name: "logs" } & RouteMeta)
@@ -148,7 +162,13 @@ export type Route =
   | ({ name: "builder-new" } & RouteMeta)
   | ({ name: "builder-program"; params: RouteParams & { routineId: string } } & RouteMeta)
   | ({ name: "builder-session"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "builder-session-new" } & RouteMeta)
+  | ({ name: "builder-add"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "builder-add-selected"; params: RouteParams & { routineId: string } } & RouteMeta)
   | ({ name: "sets-editor"; params: RouteParams & { routineId: string; reId: string } } & RouteMeta)
+  | ({ name: "filters-muscle" } & RouteMeta)
+  | ({ name: "filters-equipment" } & RouteMeta)
+  | ({ name: "tempo"; params: RouteParams & { reId: string } } & RouteMeta)
   | ({ name: "calendar" } & RouteMeta)
   | ({ name: "calendar-filters" } & RouteMeta)
   | ({ name: "schedule-pick" } & RouteMeta)
@@ -254,6 +274,7 @@ export function parseRoute(hash: string): Route | null {
     // itself redirects to #/workout when no session is in progress. ----
     case "session":
       if (segs.length <= 1) return { name: "session", ...meta };
+      if (segs[1] === "settings") return { name: "session-settings", ...meta };
       if (segs[1] === "arrange") return { name: "session-arrange", ...meta };
       if (segs[1] === "exercise" && segs[2]) {
         return { name: "session-exercise", params: { exerciseId: segs[2] }, ...meta };
@@ -324,9 +345,21 @@ export function parseRoute(hash: string): Route | null {
       const id = segs[2];
       if ((kind === "program" || kind === "session") && id) {
         if (segs.length === 3) {
+          // Part 10 §4.2: #/builder/session/new — the DRAFT build screen (the
+          // program side keeps the wizard as its only creation path).
+          if (id === "new") {
+            return kind === "session" ? { name: "builder-session-new", ...meta } : null;
+          }
           return kind === "program"
             ? { name: "builder-program", params: { routineId: id }, ...meta }
             : { name: "builder-session", params: { routineId: id }, ...meta };
+        }
+        // Part 10 §4.3: add-exercise flow (draft "new" or a persisted session).
+        if (segs.length === 4 && segs[3] === "add") {
+          return { name: "builder-add", params: { routineId: id }, ...meta };
+        }
+        if (segs.length === 5 && segs[3] === "add" && segs[4] === "selected") {
+          return { name: "builder-add-selected", params: { routineId: id }, ...meta };
         }
         if (segs.length === 5 && segs[3] === "exercise" && segs[4]) {
           return { name: "sets-editor", params: { routineId: id, reId: segs[4] }, ...meta };
@@ -334,6 +367,19 @@ export function parseRoute(hash: string): Route | null {
       }
       return null;
     }
+
+    // ---- Part 10 §4.4: shared filter routes (state round-trips in the URL) ----
+    case "filters":
+      if (segs.length === 2 && segs[1] === "muscle") return { name: "filters-muscle", ...meta };
+      if (segs.length === 2 && segs[1] === "equipment") return { name: "filters-equipment", ...meta };
+      return null;
+
+    // ---- Part 10 §4.6: tempo picker (persisted RoutineExercise) ----
+    case "tempo":
+      if (segs.length === 2 && segs[1]) {
+        return { name: "tempo", params: { reId: segs[1] }, ...meta };
+      }
+      return null;
 
     case "calendar":
       if (segs.length === 1) return { name: "calendar", ...meta };

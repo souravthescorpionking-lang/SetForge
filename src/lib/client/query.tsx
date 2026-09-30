@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "./store";
-import { authApi, categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi } from "./api";
+import { authApi, categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi, dayApi, equipmentApi } from "./api";
 import type { Difficulty } from "@/lib/constants";
 
 export const qk = {
@@ -12,6 +12,10 @@ export const qk = {
   exercises: (params?: Record<string, unknown>) => ["exercises", params ?? {}] as const,
   exercise: (id: string) => ["exercise", id] as const,
   exerciseHistory: (id: string) => ["exercise-history", id] as const,
+  /** Part 10 §3.3: finished-sessions view (distinct cache family from the
+   *  legacy all-rows history — same ["exercise-history"] invalidation prefix). */
+  exerciseSessionHistory: (id: string) => ["exercise-history", id, "sessions"] as const,
+  exerciseMax: (id: string) => ["exercise-max", id] as const,
   exerciseRecords: (id: string) => ["exercise-records", id] as const,
   exerciseGraph: (id: string, params: Record<string, unknown>) => ["exercise-graph", id, params] as const,
   workoutByDate: (dateKey: string) => ["workout", dateKey] as const,
@@ -44,6 +48,9 @@ export const qk = {
   onDemand: (params?: Record<string, unknown>) => ["on-demand", params ?? {}] as const,
   // ---- Part 9 §12: builder variant/phase tree ----
   builderVariants: (routineId: string) => ["builder-variants", routineId] as const,
+  // ---- Part 10 §4: custom workouts + canonical equipment ----
+  customWorkouts: ["custom-workouts"] as const,
+  equipment: ["equipment"] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -68,7 +75,14 @@ export function useCategories() {
   return useQuery({ queryKey: qk.categories, queryFn: () => categoriesApi.list() });
 }
 
-export function useExercises(params?: { search?: string; categoryId?: string; favoritesOnly?: boolean }) {
+export function useExercises(params?: {
+  search?: string;
+  categoryId?: string;
+  favoritesOnly?: boolean;
+  q?: string;
+  muscles?: string[];
+  equipment?: string[];
+}) {
   const stableKey = params ? JSON.stringify(params) : "";
   const parsed = stableKey ? (JSON.parse(stableKey) as typeof params) : undefined;
   return useQuery({
@@ -82,6 +96,29 @@ export function useWorkoutByDate(dateKey: string | undefined) {
     queryKey: qk.workoutByDate(dateKey ?? ""),
     queryFn: () => workoutsApi.byDate(dateKey!),
     enabled: !!dateKey,
+  });
+}
+
+// ---- Part 10 §3: live-session data (History tab + FocusCard max) ----
+
+/** §3.3 History tab — last finished sessions containing the exercise
+ *  (lazy: `enabled` is the caller's job; 5 min staleTime per spec). */
+export function useExerciseSessionHistory(exerciseId: string | null | undefined, limit = 5) {
+  return useQuery({
+    queryKey: qk.exerciseSessionHistory(exerciseId ?? ""),
+    queryFn: () => exercisesApi.history(exerciseId!, limit, { finishedOnly: true }),
+    enabled: !!exerciseId,
+    staleTime: 300_000,
+  });
+}
+
+/** §3.1 R3 — max weight ever logged for the exercise (completed, non-warm-up). */
+export function useExerciseMax(exerciseId: string | null | undefined) {
+  return useQuery({
+    queryKey: qk.exerciseMax(exerciseId ?? ""),
+    queryFn: () => exercisesApi.max(exerciseId!),
+    enabled: !!exerciseId,
+    staleTime: 300_000,
   });
 }
 
@@ -124,6 +161,18 @@ export function useSchedule(from: string, to: string) {
   });
 }
 
+// ---------- Part 10 §4 shared hooks ----------
+
+/** §4.1 "Your workouts" — the custom-workout list rows (with dayId). */
+export function useCustomWorkouts() {
+  return useQuery({ queryKey: qk.customWorkouts, queryFn: () => dayApi.listCustomWorkouts() });
+}
+
+/** §4.4 canonical equipment filter rows. */
+export function useEquipment() {
+  return useQuery({ queryKey: qk.equipment, queryFn: () => equipmentApi.list() });
+}
+
 export function useInvalidate() {
   const qc = useQueryClient();
   return {
@@ -140,6 +189,8 @@ export function useInvalidate() {
       qc.invalidateQueries({ queryKey: ["exercise-records"] });
       qc.invalidateQueries({ queryKey: ["exercise-graph"] });
       qc.invalidateQueries({ queryKey: ["exercise-history"] });
+      // Part 10 §3: live-screen max/history ride the same workout mutations
+      qc.invalidateQueries({ queryKey: ["exercise-max"] });
     },
     exercises: () => {
       qc.invalidateQueries({ queryKey: ["exercises"] });
@@ -176,6 +227,11 @@ export function useInvalidate() {
     // ---- Part 9 §12: builder variant/phase/publish state ----
     builderVariants: (id?: string) =>
       qc.invalidateQueries({ queryKey: id ? ["builder-variants", id] : ["builder-variants"] }),
+    // ---- Part 10 §4: custom workouts (routines mutations refresh them too) ----
+    customWorkouts: () => {
+      qc.invalidateQueries({ queryKey: qk.customWorkouts });
+      qc.invalidateQueries({ queryKey: ["day"] });
+    },
     all: () => qc.invalidateQueries(),
   };
 }

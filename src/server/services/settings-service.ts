@@ -64,6 +64,9 @@ export async function updateSettings(
     notifScheduled: boolean;
     notifMissedDay: boolean;
     notifPr: boolean;
+    // ---- Part 10 §1: live-session switches ----
+    countdownSounds: boolean;
+    videoSpeed: number;
   }>,
 ) {
   const existing = await db.userSettings.findUnique({ where: { userId } });

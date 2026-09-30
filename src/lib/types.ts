@@ -56,6 +56,10 @@ export type SettingsDTO = {
   notifScheduled: boolean;
   notifMissedDay: boolean;
   notifPr: boolean;
+  // ---- Part 10 §1: live-session switches (spec WorkoutSettings; this
+  // UserSettings singleton IS that table — single source, no dual table) ----
+  countdownSounds: boolean; // 3-2-1 beeps + long tone at 0 while the tab is visible
+  videoSpeed: number; // FocusCard video playback rate
 };
 
 // ---- Part 7: tour system ----
@@ -195,6 +199,10 @@ export type WorkoutDTO = {
   // ---- Part 8 §6.9: single remove semantics ----
   removedAt: string | null;
   removeReason: string | null;
+  // ---- Part 10 §1: finish metadata (§3.6 end flow) ----
+  markedComplete: boolean; // ended with the mark ON (finish semantics)
+  totalVolume: number | null; // Σ completed reps×weight kg, computed on finish
+  totalSets: number | null; // completed set count, computed on finish
   exercises: WorkoutExerciseDTO[];
   groups: WorkoutGroupDTO[];
 };
@@ -224,6 +232,35 @@ export type RecordRowDTO = {
   date: string;
   superseded: boolean;
   setCount: number;
+};
+
+// ---- Part 10 §3.3: exercise session history (finished workouts only) ----
+
+/** One past session of an exercise (finished workout containing it). */
+export type ExerciseHistoryEntryDTO = {
+  workoutId: string;
+  date: string;
+  sourceLabel: string | null;
+  workoutExerciseId: string;
+  sets: SetDTO[];
+};
+
+/** GET /api/exercises/:id/max — heaviest completed, non-warm-up set weight. */
+export type ExerciseMaxDTO = {
+  exerciseId: string;
+  maxWeight: number | null;
+};
+
+/** POST /api/workouts/:id/end result (§3.6 semantics). */
+export type WorkoutEndResultDTO = {
+  workoutId: string;
+  finishedAt: string | null;
+  markedComplete: boolean;
+  totalVolume: number;
+  totalSets: number;
+  discarded: boolean;
+  advanced: boolean;
+  nextDay: { id: string; name: string; dayType: string } | null;
 };
 
 export type RecordsDTO = {
@@ -373,6 +410,26 @@ export type ExerciseSuggestionDTO = {
   thumbnailUrl: string | null;
 };
 
+// ---------- Part 10 §4: Workout Builder ----------
+
+/** One row of GET /api/days?source=CUSTOM — "Your workouts" (§4.1). */
+export type CustomWorkoutRowDTO = {
+  id: string; // routine id (kind=SESSION source=CUSTOM)
+  dayId: string | null; // the single workout day — the tap target
+  name: string;
+  difficulty: string | null;
+  muscles: string[];
+  estMinutes: number | null;
+  exerciseCount: number;
+};
+
+/** One canonical row of GET /api/equipment (§4.4) — union of the seeded
+ *  canonical list with the distinct values found in the user's catalog. */
+export type EquipmentOptionDTO = {
+  id: string;
+  label: string;
+};
+
 export type RoutineDTO = {
   id: string;
   name: string;
@@ -388,6 +445,8 @@ export type RoutineDTO = {
   highlights?: string[];
   isFavorite?: boolean;
   labels?: string[];
+  // ---- Part 10 §4: "CUSTOM" = user-built single workout; null = template/on-demand ----
+  source?: string | null;
 };
 
 export type MeasurementDTO = {

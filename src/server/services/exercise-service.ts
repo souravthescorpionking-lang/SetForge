@@ -1,9 +1,12 @@
 // Exercise + category catalogue service.
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
-import { mapExercise, mapCategory } from "../mappers";
-import { badRequest, notFound, conflict } from "../http";
+import { mapExercise, mapCategory, mapSet } from "../mappers";
+import { badRequest, notFound, conflict } from "../../server/http";
 import { kgToLbs, lbsToKg } from "@/lib/formulas";
+import { jsonStringArray } from "../media";
+import { CANONICAL_EQUIPMENT, canonicalEquipmentToEnum } from "@/lib/constants";
+import type { EquipmentOptionDTO } from "@/lib/types";
 
 // ---------- categories ----------
 
@@ -66,8 +69,16 @@ export async function reorderCategories(userId: string, ids: string[]) {
 
 export async function listExercises(
   userId: string,
-  opts: { search?: string; categoryId?: string; favoritesOnly?: boolean } = {},
+  opts: {
+    search?: string;
+    categoryId?: string;
+    favoritesOnly?: boolean;
+    // ---- Part 10 §4.3: builder add-exercise filters ----
+    muscles?: string[]; // primaryMuscle enum values (OR-match)
+    equipment?: string[]; // canonical §4.4 ids or raw enum values (OR-match)
+  } = {},
 ) {
+  const equipmentEnums = canonicalEquipmentToEnum(opts.equipment ?? []);
   const where = {
     userId,
     deletedAt: null,
@@ -82,6 +93,20 @@ export async function listExercises(
       const hay = `${e.name} ${e.category?.name ?? ""}`.toLowerCase();
       return tokens.every((t) => hay.includes(t));
     });
+  }
+
+  // §4.4 muscle filter — an exercise matches when ANY selected muscle appears
+  // in its primaryMuscles (OR semantics across selections).
+  if (opts.muscles && opts.muscles.length > 0) {
+    const wanted = new Set(opts.muscles);
+    rows = rows.filter((e) => jsonStringArray(e.primaryMuscles).some((m) => wanted.has(m)));
+  }
+
+  // §4.4 equipment filter — canonical ids resolve to the enum values they
+  // cover; an exercise matches when ANY of its equipment values is covered.
+  if (equipmentEnums.length > 0) {
+    const wanted = new Set(equipmentEnums);
+    rows = rows.filter((e) => jsonStringArray(e.equipment).some((v) => wanted.has(v)));
   }
 
   // usage stats
@@ -107,6 +132,33 @@ export async function listExercises(
       lastPerformed: lastByEx.get(e.id)?.toISOString() ?? null,
     }),
   );
+}
+
+// ---------- Part 10 §4.4: canonical equipment list ----------
+
+/**
+ * GET /api/equipment — the canonical equipment filter rows: the seeded
+ * §4.4 list UNION the distinct values actually stored in the user's catalog
+ * (enum-keyed rows reuse their canonical label; unknown raw values pass
+ * through labelised). Deterministic order: seed order first, then extras.
+ */
+export async function listEquipment(userId: string): Promise<{ equipment: EquipmentOptionDTO[] }> {
+  const rows = await db.exercise.findMany({
+    where: { userId, deletedAt: null },
+    select: { equipment: true },
+  });
+  const found = new Set<string>();
+  for (const r of rows) for (const v of jsonStringArray(r.equipment)) found.add(v);
+
+  const seedIds = new Set<string>(CANONICAL_EQUIPMENT.map((c) => c.id));
+  const extras: EquipmentOptionDTO[] = [...found]
+    .filter((v) => !seedIds.has(v))
+    .sort()
+    .map((v) => ({
+      id: v,
+      label: CANONICAL_EQUIPMENT.find((c) => c.id === (v as (typeof CANONICAL_EQUIPMENT)[number]["id"]))?.label ?? v.replace(/_/g, " ").toLowerCase(),
+    }));
+  return { equipment: [...CANONICAL_EQUIPMENT.map((c) => ({ id: c.id, label: c.label })), ...extras] };
 }
 
 export async function getExercise(userId: string, id: string) {
@@ -248,12 +300,29 @@ export async function deleteExercise(userId: string, id: string) {
   return { ok: true };
 }
 
-/** History: sets grouped by workout date, newest first. */
-export async function exerciseHistory(userId: string, exerciseId: string, limit = 100) {
+/**
+ * History: sets grouped by workout date, newest first.
+ * Part 10 §3.3: `finishedOnly` scopes entries to FINISHED, un-removed workouts
+ * (the live screen's History tab); entries now also carry sourceLabel and the
+ * full SetDTO shape (setType/rpe/tempo/rest/completedAt — previously omitted,
+ * which made the client SetDTO type a lie).
+ */
+export async function exerciseHistory(
+  userId: string,
+  exerciseId: string,
+  limit = 100,
+  opts?: { finishedOnly?: boolean },
+) {
   const ex = await db.exercise.findFirst({ where: { id: exerciseId, userId } });
   if (!ex) throw notFound("Exercise not found");
   const wes = await db.workoutExercise.findMany({
-    where: { userId, exerciseId },
+    where: {
+      userId,
+      exerciseId,
+      ...(opts?.finishedOnly
+        ? { workout: { removedAt: null, finishedAt: { not: null } } }
+        : {}),
+    },
     include: {
       workout: true,
       sets: { orderBy: { sortOrder: "asc" } },
@@ -264,19 +333,33 @@ export async function exerciseHistory(userId: string, exerciseId: string, limit 
   return wes.map((we) => ({
     workoutId: we.workoutId,
     date: we.workout.date.toISOString(),
+    sourceLabel: we.workout.sourceLabel ?? null,
     workoutExerciseId: we.id,
-    sets: we.sets.map((s) => ({
-      id: s.id,
-      weight: s.weight ?? null,
-      reps: s.reps ?? null,
-      distance: s.distance ?? null,
-      timeSec: s.timeSec ?? null,
-      comment: s.comment ?? null,
-      isComplete: s.isComplete,
-      sortOrder: s.sortOrder,
-      workoutExerciseId: s.workoutExerciseId,
-    })),
+    sets: we.sets.map((s) => mapSet(s)),
   }));
+}
+
+/**
+ * Part 10 §3.1 R3: the heaviest weight ever logged for this exercise
+ * (completed, non-warm-up sets of un-removed workouts — same rule the PR engine
+ * uses). Null when nothing qualifies.
+ */
+export async function exerciseMaxWeight(userId: string, exerciseId: string) {
+  const ex = await db.exercise.findFirst({ where: { id: exerciseId, userId } });
+  if (!ex) throw notFound("Exercise not found");
+  const rows = await db.trainingSet.findMany({
+    where: {
+      userId,
+      isComplete: true,
+      isWarmup: false,
+      weight: { not: null },
+      workoutExercise: { exerciseId, workout: { removedAt: null } },
+    },
+    select: { weight: true },
+    orderBy: { weight: "desc" },
+    take: 1,
+  });
+  return { exerciseId, maxWeight: rows[0]?.weight ?? null };
 }
 
 /** Sets from the most recent workout containing this exercise (for prefill). */
