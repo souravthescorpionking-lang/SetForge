@@ -108,5 +108,8 @@ New `scripts/qa/verify-part10.ts` (unit battery: k-label mapping, 4-cap, tempo p
 
 ## Progress log
 
-- [x] P1 discovery complete (this doc)
-- [ ] §0 · [ ] §1 · [ ] §2 … (tick as done)
+- [x] P1 discovery complete
+- [x] §0 REMOVE challenge (99362d6)
+- [x] §1 schema + migration + backfill (99362d6)
+- [x] §2 Home difficulty chip + useChangeDifficulty + ActionList (99362d6)
+- [ ] §3 · [ ] §4 · [ ] §5/§6 · [ ] §7/§8/§9 · [ ] §10/§11/§12 · [ ] §13/§14

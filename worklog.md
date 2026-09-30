@@ -1246,3 +1246,22 @@ Stage Summary:
 - Files: NEW src/app/api/logs/route.ts; MODIFIED src/server/services/day-service.ts (parseJsonRecord fix + export), scripts/qa/verify-part9.ts (+6 regression checks).
 - Deferred/known gaps (unchanged from 8-final): seed:stress + perf budgets; SyncConflict write-path; OS-notification permission flow; welcome-tour copy mentions; dead code cleanup features/today + features/history (compiled, unrouted).
 - Recommended next: Part 10 planning; revisit the remaining deferred items above; consider promoting parseJsonRecord-style Json read discipline into a shared helper for future Json columns.
+
+---
+Task ID: 10-A0
+Agent: lead (Z.ai Code)
+Task: Part 10 kickoff — P1 discovery + docs, §0 REMOVE challenge, §1 schema, §2 Home difficulty chip
+
+Work Log:
+- Read the uploaded PROMPT 10 FINAL; saved verbatim to docs/spec/part-10.md; wrote docs/spec/part-10-plan.md (route mapping spec→hash routes, schema decisions, delegation plan).
+- §0: dropped Challenge + ChallengeDismiss models (the one allowed drop) + User.challengeDismisses/ProgramVariant.challenges relations; deleted src/app/api/challenges/** (3 routes) + challenge-banner.tsx; removed §10 service functions from program-service.ts (getActiveChallenge/joinChallenge/dismissChallenge/isChallengeJoined/resolveUserVariantId); removed challengesApi/ChallengeDTO from api.ts, qk.challenge/useActiveChallenge/challenge-invalidate from query.tsx; removed startsIn CardModel branch from program-card.tsx; neutralized seedChallenge in scripts/migrate-part9.ts; tour:gen regenerated (48 screens, 61 components).
+- §1: schema.prisma additions — User.{gender,birthYear,weighInDays(Json),stepGoal@10000,avatarKey}; UserSettings.{countdownSounds@false,videoSpeed@1.0} + autoMoveNextSet default→true (this singleton IS the spec's WorkoutSettings; showTempo already existed; autoAdvance=autoMoveNextSet); Workout.{markedComplete@false,totalVolume,totalSets} (startedAt/endedAt = existing startAt/endAt); Routine.source (CUSTOM for user-built workouts); StepEntry model (unique userId+date). Decision: height stays on UserProfile.heightCm (single source); TrainingSet needs nothing (restPlannedSec/restActualSec/completedAt≈loggedAt exist); ProgressPhoto.slot reused as pose (FRONT|BACK|LEFT|RIGHT ⊇ spec).
+- Migration: prisma/migrations/20261002000000_part10_fit_for_strangers/migration.sql (DROP TABLE IF EXISTS ×2 + additive ALTERs + StepEntry + backfill UPDATEs). bun run db:push + db:backfill wired (prisma/scripts/backfill-part10.ts): startAt backfilled (2), totalVolume/totalSets computed (64 finished), autoMoveNextSet→true (17 users).
+- §2: NEW src/components/shared/action-list.tsx (DropdownMenu-backed pick-list primitive, 44px rows, check state — the ActionList the spec references, built minimum since absent) + NEW src/features/routines/use-change-difficulty.tsx (the ONE difficulty flow: optimistic overlay, followed-program confirm modal, userApi.setDifficulty, invalidations, variantKept toast). routines-screen.tsx refactored to consume it (SubBar segmented control kept); program-card.tsx Row2 gains the 32px chip with ▾ → ActionList → confirm → switch.
+- Verified in agent-browser (demo@setforge.app / password123): Home has NO challenge banner; chip shows "Intermediate" → ActionList 3 items current checked → Advanced → exact §2 confirm modal ("From Intermediate to Advanced. Current program restarts at Phase 1 Day 1.") → Confirm → chip reads Advanced + Programs SubBar radio follows (single source) → switched back to Intermediate (demo state restored).
+- Battery: tsc 0 src errors · lint 0 errors/103 warnings (pre-existing tour backlog) · tour:gen 0 warnings · dev server restarted (setsid pattern, health 200) after a reaper kill.
+
+Stage Summary:
+- Part 10 §0/§1/§2 complete and browser-verified. Committed 99362d6.
+- Foundations for the waves: ActionList primitive + useChangeDifficulty hook are ready for reuse (§4 tempo/speed pickers, §6 day-entry actions, §9 fitness level row).
+- Next: §3 live logging rebuild (subagent A) + §4 builder rebuild (subagent B) in parallel — both evolve existing screens, never fork (L2).
