@@ -206,6 +206,20 @@ type TemplateSet = {
 };
 type TemplateExercise = { name: string; sets: TemplateSet[] };
 type TemplateDay = { name: string; dayType: string; exercises: TemplateExercise[] };
+// ---- Part 9 §1: Variant/Phase structure ----
+type TemplatePhase = {
+  name: string;
+  overview?: string;
+  minutesMin?: number;
+  minutesMax?: number;
+  days: TemplateDay[];
+};
+type TemplateVariant = {
+  difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+  daysPerWeek: number;
+  equipment?: string[];
+  phases: TemplatePhase[];
+};
 type TemplateProgram = {
   name: string;
   notes: string | null;
@@ -216,13 +230,43 @@ type TemplateProgram = {
   daysPerWeek?: number;
   estMinutes?: number; // longest workout day, minutes
   highlights?: string[]; // ≤4 short bullet lines
+  // ---- Part 9 §1: Program = template with tagline/description/weeks + Variants ----
+  tagline?: string;
+  description?: string;
+  weeks?: number;
+  variants?: TemplateVariant[]; // absent → single variant at legacy difficulty with one phase
+  // ---- Part 9 §7: OnDemandWorkout metadata (kind=SESSION) ----
+  intensity?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+  equipmentLevel?: "NONE" | "MINIMAL" | "GYM";
+  categories?: string[]; // ⊆ WARMUP_REHAB|SPECIALIZATION|LIMITED_EQUIPMENT|LIMITED_TIME|COACH_FAVORITE
+  isFeatured?: boolean; // Coach picks
 };
+
+/** §1: durationBand is derived on write — LE20 | 20_45 | GE45. */
+export function durationBandFor(minutes: number | null | undefined): "LE20" | "20_45" | "GE45" | null {
+  if (minutes == null) return null;
+  if (minutes <= 20) return "LE20";
+  if (minutes >= 45) return "GE45";
+  return "20_45";
+}
+
+/** §1 seed rule: normalize any template into ≥1 variant with ≥1 phase. */
+export function templateVariants(t: TemplateProgram): TemplateVariant[] {
+  if (t.variants && t.variants.length > 0) return t.variants;
+  return [
+    {
+      difficulty: t.difficulty ?? "INTERMEDIATE",
+      daysPerWeek: t.daysPerWeek ?? 3,
+      phases: [{ name: "Main", days: t.days }],
+    },
+  ];
+}
 
 const blank3: TemplateSet[] = [{}, {}, {}];
 const warmup: TemplateSet = { reps: 10, setType: "WARMUP", restPlannedSec: 60 };
 const compound = (): TemplateSet[] => [warmup, {}, {}, {}];
 
-const PROGRAM_TEMPLATES: TemplateProgram[] = [
+export const PROGRAM_TEMPLATES: TemplateProgram[] = [
   {
     name: "Push / Pull / Legs",
     notes: "Classic 6-day split with rotating rest days.",
@@ -230,11 +274,233 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     difficulty: "INTERMEDIATE",
     daysPerWeek: 6,
     estMinutes: 60,
+    weeks: 8,
+    tagline: "The classic six-day split, scaled to you",
+    description:
+      "A three-way rotation of push, pull and legs with a rest day after every third session. " +
+      "Each variant keeps the same movement pattern but changes frequency, volume and phase structure, " +
+      "so you can step up difficulty without learning new movements.",
     highlights: [
       "Six sessions over a 7-day cycle",
       "Heavy compounds first, isolation to finish",
       "Warm-up row pre-filled on main lifts",
       "Rest day after every third session",
+    ],
+    // ---- Part 9 §1: three variants (BEGINNER 3 d/wk · INTERMEDIATE 6 d/wk = legacy days · ADVANCED 6 d/wk, 3 phases + REST) ----
+    variants: [
+      {
+        difficulty: "BEGINNER",
+        daysPerWeek: 3,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Foundation",
+            overview: "Three sessions a week with the core lifts. Learn the patterns, log every set, add weight only when all prescribed reps are clean.",
+            minutesMin: 40,
+            minutesMax: 50,
+            days: [
+              {
+                name: "Push",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Overhead Press", sets: blank3 },
+                  { name: "Cable Pushdown", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Pull",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Row", sets: compound() },
+                  { name: "Lat Pulldown", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Legs",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Standing Calf Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "INTERMEDIATE",
+        daysPerWeek: 6,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Base",
+            overview: "The classic rotation: six sessions over seven days with a rest day after every third session.",
+            minutesMin: 50,
+            minutesMax: 60,
+            days: [
+              {
+                name: "Push",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Overhead Press", sets: compound() },
+                  { name: "Incline Dumbbell Press", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                  { name: "Cable Pushdown", sets: blank3 },
+                ],
+              },
+              {
+                name: "Pull",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Row", sets: compound() },
+                  { name: "Lat Pulldown", sets: blank3 },
+                  { name: "Seated Cable Row", sets: blank3 },
+                  { name: "Face Pull", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                ],
+              },
+              {
+                name: "Legs",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Leg Press", sets: blank3 },
+                  { name: "Lying Leg Curl", sets: blank3 },
+                  { name: "Standing Calf Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Push", dayType: "WORKOUT", exercises: [] },
+              { name: "Pull", dayType: "WORKOUT", exercises: [] },
+              { name: "Legs", dayType: "WORKOUT", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "ADVANCED",
+        daysPerWeek: 6,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE", "MACHINE"],
+        phases: [
+          {
+            name: "Accumulation",
+            overview: "Four weeks of high volume. Every session carries five movements; isolation work grows toward the end of each day.",
+            minutesMin: 60,
+            minutesMax: 75,
+            days: [
+              {
+                name: "Push — Heavy",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Incline Dumbbell Press", sets: blank3 },
+                  { name: "Overhead Press", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                  { name: "Cable Pushdown", sets: blank3 },
+                ],
+              },
+              {
+                name: "Pull — Heavy",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Row", sets: compound() },
+                  { name: "Weighted Pull-Up", sets: blank3 },
+                  { name: "Seated Cable Row", sets: blank3 },
+                  { name: "Face Pull", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Legs — Heavy",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Leg Press", sets: blank3 },
+                  { name: "Lying Leg Curl", sets: blank3 },
+                  { name: "Standing Calf Raise", sets: blank3 },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Intensification",
+            overview: "Volume drops, load climbs. Reps tighten to 3–5 on the main lifts and rest days sit between every second session.",
+            minutesMin: 55,
+            minutesMax: 70,
+            days: [
+              {
+                name: "Push — Intense",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Overhead Press", sets: compound() },
+                  { name: "Dumbbell Bench Press", sets: blank3 },
+                  { name: "Rear Delt Fly", sets: blank3 },
+                ],
+              },
+              {
+                name: "Pull — Intense",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Deadlift", sets: compound() },
+                  { name: "Weighted Pull-Up", sets: blank3 },
+                  { name: "T-Bar Row", sets: blank3 },
+                  { name: "EZ-Bar Curl", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Legs — Intense",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Front Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Hack Squat", sets: blank3 },
+                  { name: "Seated Calf Raise", sets: blank3 },
+                ],
+              },
+            ],
+          },
+          {
+            name: "Deload",
+            overview: "One light week: two short sessions at reduced load, then restart Accumulation at a higher baseline.",
+            minutesMin: 35,
+            minutesMax: 45,
+            days: [
+              {
+                name: "Push — Light",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Legs — Light",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: blank3 },
+                  { name: "Leg Press", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
     ],
     days: [
       {
@@ -284,11 +550,177 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     difficulty: "BEGINNER",
     daysPerWeek: 4,
     estMinutes: 55,
+    weeks: 8,
+    tagline: "Two upper, two lower — the balanced default",
+    description:
+      "Four sessions a week alternating upper and lower body with double rest at the end of the week. " +
+      "The intermediate and advanced variants add a fifth day and pair-work volume without changing the skeleton.",
     highlights: [
       "Four training days per week",
       "Balanced push and pull on upper days",
       "Warm-up row pre-filled on main lifts",
       "Double rest at the end of the week",
+    ],
+    variants: [
+      {
+        difficulty: "BEGINNER",
+        daysPerWeek: 4,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Base",
+            overview: "Two upper and two lower days with one rest between each pair and a double rest closing the week.",
+            minutesMin: 45,
+            minutesMax: 55,
+            days: [
+              {
+                name: "Upper",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Barbell Row", sets: compound() },
+                  { name: "Overhead Press", sets: blank3 },
+                  { name: "Lat Pulldown", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                  { name: "Skull Crusher", sets: blank3 },
+                ],
+              },
+              {
+                name: "Lower",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Leg Press", sets: blank3 },
+                  { name: "Seated Leg Curl", sets: blank3 },
+                  { name: "Standing Calf Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Upper", dayType: "WORKOUT", exercises: [] },
+              { name: "Lower", dayType: "WORKOUT", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "INTERMEDIATE",
+        daysPerWeek: 5,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Volume",
+            overview: "Five days: the classic four plus an arms-and-shoulders pump day, rest only where the calendar needs it.",
+            minutesMin: 50,
+            minutesMax: 65,
+            days: [
+              {
+                name: "Upper — Strength",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Barbell Row", sets: compound() },
+                  { name: "Overhead Press", sets: blank3 },
+                  { name: "Seated Cable Row", sets: blank3 },
+                ],
+              },
+              {
+                name: "Lower — Strength",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Romanian Deadlift", sets: blank3 },
+                  { name: "Leg Press", sets: blank3 },
+                  { name: "Lying Leg Curl", sets: blank3 },
+                ],
+              },
+              {
+                name: "Upper — Pump",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Incline Dumbbell Press", sets: blank3 },
+                  { name: "Lat Pulldown", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                  { name: "Rope Pushdown", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Lower — Pump",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Front Squat", sets: blank3 },
+                  { name: "Dumbbell Romanian Deadlift", sets: blank3 },
+                  { name: "Seated Calf Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "ADVANCED",
+        daysPerWeek: 5,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE", "MACHINE"],
+        phases: [
+          {
+            name: "Strength",
+            overview: "Five days with heavier top sets and back-off work; upper days lead with barbell strength, lower days with squat and pull variations.",
+            minutesMin: 60,
+            minutesMax: 75,
+            days: [
+              {
+                name: "Upper — Strength",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Weighted Pull-Up", sets: blank3 },
+                  { name: "Overhead Press", sets: compound() },
+                  { name: "T-Bar Row", sets: blank3 },
+                ],
+              },
+              {
+                name: "Lower — Strength",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Deadlift", sets: compound() },
+                  { name: "Leg Press", sets: blank3 },
+                  { name: "Standing Calf Raise", sets: blank3 },
+                ],
+              },
+              {
+                name: "Upper — Hypertrophy",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Incline Dumbbell Press", sets: blank3 },
+                  { name: "Dumbbell Row", sets: blank3 },
+                  { name: "Machine Lateral Raise", sets: blank3 },
+                  { name: "Incline Dumbbell Curl", sets: blank3 },
+                  { name: "EZ-Bar Skull Crusher", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Lower — Hypertrophy",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Hack Squat", sets: blank3 },
+                  { name: "Seated Leg Curl", sets: blank3 },
+                  { name: "Single-Leg Extension", sets: blank3 },
+                  { name: "Seated Calf Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
     ],
     days: [
       {
@@ -328,11 +760,140 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     difficulty: "BEGINNER",
     daysPerWeek: 3,
     estMinutes: 45,
+    weeks: 6,
+    tagline: "Every session covers everything",
+    description:
+      "Three full-body sessions a week with a rest day between each. Squat, bench and row appear in every cycle, so the main lifts improve fast. Higher variants add a fourth day and AMRAP finishers.",
     highlights: [
       "Three full-body sessions weekly",
       "Squat, bench and row in every cycle",
       "Rest day between every session",
       "Shortest commitment of the routines",
+    ],
+    variants: [
+      {
+        difficulty: "BEGINNER",
+        daysPerWeek: 3,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Base",
+            overview: "Three alternating full-body days separated by rest — the fastest way to learn the big lifts.",
+            minutesMin: 35,
+            minutesMax: 45,
+            days: [
+              {
+                name: "Full Body A",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Barbell Row", sets: blank3 },
+                  { name: "Lat Pulldown", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Full Body B",
+              dayType: "WORKOUT",
+              exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Full Body C", dayType: "WORKOUT", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "INTERMEDIATE",
+        daysPerWeek: 4,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE"],
+        phases: [
+          {
+            name: "Volume",
+            overview: "Four full-body days: two heavier anchor days and two lighter pump days, still resting every other day.",
+            minutesMin: 40,
+            minutesMax: 55,
+            days: [
+              {
+                name: "Full Body A — Anchor",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: compound() },
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "Barbell Row", sets: blank3 },
+                  { name: "Face Pull", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Full Body B — Pump",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Dumbbell Bench Press", sets: blank3 },
+                  { name: "Lat Pulldown", sets: blank3 },
+                  { name: "Goblet Squat", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Full Body C — Anchor",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Front Squat", sets: blank3 },
+                  { name: "Overhead Press", sets: compound() },
+                  { name: "Weighted Pull-Up", sets: blank3 },
+                  { name: "Barbell Curl", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
+      {
+        difficulty: "ADVANCED",
+        daysPerWeek: 4,
+        equipment: ["BARBELL", "DUMBBELL", "CABLE", "MACHINE"],
+        phases: [
+          {
+            name: "Density",
+            overview: "Four full-body days ending with AMRAP finishers — every session is capped by an as-many-reps-as-possible set on the main lift.",
+            minutesMin: 45,
+            minutesMax: 60,
+            days: [
+              {
+                name: "Full Body A — Density",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Barbell Squat", sets: [warmup, {}, {}, { setType: "AMRAP", reps: null }] },
+                  { name: "Barbell Bench Press", sets: compound() },
+                  { name: "T-Bar Row", sets: blank3 },
+                  { name: "Hanging Leg Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              {
+                name: "Full Body B — Density",
+                dayType: "WORKOUT",
+                exercises: [
+                  { name: "Deadlift", sets: [warmup, {}, {}, { setType: "AMRAP", reps: null }] },
+                  { name: "Overhead Press", sets: compound() },
+                  { name: "Weighted Pull-Up", sets: blank3 },
+                  { name: "Lateral Raise", sets: blank3 },
+                ],
+              },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+              { name: "Rest", dayType: "REST", exercises: [] },
+            ],
+          },
+        ],
+      },
     ],
     days: [
       {
@@ -711,6 +1272,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: null,
     kind: "SESSION",
     estMinutes: 30,
+    intensity: "BEGINNER",
+    equipmentLevel: "GYM",
+    categories: ["LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
         name: "Quick Push",
@@ -728,6 +1293,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: null,
     kind: "SESSION",
     estMinutes: 30,
+    intensity: "BEGINNER",
+    equipmentLevel: "GYM",
+    categories: ["LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
         name: "Quick Pull",
@@ -745,6 +1314,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: null,
     kind: "SESSION",
     estMinutes: 30,
+    intensity: "BEGINNER",
+    equipmentLevel: "GYM",
+    categories: ["LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
         name: "Quick Legs",
@@ -762,6 +1335,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "15-minute core circuit.",
     kind: "SESSION",
     estMinutes: 15,
+    intensity: "BEGINNER",
+    equipmentLevel: "NONE",
+    categories: ["LIMITED_TIME", "WARMUP_REHAB"],
+    isFeatured: false,
     days: [
       {
         name: "Core 15",
@@ -781,6 +1358,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "15 minutes of machine cardio intervals.",
     kind: "SESSION",
     estMinutes: 15,
+    intensity: "INTERMEDIATE",
+    equipmentLevel: "MINIMAL",
+    categories: ["LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
         name: "Cardio Quick Hit",
@@ -798,6 +1379,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "No-equipment session for travel days.",
     kind: "SESSION",
     estMinutes: 20,
+    intensity: "BEGINNER",
+    equipmentLevel: "NONE",
+    categories: ["LIMITED_EQUIPMENT", "LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
         name: "Hotel Bodyweight",
@@ -816,6 +1401,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "Quick full-body session when time is short.",
     kind: "SESSION",
     estMinutes: 25,
+    intensity: "INTERMEDIATE",
+    equipmentLevel: "GYM",
+    categories: ["LIMITED_TIME"],
+    isFeatured: true,
     days: [
       {
         name: "Express Full Body",
@@ -834,6 +1423,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "Delt-focused session with front, side and rear work.",
     kind: "SESSION",
     estMinutes: 30,
+    intensity: "INTERMEDIATE",
+    equipmentLevel: "GYM",
+    categories: ["SPECIALIZATION"],
+    isFeatured: false,
     days: [
       {
         name: "Shoulder Focus",
@@ -853,6 +1446,10 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     notes: "Full upper body with a single pair of dumbbells.",
     kind: "SESSION",
     estMinutes: 35,
+    intensity: "INTERMEDIATE",
+    equipmentLevel: "MINIMAL",
+    categories: ["LIMITED_EQUIPMENT"],
+    isFeatured: true,
     days: [
       {
         name: "Dumbbell Only Upper",
@@ -868,21 +1465,49 @@ const PROGRAM_TEMPLATES: TemplateProgram[] = [
     ],
   },
   {
-    name: "Arm Blaster",
-    notes: "Biceps and triceps session with straight sets.",
+    name: "Mobility Reset",
+    notes: "Warm-up and rehab flow for rest days.",
     kind: "SESSION",
-    estMinutes: 40,
+    estMinutes: 18,
+    intensity: "BEGINNER",
+    equipmentLevel: "NONE",
+    categories: ["WARMUP_REHAB", "LIMITED_EQUIPMENT", "LIMITED_TIME"],
+    isFeatured: false,
     days: [
       {
-        name: "Arm Blaster",
+        name: "Mobility Reset",
         dayType: "WORKOUT",
         exercises: [
-          { name: "Close-Grip Bench Press", sets: compound() },
-          { name: "Skull Crusher", sets: blank3 },
-          { name: "Barbell Curl", sets: compound() },
-          { name: "Incline Dumbbell Curl", sets: blank3 },
-          { name: "Hammer Curl", sets: blank3 },
-          { name: "Rope Pushdown", sets: blank3 },
+          { name: "Dead Hang", sets: [{ timeSec: 60 }, { timeSec: 60 }] },
+          { name: "Bird Dog", sets: [{ timeSec: 45, restPlannedSec: 30 }, { timeSec: 45 }] },
+          { name: "Dead Bug", sets: [{ timeSec: 45 }, { timeSec: 45 }] },
+          { name: "Jumping Jack", sets: [{ reps: 20 }, { reps: 20 }] },
+          { name: "Band Pull-Apart", sets: [{ reps: 15 }, { reps: 15 }, { reps: 15 }] },
+          { name: "Copenhagen Plank", sets: [{ timeSec: 30 }, { timeSec: 30 }] },
+        ],
+      },
+    ],
+  },
+  {
+    name: "Iron Legs 50",
+    notes: "The full leg-day gauntlet: quads, hams, glutes and calves.",
+    kind: "SESSION",
+    estMinutes: 50,
+    intensity: "ADVANCED",
+    equipmentLevel: "GYM",
+    categories: ["SPECIALIZATION", "COACH_FAVORITE"],
+    isFeatured: false,
+    days: [
+      {
+        name: "Iron Legs 50",
+        dayType: "WORKOUT",
+        exercises: [
+          { name: "Barbell Squat", sets: [warmup, {}, {}, { setType: "AMRAP", reps: null }] },
+          { name: "Romanian Deadlift", sets: blank3 },
+          { name: "Hack Squat", sets: blank3 },
+          { name: "Seated Leg Curl", sets: blank3 },
+          { name: "Leg Extension", sets: blank3 },
+          { name: "Standing Calf Raise", sets: blank3 },
         ],
       },
     ],
@@ -977,6 +1602,31 @@ export async function buildPerUserSeed(userId: string, timezone?: string) {
 
   // program/session templates — exercise ids resolved from the seeded catalogue
   const exerciseIdByName = new Map(exercises.map((e) => [e.name, e.id]));
+  const mapDay = (d: TemplateDay) => ({
+    id: uuid7(),
+    name: d.name,
+    dayType: d.dayType,
+    exercises: d.exercises
+      .filter((e) => exerciseIdByName.has(e.name))
+      .map((e, ei) => ({
+        id: uuid7(),
+        exerciseId: exerciseIdByName.get(e.name)!,
+        sortOrder: ei,
+        sets: e.sets.map((ps) => ({
+          id: uuid7(),
+          weight: ps.weight ?? null,
+          reps: ps.reps ?? null,
+          distance: ps.distance ?? null,
+          timeSec: ps.timeSec ?? null,
+          setType: ps.setType ?? null,
+          rpe: ps.rpe ?? null,
+          tempo: ps.tempo ?? null,
+          restPlannedSec: ps.restPlannedSec ?? null,
+        })),
+      })),
+  });
+  // Part 9 §1: every program is normalized into ≥1 variant × ≥1 phase. SESSION
+  // templates (on-demand) keep flat days — they are never followed as programs.
   const programs = PROGRAM_TEMPLATES.map((t, pi) => ({
     id: uuid7(),
     name: t.name,
@@ -988,29 +1638,31 @@ export async function buildPerUserSeed(userId: string, timezone?: string) {
     daysPerWeek: t.daysPerWeek ?? null,
     estMinutes: t.estMinutes ?? null,
     highlights: t.highlights ?? null,
-    days: t.days.map((d, di) => ({
+    // Part 9 §1 template fields
+    tagline: t.tagline ?? null,
+    description: t.description ?? null,
+    weeks: t.weeks ?? null,
+    // Part 9 §7 on-demand metadata (kind=SESSION; durationBand derived on write)
+    intensity: t.intensity ?? null,
+    equipmentLevel: t.equipmentLevel ?? null,
+    categories: t.categories ?? null,
+    isFeatured: t.isFeatured ?? false,
+    durationBand: durationBandFor(t.estMinutes ?? null),
+    days: (t.kind === "SESSION" ? t.days : []).map(mapDay),
+    variants: (t.kind === "SESSION" ? [] : templateVariants(t)).map((v) => ({
       id: uuid7(),
-      name: d.name,
-      dayType: d.dayType,
-      sortOrder: di,
-      exercises: d.exercises
-        .filter((e) => exerciseIdByName.has(e.name))
-        .map((e, ei) => ({
-          id: uuid7(),
-          exerciseId: exerciseIdByName.get(e.name)!,
-          sortOrder: ei,
-          sets: e.sets.map((ps) => ({
-            id: uuid7(),
-            weight: ps.weight ?? null,
-            reps: ps.reps ?? null,
-            distance: ps.distance ?? null,
-            timeSec: ps.timeSec ?? null,
-            setType: ps.setType ?? null,
-            rpe: ps.rpe ?? null,
-            tempo: ps.tempo ?? null,
-            restPlannedSec: ps.restPlannedSec ?? null,
-          })),
-        })),
+      difficulty: v.difficulty,
+      daysPerWeek: v.daysPerWeek,
+      equipment: v.equipment ?? null,
+      phases: v.phases.map((ph, phi) => ({
+        id: uuid7(),
+        name: ph.name,
+        overview: ph.overview ?? null,
+        minutesMin: ph.minutesMin ?? null,
+        minutesMax: ph.minutesMax ?? null,
+        idx: phi,
+        days: ph.days.map(mapDay),
+      })),
     })),
   }));
 

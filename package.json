@@ -21,7 +21,8 @@
     "db:copy": "bun scripts/db-copy.ts",
     "verify:formulas": "bun scripts/qa/verify-formulas.ts",
     "verify:arch": "bun scripts/qa/verify-architecture.ts",
-    "migrate:part8": "bun scripts/migrate-part8.ts"
+    "migrate:part8": "bun scripts/migrate-part8.ts",
+    "migrate:part9": "bun scripts/migrate-part9.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

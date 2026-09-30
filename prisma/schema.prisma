@@ -39,6 +39,14 @@ model User {
   // ---- Part 7: tour system ----
   tourStates UserTourState[]
   hintStates UserHintState[]
+  // ---- Part 9: difficulty + soft delete + per-user program overrides ----
+  difficulty        String    @default("INTERMEDIATE") // Difficulty: BEGINNER | INTERMEDIATE | ADVANCED
+  deletedAt         DateTime? // soft delete (§9): sign-out + purge job after 30 days
+  dayFavorites      DayFavorite[]
+  dayOverrides      DayOverride[]
+  phaseOverrides    PhaseOverride[]
+  challengeDismisses ChallengeDismiss[]
+  supportTickets    SupportTicket[]
 }
 
 model Session {
@@ -222,6 +230,9 @@ model Exercise {
   setupNotes       String?
   targetNotes      String?
   catalogKey       String? // stable key of the SystemCatalog row this was adopted from
+  // ---- Part 9 §1: Exercise += position, altGroup (setup/target/equipment/videoUrl exist) ----
+  position         String? // Position notes (§5.3 collapsible row)
+  altGroup         String? // alternation group for Replace suggestions (§5.2)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
@@ -257,6 +268,10 @@ model Workout {
   // ---- Part 8 §6.9: single remove semantics (replaces discardedAt/deletedAt pair) ----
   removedAt        DateTime? // set = hidden everywhere; listed under Backup & data -> Removed items
   removeReason     String? // USER_DELETE | DISCARDED_SESSION | HISTORY_PURGE
+  // ---- Part 9 §1: Log provenance (source = sourceType: ROUTINE_DAY=PROGRAM · SESSION=ON_DEMAND · FREESTYLE/COPY=CUSTOM) ----
+  sourceLabel      String? // PROGRAM "{program} · Day {n}" · ON_DEMAND "On demand" · CUSTOM "Custom"/routine name
+  difficulty       String? // user.difficulty captured at start; immutable
+  durationSec      Int? // active seconds (set on finish; 0 for marked-off days)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -358,22 +373,34 @@ model Routine {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   notes     String?
-  kind      String    @default("ROUTINE") // ROUTINE (multi-day program) | SESSION (single-day)
+  kind      String    @default("ROUTINE") // ROUTINE (multi-day program) | SESSION (on-demand workout)
   sortOrder Int       @default(0)
   // ---- Part 6: program metadata (additive) ----
-  difficulty  String? // BEGINNER | INTERMEDIATE | ADVANCED
-  phases      Json? // ordered [{ name, dayIds: string[] }]
+  difficulty  String? // BEGINNER | INTERMEDIATE | ADVANCED (legacy single-level; variants supersede)
+  phases      Json? // ordered [{ name, dayIds: string[] }] (legacy; ProgramPhase rows supersede)
   daysPerWeek Int?
   estMinutes  Int?
   highlights  Json? // string[] ≤4 short lines
   isFavorite  Boolean @default(false)
   labels      Json? // string[] user-defined tags
+  // ---- Part 9: Program = template. Has Variants (§1) ----
+  tagline       String?  // short one-liner under the name (catalog R2)
+  description   String?  // About prose (Overview tab)
+  weeks         Int?     // planned length in weeks
+  isPublic      Boolean @default(false) // published template (builder §12)
+  // ---- Part 9: OnDemandWorkout metadata (kind=SESSION rows; §7) ----
+  intensity     String? // Difficulty of the session (intensity pill)
+  durationBand  String? // LE20 | 20_45 | GE45 (derived from day minutes on write)
+  equipmentLevel String? // NONE | MINIMAL | GYM
+  categories    Json? // string[] ⊆ WARMUP_REHAB|SPECIALIZATION|LIMITED_EQUIPMENT|LIMITED_TIME|COACH_FAVORITE
+  isFeatured    Boolean @default(false) // Coach picks
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   days RoutineDay[]
   groups RoutineGroup[]
+  variants ProgramVariant[]
   activeFor ActiveRoutine?
   scheduleEntries ScheduleEntry[]
   sourceWorkouts Workout[] @relation("SourceRoutine")
@@ -387,20 +414,27 @@ model RoutineDay {
   routineId  String
   routine    Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
   name       String
-  dayType    String   @default("WORKOUT") // WORKOUT | REST
+  dayType    String   @default("WORKOUT") // DayKind: WORKOUT | REST
   sortOrder  Int      @default(0)
   // ---- Part 6 (additive) ----
   primaryMuscles Json? // string[] derived cache from exercises on save
   estMinutes     Int? // derived: Σ sets × (avg set 30s + rest)
-  isFavorite     Boolean @default(false)
+  isFavorite     Boolean @default(false) // legacy flag; DayFavorite table is source of truth (Part 9)
+  // ---- Part 9: Day belongs to a Phase (§1) ----
+  phaseId   String?
+  phase     ProgramPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  equipment Json? // string[] (Equipment enum values)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   exercises RoutineExercise[]
   scheduleEntries ScheduleEntry[]
   sourceWorkouts Workout[] @relation("SourceDay")
+  overrides DayOverride[]
+  favorites DayFavorite[]
 
   @@index([routineId])
+  @@index([phaseId])
 }
 
 model RoutineGroup {
@@ -431,6 +465,9 @@ model RoutineExercise {
   // ---- Part 8 §6.2: warm-up generator ----
   warmupScheme String? // NONE | STANDARD (40/60/80% x 5/3/2) | LIGHT (50/70% x 5/3) | CUSTOM
   warmupCustom Json? // [{ pct, reps }] when scheme = CUSTOM
+  // ---- Part 9 §1: SeriesExercise += tip, restNone ----
+  tip      String?  // trainer tip (💡); authored beats generated
+  restNone Boolean @default(false) // Rest: none (§5 rest expand)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -458,6 +495,8 @@ model PredefinedSet {
   // ---- Part 8 §6.4: weight prescription kinds ----
   weightKind        String? // FIXED | COPY_LAST | PERCENT_1RM
   pct               Float? // % of e1RM when weightKind = PERCENT_1RM
+  // ---- Part 9 §1: PrescribedSet += isAmrap ----
+  isAmrap           Boolean @default(false)
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -480,6 +519,10 @@ model ActiveRoutine {
   lastAdvancedAt      DateTime?
   lastAdvancedForDate String? // local YYYY-MM-DD of the last advance (idempotency for date-based advances)
   completedDayIds     Json    @default("[]") // persistent "Day completed" markers, independent of cursor
+  // ---- Part 9 §1: variant cursor (spec's User.currentVariantId/cursorPhaseIdx/programStartedAt) ----
+  variantId           String? // ProgramVariant being followed (null = legacy pre-Part9)
+  variant             ProgramVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  cursorPhaseIdx      Int     @default(0) // phase index within the variant
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -506,6 +549,8 @@ model ScheduleEntry {
   timeOfDay  String? // "HH:MM" local time-of-day (null = all-day)
   estMinutes Int?
   missedAt   DateTime? // set lazily when PLANNED → MISSED is derived
+  // ---- Part 9 §1: ScheduleEntry += markedOff (PLANNED=SCHEDULED · DONE=COMPLETE · MISSED; dayId exists) ----
+  markedOff  Boolean @default(false) // day marked off without training (§5 Mark off)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -704,6 +749,130 @@ model BackupRun {
   at        DateTime @default(now())
 
   @@index([userId, at])
+}
+
+// ---------- Part 9 §1: programs, variants, phases, overrides, on-demand, challenges, support ----------
+
+// Variant = Program × Difficulty. Owns daysPerWeek, equipment and the phase list.
+// One row per (routine, difficulty) — @@unique keeps the sibling lookup exact.
+model ProgramVariant {
+  id          String   @id
+  routineId   String
+  routine     Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  difficulty  String // Difficulty: BEGINNER | INTERMEDIATE | ADVANCED
+  daysPerWeek Int      @default(3)
+  equipment   Json? // string[] (Equipment enum values)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  phases      ProgramPhase[]
+  activeFor   ActiveRoutine[]
+  challenges  Challenge[]
+
+  @@unique([routineId, difficulty])
+  @@index([routineId])
+}
+
+// Phase = ordered block of Days with overview text + minutes range.
+model ProgramPhase {
+  id          String   @id
+  variantId   String
+  variant     ProgramVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  idx         Int      @default(0)
+  name        String
+  overview    String? // prose (Overview tab per-phase block; exempt from nowrap)
+  minutesMin  Int?
+  minutesMax  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  days        RoutineDay[]
+  overrides  PhaseOverride[]
+
+  @@index([variantId])
+}
+
+// Per-user day-order edit on a Phase (§4 Program tab drag; Reset Order deletes).
+model PhaseOverride {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phaseId   String
+  phase     ProgramPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  dayOrder  Json // string[] dayIds in user order
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, phaseId])
+}
+
+// Per-user edit on a Day: series order (§5.1), replacements (§5.2), notes (§5.4).
+model DayOverride {
+  id           String   @id
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayId        String
+  day          RoutineDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  seriesOrder  Json? // string[] seriesExercise ids grouped as string[][] (null = template order)
+  replacements Json? // { [seriesExerciseId]: exerciseId }
+  notes        Json? // { [seriesExerciseId]: string }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, dayId])
+}
+
+// Day favourite (§5 action row · §7 Favorites chip). Source of truth;
+// RoutineDay.isFavorite is the legacy flag (backfilled, kept in sync on write).
+model DayFavorite {
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayId     String
+  day       RoutineDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, dayId])
+  @@index([userId])
+}
+
+// Community challenge (§10 Home banner). Points at a variant; join = start flow.
+model Challenge {
+  id               String   @id
+  name             String
+  startsOn         DateTime // UTC midnight of the local start date
+  weeks            Int      @default(4)
+  programVariantId String
+  programVariant   ProgramVariant @relation(fields: [programVariantId], references: [id], onDelete: Cascade)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  dismisses ChallengeDismiss[]
+
+  @@index([isActive])
+}
+
+model ChallengeDismiss {
+  id          String    @id
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, challengeId])
+}
+
+// Support tickets (§9 Message support; rate limit 5/day/user app-side).
+model SupportTicket {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // System-level exercise catalog (not per user). Loaded from

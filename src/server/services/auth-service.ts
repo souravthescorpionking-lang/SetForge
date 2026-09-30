@@ -37,7 +37,7 @@ export async function signup(input: { email: string; password: string; name?: st
     await tx.exercise.createMany({ data: seed.exercises });
     await tx.plate.createMany({ data: seed.plates });
     await tx.measurement.createMany({ data: seed.measurements });
-    // Part 5: seeded program/session templates (+ Part 6 §3 metadata)
+    // Part 5: seeded program/session templates (+ Part 6 §3 metadata, Part 9 §1 variants)
     for (const r of seed.programs) {
       await tx.routine.create({
         data: {
@@ -51,13 +51,24 @@ export async function signup(input: { email: string; password: string; name?: st
           daysPerWeek: r.daysPerWeek ?? undefined,
           estMinutes: r.estMinutes ?? undefined,
           highlights: r.highlights ? JSON.stringify(r.highlights) : undefined,
+          // Part 9 §1 template fields
+          tagline: r.tagline ?? undefined,
+          description: r.description ?? undefined,
+          weeks: r.weeks ?? undefined,
+          // Part 9 §7 on-demand metadata
+          intensity: r.intensity ?? undefined,
+          equipmentLevel: r.equipmentLevel ?? undefined,
+          categories: r.categories ? JSON.stringify(r.categories) : undefined,
+          isFeatured: r.isFeatured ?? undefined,
+          durationBand: r.durationBand ?? undefined,
         },
       });
       const dayIds: string[] = [];
+      // SESSION templates: flat days (on-demand workouts are never followed).
       for (const d of r.days) {
         dayIds.push(d.id);
         await tx.routineDay.create({
-          data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: d.sortOrder },
+          data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: dayIds.length - 1 },
         });
         for (const re of d.exercises) {
           await tx.routineExercise.create({
@@ -82,11 +93,68 @@ export async function signup(input: { email: string; password: string; name?: st
           }
         }
       }
-      // Part 6 §3: single-phase layout — day chips render in template order.
-      await tx.routine.update({
-        where: { id: r.id },
-        data: { phases: JSON.stringify([{ name: "Main", dayIds }]) },
-      });
+      if (r.days.length > 0) {
+        await tx.routine.update({
+          where: { id: r.id },
+          data: { phases: JSON.stringify([{ name: "Main", dayIds }]) },
+        });
+      }
+      // Part 9 §1: ROUTINE templates get the full variant → phase → day tree.
+      // Day sortOrder is a running index within the variant so cursor indexing
+      // (variant days ordered by sortOrder) stays stable.
+      for (const v of r.variants) {
+        await tx.programVariant.create({
+          data: {
+            id: v.id,
+            routineId: r.id,
+            difficulty: v.difficulty,
+            daysPerWeek: v.daysPerWeek,
+            equipment: v.equipment ? JSON.stringify(v.equipment) : undefined,
+          },
+        });
+        let running = 0;
+        for (const ph of v.phases) {
+          await tx.programPhase.create({
+            data: {
+              id: ph.id,
+              variantId: v.id,
+              idx: ph.idx,
+              name: ph.name,
+              overview: ph.overview ?? undefined,
+              minutesMin: ph.minutesMin ?? undefined,
+              minutesMax: ph.minutesMax ?? undefined,
+            },
+          });
+          for (const d of ph.days) {
+            await tx.routineDay.create({
+              data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: running, phaseId: ph.id },
+            });
+            running += 1;
+            for (const re of d.exercises) {
+              await tx.routineExercise.create({
+                data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
+              });
+              if (re.sets.length > 0) {
+                await tx.predefinedSet.createMany({
+                  data: re.sets.map((ps, i) => ({
+                    id: ps.id,
+                    routineExerciseId: re.id,
+                    weight: ps.weight ?? null,
+                    reps: ps.reps ?? null,
+                    distance: ps.distance ?? null,
+                    timeSec: ps.timeSec ?? null,
+                    setType: ps.setType ?? null,
+                    rpe: ps.rpe ?? null,
+                    tempo: ps.tempo ?? null,
+                    restPlannedSec: ps.restPlannedSec ?? null,
+                    sortOrder: i,
+                  })),
+                });
+              }
+            }
+          }
+        }
+      }
     }
 
     return user;
