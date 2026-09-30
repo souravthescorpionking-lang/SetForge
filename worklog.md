@@ -1285,3 +1285,22 @@ Stage Summary:
 - §3 + §4 live and browser-verified end-to-end. Demo state: an in-progress leg-day session (agent testing), difficulty Intermediate, no leftover QA workouts.
 - Deviations recorded: tempo for DRAFT exercises uses inline ActionList (route #/tempo/{reId} exists for persisted); "Starts in N days" CTA removed with challenge (§0).
 - Next: Wave B — §5 calendar day detail + §6 log compare (10-B1) and §7 dashboard + §8 progress/steps + §9 profile (10-B2) in parallel; then §10 tour/§11 API audit/§12 polish; then §13 verify + §14 ship gate.
+
+---
+Task ID: 10-B-wave
+Agent: lead (Z.ai Code)
+Task: §5+§6 (10-B1) and §7+§8+§9 (10-B2) — Wave B verification + §9 finish
+
+Work Log:
+- Both Wave B subagents timed out on transport but executed server-side; tree was tsc-clean. Lead fixed 1 lint error (dynamic tour label in progress-screen.tsx → static per-branch literals), 2 order-multiple warnings (65→70, 15→20), then browser-verified everything and finished the §9 remainder the dead agent left.
+- §5 shipped: #/calendar/{yyyy-mm-dd} full-screen day route (calendar-day-screen.tsx) with per-entry rows (COMPLETE→log tap incl. durations "3h 17 min 16 sec" · SCHEDULED→day overview + Unschedule · MISSED→ActionList Do it today/Reschedule/Dismiss · REST), "Schedule a workout" BottomBar → #/schedule/pick?date=; calendar "Go to current month (Sep 2026)" TopBar quick-jump (hidden when current month in view); date-picker footer chips Yesterday/Today/Tomorrow shared; APIs: GET /api/schedule?date=, POST /api/schedule/[id]/reschedule + /dismiss.
+- §6 shipped: log-detail exercise expansion gains "This session | Compare" segmented toggle → horizontally scrollable compare table (fixed Set column + 96px session columns, headers "{d Mon}", cells "{reps}×{weight}", "best weight" bold marker, "—" gaps) — verified rendering Sep 30/29/28/27 columns.
+- §7 shipped: dashboard top half rebuilt — ProgramProgressCard (R1 label · R2 name + daysDone pill · 4px progress + phase chips · CTA row), TodaySection (56px rows per today ScheduleEntry + Calendar › link), StatsTiles (Weight 81.4 kg · 7-day avg 80.9 → #/progress; Steps 0/8,000 0% → #/steps), Part 5 content kept below; NEW #/dashboard/program progress screen (Day 2 of 8 · Phase 1 of 1 · Started Sep 30 · Sets logged · Volume lifted 680 kg · Workouts completed 3 · Missed 0 · Continue CTA) + GET /api/program/progress.
+- §8 shipped: #/progress (Weigh-in|Photos|History tabs; Recharts chart + latest row; month-grouped history with deltas; photos grid) + #/progress/log (week strip w/ future-disabled cells, Yesterday/Today chips, weight input, 4 photo slots Front/Back/Left/Right with Take/Choose ActionList) + #/steps (goal progress, ADD|Set total modes, week list, "Automatic sync isn't available in the browser." prose); APIs /api/steps (GET range + POST ADD/SET), /api/user/step-goal; weight = measurements system via useBodyWeight (single source); More tab gains Progress + Steps rows.
+- §9 lead-finished (agent died pre-UI): NEW src/features/profile/account-details-section.tsx (avatar row w/ media-adapter upload + Take/Choose/Remove ActionList · Name inline editor · Email read-only · Password Change → new route · Gender ActionList · Birth year + derived Age ("1994 · Age 32" verified) · Weight read-only 81 kg + Log link · Fitness level = shared useChangeDifficulty · Weigh-in days 7 chips (Mon toggle verified persisted) · Units kg/cm|lb/in · Timezone display + device override) + NEW src/features/account/password-screen.tsx (#/account/password: current/new/confirm + local strength heuristic 0-4 requiring ≥3 — "Very weak — needs at least 3 of 4" blocks short; "Very strong" passes; session kept) + APIs PATCH /api/user/profile, POST /api/user/password (rate-limited). Old profile Age/Weight/Level rows removed (superseded); Height/Goal/Days-per-week kept.
+- Demo password restored to password123 via server-side hash script after the E2E change test (client strength gate intentionally blocks weak passwords).
+- Battery at commit: tsc 0 · lint 0 errors/104 warnings (pre-existing backlog) · tour:gen clean (61 screens, 78 components).
+
+Stage Summary:
+- §5–§9 live and browser-verified. Committed 5b5abb5.
+- Remaining: §10 tour sweep (registry already regenerated per-section; final check), §11 API audit vs spec list, §12 polish pass (skeletons/empty/error states on new routes — largely inherited from agent patterns), §13 verify battery (scripts/qa/verify-part10.ts) + harness + E2E journeys, §14 ship gate items possible in sandbox, P5 audit doc, P7 report.
