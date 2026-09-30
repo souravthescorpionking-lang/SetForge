@@ -70,16 +70,25 @@ type OverridePayload = {
   notes: Record<string, string>;
 };
 
-function parseJsonRecord(raw: unknown): Record<string, string> {
+/** Parse a DayOverride Json record (replacements/notes). Exported for the
+ * §15 unit battery: Prisma returns parsed objects, legacy rows are strings. */
+export function parseJsonRecord(raw: unknown): Record<string, string> {
   if (raw == null) return {};
-  const obj = Array.isArray(raw) ? null : (() => {
+  // Prisma returns PARSED Json values for Json columns (objects on read), while
+  // legacy rows may still be string-encoded. Accept both: objects pass through,
+  // strings are JSON.parse'd, arrays/null are not records.
+  let obj: unknown;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    obj = raw;
+  } else if (typeof raw === "string") {
     try {
-      return JSON.parse(String(raw)) as unknown;
+      obj = JSON.parse(raw) as unknown;
     } catch {
-      return null;
+      return {};
     }
-  })();
-  if (obj == null || typeof obj !== "object") return {};
+  } else {
+    return {};
+  }
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
     if (typeof v === "string") out[k] = v;

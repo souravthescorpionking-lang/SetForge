@@ -190,6 +190,26 @@ const eq = (a: unknown, b: unknown, msg: string) => {
   eq(sourceLabelFor("FREESTYLE", null, null), "Custom", "sourceLabel: CUSTOM");
 }
 
+// ── 9. DayOverride record parsing (regression: Prisma returns PARSED objects;
+//    JSON.parse(String(obj)) used to yield {} → replacements/notes vanished) ─
+{
+  const { parseJsonRecord } = await import("../../src/server/services/day-service.ts");
+  eq(
+    parseJsonRecord({ re1: "ex1", re2: "ex2" }),
+    { re1: "ex1", re2: "ex2" },
+    "override record: parsed Json object (Prisma read shape)",
+  );
+  eq(
+    parseJsonRecord(JSON.stringify({ re1: "ex1" })),
+    { re1: "ex1" },
+    "override record: legacy string-encoded row",
+  );
+  eq(parseJsonRecord(null), {}, "override record: null → empty");
+  eq(parseJsonRecord(["a", "b"]), {}, "override record: array is not a record");
+  eq(parseJsonRecord("[object Object]"), {}, "override record: junk string → empty (no throw)");
+  eq(parseJsonRecord({ re1: 5, re2: "ex2" }), { re2: "ex2" }, "override record: non-string values dropped");
+}
+
 if (failures > 0) {
   console.error(`\nPART 9 UNIT CHECK FAILED — ${failures} failure(s)`);
   process.exit(1);
