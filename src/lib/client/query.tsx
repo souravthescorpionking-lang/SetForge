@@ -4,7 +4,7 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "./store";
-import { authApi, categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi } from "./api";
+import { authApi, categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi, challengesApi } from "./api";
 import type { Difficulty } from "@/lib/constants";
 
 export const qk = {
@@ -42,6 +42,10 @@ export const qk = {
   exerciseSuggestions: (exerciseId: string) => ["exercise-suggestions", exerciseId] as const,
   // ---- Part 9 §7: on-demand catalog (server-filtered by the URL state) ----
   onDemand: (params?: Record<string, unknown>) => ["on-demand", params ?? {}] as const,
+  // ---- Part 9 §10: active challenge banner payload ----
+  challenge: ["challenge"] as const,
+  // ---- Part 9 §12: builder variant/phase tree ----
+  builderVariants: (routineId: string) => ["builder-variants", routineId] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -122,6 +126,17 @@ export function useSchedule(from: string, to: string) {
   });
 }
 
+/** Part 9 §10: active challenge for the Home banner (passive content — 5min
+ *  staleTime, no focus refetch; join/dismiss invalidate it explicitly). */
+export function useActiveChallenge() {
+  return useQuery({
+    queryKey: qk.challenge,
+    queryFn: () => challengesApi.active(),
+    staleTime: 300_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useInvalidate() {
   const qc = useQueryClient();
   return {
@@ -170,6 +185,11 @@ export function useInvalidate() {
     /** Program detail queries (all difficulties; scope to one id when given). */
     programDetail: (id?: string) =>
       qc.invalidateQueries({ queryKey: id ? ["program-detail", id] : ["program-detail"] }),
+    // ---- Part 9 §10 ----
+    challenge: () => qc.invalidateQueries({ queryKey: ["challenge"] }),
+    // ---- Part 9 §12: builder variant/phase/publish state ----
+    builderVariants: (id?: string) =>
+      qc.invalidateQueries({ queryKey: id ? ["builder-variants", id] : ["builder-variants"] }),
     all: () => qc.invalidateQueries(),
   };
 }

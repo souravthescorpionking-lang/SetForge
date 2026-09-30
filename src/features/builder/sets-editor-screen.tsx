@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,9 +39,13 @@ import {
   ChevronDown,
   Copy,
   Flame,
+  Infinity as InfinityIcon,
+  Lightbulb,
+  Loader2,
   MoreHorizontal,
   Plus,
   RotateCcw,
+  TimerOff,
   Trash2,
   TrendingUp,
 } from "lucide-react";
@@ -384,6 +389,7 @@ function SetEditorRow({
   onApplyAll,
   onRemove,
   onToggleWarmup,
+  onToggleAmrap,
 }: {
   set: PredefinedSetDTO;
   index: number;
@@ -395,9 +401,12 @@ function SetEditorRow({
   onApplyAll: () => void;
   onRemove: () => void;
   onToggleWarmup: () => void;
+  onToggleAmrap: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const isWarmup = (set.setType ?? "NORMAL") === "WARMUP";
+  const setType = set.setType ?? "NORMAL";
+  const isWarmup = setType === "WARMUP";
+  const isAmrap = set.isAmrap || setType === "AMRAP";
 
   const cells: Record<string, ReactNode> = {
     index: isWarmup ? (
@@ -406,6 +415,13 @@ function SetEditorRow({
         title="Warm-up set"
       >
         W
+      </span>
+    ) : isAmrap ? (
+      <span
+        className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-[13px] font-bold text-primary"
+        title="AMRAP set — as many reps as possible"
+      >
+        ∞
       </span>
     ) : (
       <span className="w-full truncate text-center text-xs tabular-nums text-muted-foreground">{index}</span>
@@ -480,6 +496,19 @@ function SetEditorRow({
               }}
             >
               <Flame className="h-4 w-4" aria-hidden /> {isWarmup ? "Make working set" : "Make warm-up set"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              tour={{ id: "setsEditor.amrap", label: "AMRAP", help: "As many reps as possible on this set — reps become a target.", order: 210 }}
+              className="h-9 w-full justify-start gap-2 rounded-lg text-sm"
+              onClick={() => {
+                onToggleAmrap();
+                setMenuOpen(false);
+              }}
+            >
+              <InfinityIcon className="h-4 w-4" aria-hidden /> {isAmrap ? "Remove AMRAP" : "Make AMRAP set"}
             </Button>
             <Button
               type="button"
@@ -619,6 +648,14 @@ function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string 
   // ---------- ui state ----------
   const [warmupOpen, setWarmupOpen] = useState(false);
   const [progressionOpen, setProgressionOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [tipDraft, setTipDraft] = useState<string | null>(null);
+  const [tipBusy, setTipBusy] = useState(false);
+
+  // tip draft syncs from the server value once
+  useEffect(() => {
+    if (re && tipDraft == null) setTipDraft(re.tip ?? "");
+  }, [re, tipDraft]);
 
   // ---------- set mutations (immediate persist) ----------
   const patchSet = async (setId: string, input: PredefinedSetInput) => {
@@ -680,6 +717,12 @@ function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string 
     void patchSet(set.id, {
       setType: (set.setType ?? "NORMAL") === "WARMUP" ? "NORMAL" : "WARMUP",
     });
+  };
+
+  /** §12 per-set AMRAP — both fields stay in sync (server law mirrors it). */
+  const toggleAmrapSet = (set: PredefinedSetDTO) => {
+    const isAmrap = set.isAmrap || (set.setType ?? "NORMAL") === "AMRAP";
+    void patchSet(set.id, isAmrap ? { setType: "NORMAL", isAmrap: false } : { setType: "AMRAP", isAmrap: true });
   };
 
   /** Apply ONE set's everything onto every other set. */
@@ -767,6 +810,35 @@ function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string 
 
   const progSummary = !prog || prog.type === "NONE" ? "Off" : `${prog.type === "DOUBLE" ? "Double" : "Linear"} · +${trimNum(prog.increment)} ${prog.unit}`;
   const warmupSummary = warmupScheme === "NONE" ? "Off" : warmupScheme === "STANDARD" ? "Standard" : "Light";
+
+  // ---------- §12 trainer tip + restNone (persist via the exercise PATCH) ----------
+  const restNone = re?.restNone ?? false;
+
+  const saveTip = async () => {
+    if (!day || !re || tipDraft == null) return;
+    const next = tipDraft.trim();
+    if (next === (re.tip ?? "")) return;
+    setTipBusy(true);
+    const ok = await run(() => routinesApi.updateExercise(routineId, day.id, reId, { tip: next || null }), {
+      path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}`,
+      method: "PATCH",
+      body: { tip: next || null },
+      label: "Tip saved",
+    });
+    setTipBusy(false);
+    if (ok) toast.success("Tip saved");
+  };
+
+  const putRestNone = async (on: boolean) => {
+    if (!day || !re) return;
+    const ok = await run(() => routinesApi.updateExercise(routineId, day.id, reId, { restNone: on }), {
+      path: `/api/routines/${routineId}/days/${day.id}/exercises/${reId}`,
+      method: "PATCH",
+      body: { restNone: on },
+      label: "Rest setting saved",
+    });
+    if (ok) toast.success(on ? "Rest: none for this exercise" : "Planned rests restored");
+  };
 
   const done = () => {
     toast.success("Saved");
@@ -861,6 +933,7 @@ function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string 
                   onApplyAll={() => applySetToAll(s)}
                   onRemove={() => void removeSet(s.id)}
                   onToggleWarmup={() => toggleWarmupSet(s)}
+                  onToggleAmrap={() => toggleAmrapSet(s)}
                 />
               ))}
               {sortedSets.length === 0 ? (
@@ -911,6 +984,71 @@ function SetsEditorInner({ routineId, reId }: { routineId: string; reId: string 
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            {/* ---------- Rest: none row 56 (§12) ---------- */}
+            <div
+              data-row
+              role="group"
+              aria-label="Rest: none"
+              className="flex h-14 w-full flex-none items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg border border-border bg-card px-3"
+            >
+              <TimerOff
+                className={cn("h-5 w-5 flex-none", restNone ? "text-primary" : "text-muted-foreground")}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">Rest: none</span>
+              <span className="min-w-0 flex-none truncate text-xs text-muted-foreground">
+                {restNone ? "No rest between sets" : "Planned rests apply"}
+              </span>
+              <Switch
+                checked={restNone}
+                {...tourAttrs({ id: "setsEditor.restNone", label: "Rest: none", help: "Skip the rest timer for this exercise entirely.", order: 200 })}
+                onCheckedChange={(on) => void putRestNone(on)}
+                aria-label="Rest: none for this exercise"
+              />
+            </div>
+
+            {/* ---------- Trainer tip section 56 › (§12) ---------- */}
+            <SectionRow
+              icon={<Lightbulb className={cn("h-5 w-5 flex-none", re.tip ? "text-amber-500" : "text-muted-foreground")} aria-hidden />}
+              title="Trainer tip"
+              summary={re.tip ? "Authored" : "None"}
+              open={tipOpen}
+              onToggle={() => setTipOpen((o) => !o)}
+              declAttrs={{
+                ...tourAttrs({ id: "setsEditor.tip", label: "Trainer tip", help: "Author the 💡 coaching cue shown with this exercise.", order: 190 }),
+              }}
+            />
+            {tipOpen ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+                <Textarea
+                  value={tipDraft ?? ""}
+                  maxLength={600}
+                  aria-label="Trainer tip"
+                  {...tourAttrs({ skipTour: true, reason: "Covered by the setsEditor.tip section anchor" })}
+                  onChange={(e) => setTipDraft(e.target.value)}
+                  placeholder="Coaching cue shown with this exercise — e.g. “Elbows at 45°, bar to mid-chest.”"
+                  className="min-h-20 w-full resize-none text-sm leading-relaxed"
+                />
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+                    Shown as 💡 on the day — authored tips beat generated ones.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    tour={{ skipTour: true, reason: "Save-tip button inside the tip section" }}
+                    className="h-10 flex-none rounded-lg text-xs font-bold"
+                    disabled={tipBusy || (tipDraft ?? "").trim() === (re.tip ?? "")}
+                    onClick={() => void saveTip()}
+                  >
+                    {tipBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                    Save tip
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             {/* ---------- Warm-up row 56 › (§6.2) ---------- */}
             <SectionRow

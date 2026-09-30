@@ -1,5 +1,5 @@
 {
-  "version": "e184f961",
+  "version": "8c7de06e",
   "screens": {
     "account-delete": {
       "title": "Delete account",
@@ -977,6 +977,90 @@
           "hint": false,
           "placement": "auto",
           "scope": "component"
+        },
+        {
+          "id": "builder.variantTabs",
+          "label": "Variant tabs",
+          "help": "Edit the beginner, intermediate or advanced version of this program.",
+          "order": 200,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.addPhase",
+          "label": "Add phase",
+          "help": "Append another phase block to this variant.",
+          "order": 210,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.phaseMenu",
+          "label": "Phase menu",
+          "help": "Remove this phase; its days become unassigned.",
+          "order": 220,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.publish",
+          "label": "Publish",
+          "help": "Publish this program to your catalog, or unpublish it again.",
+          "order": 230,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.dayMinutes",
+          "label": "Minutes",
+          "help": "Planned length of this day in minutes.",
+          "order": 240,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.dayMuscles",
+          "label": "Muscles",
+          "help": "Auto-derived from the exercises; tap a chip to override.",
+          "order": 250,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "builder.dayEquipment",
+          "label": "Equipment",
+          "help": "Auto-derived from the exercises; tap a chip to override.",
+          "order": 260,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
         }
       ]
     },
@@ -1291,6 +1375,34 @@
           "label": "Time ≥",
           "help": "Show workouts with a set at or above this duration.",
           "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "challenge": {
+      "steps": [
+        {
+          "id": "challenge.dismiss",
+          "label": "Dismiss",
+          "help": "Hide this challenge — it stays hidden for your account.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "challenge.join",
+          "label": "Join challenge",
+          "help": "Start the challenge program at your difficulty on day one.",
+          "order": 20,
           "when": [
             "always"
           ],
@@ -2606,6 +2718,18 @@
           "id": "home.menu",
           "label": "Program menu",
           "help": "Skip day, jump to a day, schedule or unfollow.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "home.seeAll",
+          "label": "See all",
+          "help": "Browse every program and session in the catalog.",
           "order": 40,
           "when": [
             "always"
@@ -4549,7 +4673,7 @@
         {
           "id": "programEditor.addDay",
           "label": "Add day",
-          "help": "Append another training day to this program.",
+          "help": "Append a workout day to this phase.",
           "order": 50,
           "when": [
             "always"
@@ -4585,7 +4709,7 @@
         {
           "id": "programEditor.dayMenu",
           "label": "Day menu",
-          "help": "Rename, switch workout/rest, or delete this day.",
+          "help": "Rename, switch workout/rest, move between phases, or delete.",
           "order": 80,
           "when": [
             "always"
@@ -4597,7 +4721,7 @@
         {
           "id": "programEditor.dayDrag",
           "label": "Day drag",
-          "help": "Drag to reorder the days of this program.",
+          "help": "Drag to reorder — drop into another phase to move the day there.",
           "order": 90,
           "when": [
             "always"
@@ -4671,6 +4795,66 @@
           "label": "Add group",
           "help": "Superset exercises together, or edit an existing group.",
           "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programEditor.details",
+          "label": "Details",
+          "help": "Tagline, length in weeks and description shown in the catalog.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programEditor.tagline",
+          "label": "Tagline",
+          "help": "One-liner under the program's name in the catalog.",
+          "order": 160,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programEditor.weeks",
+          "label": "Weeks",
+          "help": "Planned length of the program in weeks.",
+          "order": 170,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programEditor.description",
+          "label": "Description",
+          "help": "About prose shown on the program's Overview tab.",
+          "order": 180,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programEditor.addRestDay",
+          "label": "Add rest day",
+          "help": "Append a rest day to this phase.",
+          "order": 200,
           "when": [
             "always"
           ],
@@ -5413,6 +5597,42 @@
           "hint": false,
           "placement": "auto",
           "scope": "component"
+        },
+        {
+          "id": "setsEditor.tip",
+          "label": "Trainer tip",
+          "help": "Author the 💡 coaching cue shown with this exercise.",
+          "order": 190,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setsEditor.restNone",
+          "label": "Rest: none",
+          "help": "Skip the rest timer for this exercise entirely.",
+          "order": 200,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "setsEditor.amrap",
+          "label": "AMRAP",
+          "help": "As many reps as possible on this set — reps become a target.",
+          "order": 210,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
         }
       ]
     },
@@ -5889,8 +6109,8 @@
         },
         {
           "id": "workout.choose",
-          "label": "Choose program",
-          "help": "Browse programs and sessions to follow.",
+          "label": "Pick a program",
+          "help": "Browse the catalog and follow your first program.",
           "order": 10,
           "when": [
             "always"
@@ -5912,6 +6132,18 @@
           "scope": "component"
         },
         {
+          "id": "workout.markRest",
+          "label": "Mark off",
+          "help": "Complete today's rest day and advance the cursor.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "workout.start",
           "label": "Start day",
           "help": "Create today's session from this day and jump into it.",
@@ -5924,9 +6156,9 @@
           "scope": "component"
         },
         {
-          "id": "workout.trainAnyway",
-          "label": "Train anyway",
-          "help": "Pick a ready session to train on a rest day.",
+          "id": "workout.startsIn",
+          "label": "Starts soon",
+          "help": "The program begins on its start date — tap to see when.",
           "order": 10,
           "when": [
             "always"

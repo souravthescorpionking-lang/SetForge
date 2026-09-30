@@ -1482,6 +1482,11 @@ export interface ProgramMetaPatch {
   highlights?: string[] | null;
   labels?: string[] | null;
   isFavorite?: boolean;
+  // ---- Part 9 §12: publish + program details (additive write path) ----
+  tagline?: string | null;
+  description?: string | null;
+  weeks?: number | null;
+  isPublic?: boolean;
 }
 
 export async function updateProgramMeta(userId: string, routineId: string, patch: ProgramMetaPatch): Promise<ProgramMetaDTO> {
@@ -1502,9 +1507,212 @@ export async function updateProgramMeta(userId: string, routineId: string, patch
       ...(patch.highlights !== undefined ? { highlights: JSON.stringify(patch.highlights ?? []) } : {}),
       ...(patch.labels !== undefined ? { labels: JSON.stringify(patch.labels ?? []) } : {}),
       ...(patch.isFavorite !== undefined ? { isFavorite: patch.isFavorite } : {}),
+      // ---- Part 9 §12 ----
+      ...(patch.tagline !== undefined ? { tagline: patch.tagline === "" ? null : patch.tagline } : {}),
+      ...(patch.description !== undefined ? { description: patch.description === "" ? null : patch.description } : {}),
+      ...(patch.weeks !== undefined ? { weeks: patch.weeks } : {}),
+      ...(patch.isPublic !== undefined ? { isPublic: patch.isPublic } : {}),
     } as Prisma.RoutineUpdateInput,
   });
   return getProgramMeta(userId, routineId);
+}
+
+// ---------- Part 9 §12: builder variants, phases & publish (additive) ----------
+
+/** Difficulty order used when listing a program's variants in the builder. */
+const DIFFICULTY_ORDER: Record<string, number> = { BEGINNER: 0, INTERMEDIATE: 1, ADVANCED: 2 };
+
+export type BuilderVariantPhaseDTO = { id: string; idx: number; name: string };
+export type BuilderVariantDTO = {
+  id: string;
+  difficulty: string;
+  daysPerWeek: number;
+  equipment: string[];
+  phases: BuilderVariantPhaseDTO[];
+};
+export type BuilderVariantsDTO = {
+  variants: BuilderVariantDTO[];
+  /** dayId → phaseId (null = unassigned) for every day of the routine. */
+  dayPhaseIds: Record<string, string | null>;
+  publish: { isPublic: boolean; tagline: string | null; description: string | null; weeks: number | null };
+};
+
+/** GET /api/programs/:id/variants — the builder editor's variant/phase tree. */
+export async function getProgramVariants(userId: string, routineId: string): Promise<BuilderVariantsDTO> {
+  const routine = await db.routine.findFirst({
+    where: { id: routineId, userId, deletedAt: null },
+    include: {
+      days: { orderBy: { sortOrder: "asc" }, select: { id: true, phaseId: true } },
+      variants: { include: { phases: { orderBy: { idx: "asc" } } } },
+    },
+  });
+  if (!routine) throw notFound("Program not found");
+  const variants = [...routine.variants]
+    .sort((a, b) => (DIFFICULTY_ORDER[a.difficulty] ?? 9) - (DIFFICULTY_ORDER[b.difficulty] ?? 9))
+    .map((v) => ({
+      id: v.id,
+      difficulty: v.difficulty,
+      daysPerWeek: v.daysPerWeek,
+      equipment: jsonStringArray(v.equipment),
+      phases: v.phases.map((p) => ({ id: p.id, idx: p.idx, name: p.name })),
+    }));
+  const dayPhaseIds: Record<string, string | null> = {};
+  for (const d of routine.days) dayPhaseIds[d.id] = d.phaseId ?? null;
+  return {
+    variants,
+    dayPhaseIds,
+    publish: {
+      isPublic: routine.isPublic,
+      tagline: routine.tagline ?? null,
+      description: routine.description ?? null,
+      weeks: routine.weeks ?? null,
+    },
+  };
+}
+
+/** Resolve (creating when absent) the variant a builder operation targets. */
+async function ensureVariant(
+  routineId: string,
+  difficulty: string,
+  defaults: { daysPerWeek?: number | null; equipment?: string[] | null } = {},
+): Promise<{ id: string; daysPerWeek: number; equipment: string[] }> {
+  const existing = await db.programVariant.findUnique({ where: { routineId_difficulty: { routineId, difficulty } } });
+  if (existing) {
+    return {
+      id: existing.id,
+      daysPerWeek: existing.daysPerWeek,
+      equipment: jsonStringArray(existing.equipment),
+    };
+  }
+  const created = await db.programVariant.create({
+    data: {
+      id: uuid7(),
+      routineId,
+      difficulty,
+      daysPerWeek: defaults.daysPerWeek ?? 3,
+      ...(defaults.equipment ? { equipment: JSON.stringify(defaults.equipment) } : {}),
+    },
+  });
+  return { id: created.id, daysPerWeek: created.daysPerWeek, equipment: [] };
+}
+
+/**
+ * POST /api/programs/:id/phases (§12). Appends (or inserts after `afterIdx`)
+ * a phase on the variant at `difficulty` (default: the routine's legacy
+ * difficulty, else INTERMEDIATE — the variant is created on demand). Returns
+ * the created phase.
+ */
+export async function addProgramPhase(
+  userId: string,
+  routineId: string,
+  input: { name?: string; difficulty?: string; afterIdx?: number } = {},
+): Promise<BuilderVariantPhaseDTO & { variantId: string }> {
+  const routine = await loadOwnedRoutine(userId, routineId);
+  const difficulty = (input.difficulty ?? routine.difficulty ?? "INTERMEDIATE").toUpperCase();
+  if (!(difficulty in DIFFICULTY_ORDER)) throw badRequest("Unknown difficulty");
+  const variant = await ensureVariant(routineId, difficulty);
+  const phases = await db.programPhase.findMany({ where: { variantId: variant.id }, orderBy: { idx: "asc" } });
+  const insertAt = input.afterIdx == null ? phases.length : Math.min(input.afterIdx + 1, phases.length);
+  const name = input.name?.trim() || `Phase ${insertAt + 1}`;
+  const phase = await db.$transaction(async (tx) => {
+    // shift the tail right so idx stays gapless
+    for (const p of phases.filter((p) => p.idx >= insertAt)) {
+      await tx.programPhase.update({ where: { id: p.id }, data: { idx: p.idx + 1 } });
+    }
+    return tx.programPhase.create({
+      data: { id: uuid7(), variantId: variant.id, idx: insertAt, name },
+    });
+  });
+  return { id: phase.id, idx: phase.idx, name: phase.name, variantId: variant.id };
+}
+
+/**
+ * DELETE /api/programs/:id/phases/:phaseId (§12). The schema's
+ * RoutineDay.phase relation is onDelete: SetNull, so the phase's days fall
+ * back to unassigned; its PhaseOverride rows cascade. A followed variant's
+ * cursorPhaseIdx is clamped when it now points past the last phase.
+ */
+export async function removeProgramPhase(userId: string, phaseId: string): Promise<{ ok: true; unassignedDays: number }> {
+  const phase = await db.programPhase.findFirst({
+    where: { id: phaseId, variant: { routine: { userId } } },
+    include: { variant: { select: { id: true } }, _count: { select: { days: true } } },
+  });
+  if (!phase) throw notFound("Phase not found");
+  await db.programPhase.delete({ where: { id: phaseId } }); // days → SetNull
+  const remaining = await db.programPhase.count({ where: { variantId: phase.variantId } });
+  const active = await db.activeRoutine.findFirst({ where: { userId, variantId: phase.variantId } });
+  if (active && active.cursorPhaseIdx >= remaining) {
+    await db.activeRoutine.update({
+      where: { id: active.id },
+      data: { cursorPhaseIdx: Math.max(0, remaining - 1) },
+    });
+  }
+  return { ok: true, unassignedDays: phase._count.days };
+}
+
+/**
+ * PUT /api/programs/:id/variants/:difficulty (§12). Upserts the variant at
+ * `difficulty` (creating it when the program has none yet — the builder's
+ * on-demand tab flow) and updates daysPerWeek/equipment when provided.
+ */
+export async function setProgramVariantMeta(
+  userId: string,
+  routineId: string,
+  difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED",
+  input: { daysPerWeek?: number; equipment?: string[] } = {},
+): Promise<BuilderVariantDTO> {
+  await loadOwnedRoutine(userId, routineId);
+  const existing = await db.programVariant.findUnique({ where: { routineId_difficulty: { routineId, difficulty } } });
+  let variant = existing;
+  if (!variant) {
+    variant = await db.programVariant.create({
+      data: {
+        id: uuid7(),
+        routineId,
+        difficulty,
+        daysPerWeek: input.daysPerWeek ?? 3,
+        ...(input.equipment ? { equipment: JSON.stringify(input.equipment) } : {}),
+      },
+    });
+  } else if (input.daysPerWeek != null || input.equipment != null) {
+    variant = await db.programVariant.update({
+      where: { id: variant.id },
+      data: {
+        ...(input.daysPerWeek != null ? { daysPerWeek: input.daysPerWeek } : {}),
+        ...(input.equipment != null ? { equipment: JSON.stringify(input.equipment) } : {}),
+      },
+    });
+  }
+  const phases = await db.programPhase.findMany({ where: { variantId: variant.id }, orderBy: { idx: "asc" } });
+  return {
+    id: variant.id,
+    difficulty: variant.difficulty,
+    daysPerWeek: variant.daysPerWeek,
+    equipment: jsonStringArray(variant.equipment),
+    phases: phases.map((p) => ({ id: p.id, idx: p.idx, name: p.name })),
+  };
+}
+
+/**
+ * PUT /api/programs/:id/publish (§12). Toggles isPublic (owner-only) and
+ * optionally persists tagline/description/weeks in the same write.
+ */
+export async function setProgramPublish(
+  userId: string,
+  routineId: string,
+  input: { isPublic: boolean; tagline?: string | null; description?: string | null; weeks?: number | null },
+): Promise<{ isPublic: boolean }> {
+  await loadOwnedRoutine(userId, routineId);
+  await db.routine.update({
+    where: { id: routineId },
+    data: {
+      isPublic: input.isPublic,
+      ...(input.tagline !== undefined ? { tagline: input.tagline === "" ? null : input.tagline } : {}),
+      ...(input.description !== undefined ? { description: input.description === "" ? null : input.description } : {}),
+      ...(input.weeks !== undefined ? { weeks: input.weeks } : {}),
+    },
+  });
+  return { isPublic: input.isPublic };
 }
 
 function readCompletedDayIds(active: { completedDayIds: unknown } | null): string[] {
@@ -1666,6 +1874,9 @@ export interface BuilderInput {
  * POST /api/programs/builder — generates a Routine from the 4-step builder:
  * days = phases × weeks × 7 weekly-template days (REST included), phases json
  * populated with ordered dayIds, exercises attached per named workout template.
+ * Part 9 §12: the routine is created with one ProgramVariant (difficulty from
+ * the input, else INTERMEDIATE) + one "Phase 1" ProgramPhase, and every day is
+ * linked to that phase.
  */
 export async function buildProgram(userId: string, input: BuilderInput): Promise<{ id: string; dayCount: number }> {
   const weekly = [...input.weekly].sort((a, b) => a.weekday - b.weekday);
@@ -1688,6 +1899,9 @@ export async function buildProgram(userId: string, input: BuilderInput): Promise
   }
 
   const routineId = uuid7();
+  const difficulty = (input.difficulty ?? "INTERMEDIATE").toUpperCase();
+  if (!(difficulty in DIFFICULTY_ORDER)) throw badRequest("Unknown difficulty");
+  const daysPerWeek = input.daysPerWeek ?? weekly.filter((w) => w.type === "WORKOUT").length;
   const phaseDays: PhaseJson[] = [];
   const dayRows: Array<{ id: string; name: string; dayType: string; templateName: string | null }> = [];
   let sortOrder = 0;
@@ -1719,15 +1933,26 @@ export async function buildProgram(userId: string, input: BuilderInput): Promise
         name: input.name,
         kind: "ROUTINE",
         difficulty: input.difficulty ?? null,
-        daysPerWeek: input.daysPerWeek ?? weekly.filter((w) => w.type === "WORKOUT").length,
+        daysPerWeek,
         estMinutes: input.estMinutes ?? null,
         labels: JSON.stringify(input.labels ?? []),
         phases: JSON.stringify(phaseDays),
-        days: {
-          create: dayRows.map((d) => ({ id: d.id, userId, name: d.name, dayType: d.dayType, sortOrder: dayRows.indexOf(d) })),
-        },
       },
     });
+
+    // Part 9 §12: 1 variant (input difficulty, else INTERMEDIATE) + "Phase 1";
+    // every generated day links to that phase.
+    const variant = await tx.programVariant.create({
+      data: { id: uuid7(), routineId, difficulty, daysPerWeek },
+    });
+    const phaseOne = await tx.programPhase.create({
+      data: { id: uuid7(), variantId: variant.id, idx: 0, name: "Phase 1" },
+    });
+    for (const d of dayRows) {
+      await tx.routineDay.create({
+        data: { id: d.id, userId, routineId, name: d.name, dayType: d.dayType, sortOrder: dayRows.indexOf(d), phaseId: phaseOne.id },
+      });
+    }
 
     // Attach exercises per template name (order preserved per template)
     for (const [templateName, list] of Object.entries(input.exercises ?? {})) {

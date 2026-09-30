@@ -5,10 +5,11 @@
 //
 //   TopBar (56)   "Dashboard" | 📅 (→ #/calendar) | ? TopBarHelp
 //   ScrollBody    Today · Thu 26 Sep               32  section header
-//                 Today card                        128 (THE Workout-tab
-//                   ProgramCard — shared component, 4 states:
-//                   none → Choose program · following → Start Day N ·
-//                   rest → Train anyway · in-progress → Continue · 4/12 ✓)
+//                 Today card                        (THE Workout-tab
+//                   ProgramCard — shared component, 5 states (Part 9 §11):
+//                   none → Pick a program · following → Start Day N ·
+//                   rest → Rest day — Mark off · starts-future → Starts in
+//                   {n} days · in-progress → Continue · 4/12 ✓)
 //                 Upcoming                          32
 //                 Fri 27 · Pull day          PPL    48 ×4 (tap → #/calendar?date=…)
 //                 This week                         32
@@ -36,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarDays, Loader2, Play, RotateCw, TriangleAlert } from "lucide-react";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { useApp } from "@/lib/client/store";
-import { qk, useDashboard, useInvalidate, useOnline } from "@/lib/client/query";
+import { qk, useDashboard, useInvalidate, useOnline, usePrograms } from "@/lib/client/query";
 import { programsApi, routinesApi, workoutsApi } from "@/lib/client/api";
 import { parseDayKey, todayKey } from "@/lib/client/format";
 import { rowTall } from "@/lib/ui/tokens";
@@ -155,6 +156,9 @@ export default function DashboardScreen() {
     enabled: !!routineId,
     staleTime: 30_000,
   });
+  // Catalog rows for the shared ProgramCard's §11 header (tagline/daysDone/
+  // phaseCount) — same cached ["programs"] query the Workout tab uses.
+  const programsQuery = usePrograms();
 
   const weekStart = settings?.weekStart === 0 ? 0 : 1;
   // The server-resolved today date (user timezone) — client fallback while loading.
@@ -294,7 +298,7 @@ export default function DashboardScreen() {
             </button>
           </div>
         ) : dash ? (
-          <ProgramCard dashboard={dash} activeWorkout={activeWorkout} routine={routineQuery.data} />
+          <ProgramCard dashboard={dash} activeWorkout={activeWorkout} routine={routineQuery.data} programs={programsQuery.data} />
         ) : null}
 
         {/* Upcoming */}

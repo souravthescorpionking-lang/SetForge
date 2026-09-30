@@ -1168,3 +1168,37 @@ Stage Summary:
 - Files: NEW src/server/services/program-catalog.ts, src/app/api/programs/[routineId]/route.ts; MODIFIED src/app/api/programs/route.ts, src/features/routines/routines-screen.tsx, src/features/routines/routine-detail-screen.tsx, src/lib/client/api.ts, src/lib/client/query.tsx, src/lib/schemas.ts, src/lib/types.ts, src/generated/tour-registry.json. Untouched as instructed: day/account/on-demand features, program-service.ts, mappers.ts, schema.prisma, router.ts, app-shell.tsx.
 - Part 9 §3/§4 fully live and verified end-to-end (server→routes→client→tour→layout→browser). §2 difficulty UI (catalog SubBar + confirm + toast + re-render) delivered on top of the pre-existing §2 server core.
 - Gaps: tour:gen's 2 order-multiple warnings (groupCard.note 125 / day.equipmentRow 75) are the parallel §5 agent's files — left alone. Advanced PPL day minutes show phase minutesMax fallback (75) vs Intermediate estMinutes (60) — both per the task's minutes rule, not a bug. No other gaps.
+
+---
+Task ID: 9-A2-completion
+Agent: lead (Z.ai Code)
+Task: §5 Day Overview cluster — verification + fixes of the interrupted 9-A2 agent run
+
+Work Log:
+- The parallel 9-A2 Task call errored client-side ("context deadline exceeded") but had already executed server-side; the working tree carried its full output (day-service.ts 534 lines, /api/days/*, /api/phases/[id]/order, /api/exercises/[id]/suggestions, day screens ×4, GroupCard note/AMRAP support, session note line) with NO worklog entry and no verification.
+- Lead verification: tsc 0 src errors; lint 0 errors; tour:check warnings fixed (groupCard.note order 125→120, day.equipmentRow 75→80) + tour:gen regenerated.
+- Layout fix: §5 action row (Favourite/Schedule/History/Mark off) failed nowrapFail at all widths (grid h-12 + p-0.5 + h-11 cells overflowed by 2-4px). Rewrote as flex h-12 with h-full flex-1 cells + border-r dividers → PASS at 320/360/390/430 for #/days/{id}, /rearrange, /replace/{reId}, /notes/{reId}.
+- Functional browser verification (demo): Notes flow — typed note → Save → toast "Note saved · Barbell Bench Press" → persisted in DayOverride.notes → renders on day screen; Replace flow — suggestions section shows same-altGroup family (Decline/DB/Incline/Machine/Smith presses) → selected Dumbbell Bench Press → Apply → toast "Replaced with Dumbbell Bench Press · Sets are kept" → API shows exercise resolved to replacement with 4 sets kept.
+- Committed together with 9-A1's §3+§4 work (9698986).
+
+Stage Summary:
+- §3, §4, §5 (+5.1–5.4 subroutes) all live and verified. §5.3 exercise info evolution + GroupCard AMRAP/restNone/tip/note support shipped by 9-A2 before interruption; verified rendering + harness.
+- Remaining for §5: full drag-across-series browser simulation deferred to §15 E2E (code pattern identical to verified program-detail drag).
+
+---
+Task ID: 9-B-wave
+Agent: lead (Z.ai Code)
+Task: Wave B verification — §6 calendar + §7 on-demand (9-B1), §8 logs (9-B2), §9 account (9-B3)
+
+Work Log:
+- All three Wave B subagent calls timed out on the tool transport but executed server-side; none wrote worklog entries (interrupted late, code complete). Lead audited + finished verification.
+- Fixed: workout-service.updateWorkoutExercise exerciseId-swap TS error (string|undefined in recomputePRs closure); logs maxWeight computed only from isComplete sets → legacy logs showed "N/A" with real weights → now any non-warmup set with a weight counts.
+- tour:gen/tour:check in sync (48 screens, 61 components).
+- Layout harness GATE: PASS at 320/360/390/430 for #/more, #/calendar, #/on-demand, #/on-demand/filters, all 6 #/account/* routes, #/logs, #/logs/{id}.
+- Functional (agent-browser, demo): on-demand chips + intensity pills + "series · min · equipment" cards; filters screen (12 muscles, duration single, equipment multi) → Apply writes URL (?duration=LE20&equipment=NONE) → server-filtered list = Core 15/Hotel Bodyweight/Mobility Reset only; calendar continuous July→December with Done/Scheduled/Missed legend + dots, day tap → entry panel ("Wed, Sep 30 · Leg Day · PLANNED"), entry tap → #/days/{id}; logs 2-line rows with sourceLabel + durations dropping zero units ("1h 2 min", "0 sec", "45 min"); log detail: Started time + muscle chips + set table (N short types) + rest expand + max weight (85 kg after fix) + Edit history row; support form sends (toast) + rate limit verified via API (5/day, 6th rejected: "Support message limit reached"); account delete E2E with throwaway p9del*@test.dev: typed DELETE gate → delete → toast → signed out → login FAILS (UNAUTHORIZED) → DB row soft-deleted with anonymized email deleted+{id}@setforge.invalid + 0 sessions.
+- purgeDeletedAccounts() wired into bootstrap (30-day grace, fire-and-forget). Login hardened (deletedAt → unauthorized "Account deleted").
+- Committed 374636d.
+
+Stage Summary:
+- §6, §7, §8, §9 shipped and verified end-to-end. Known deviations: log-scoped Rearrange/Replace/Notes implemented pragmatically by 9-B2 (Rearrange → existing editor path; Replace → workout exerciseId swap API added; Notes → display path) — details in the log-detail screen header comment.
+- Remaining: §10 challenge banner + §11 home, §12 builder, §13/§14 audit, §15 full battery.

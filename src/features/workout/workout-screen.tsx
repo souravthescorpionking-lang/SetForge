@@ -1,26 +1,35 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WorkoutScreen — #/workout (Part 8 §3.1, tab 1 · default route).
+// WorkoutScreen — #/workout (Part 8 §3.1 tab 1 · default route · Part 9 "Home").
 //
 //   TopBar (56)  : "Workout" · 📅 calendar action (→ #/calendar) · TopBarHelp
-//   ScrollBody   : ProgramCard (fixed 128px, 4 states — program-card.tsx)
-//                  + 5 navigation rows (56px, rowBar, icon + label left,
-//                  count muted middle-right, chevron right):
+//   ScrollBody   : ChallengeBanner (Part 9 §10 — active, not-joined challenge;
+//                  self-contained query, renders nothing otherwise)
+//                  + ProgramCard (Part 9 §11 — Current program card in
+//                  program-card.tsx) + 5 navigation rows (56px, rowBar, icon +
+//                  label left, count muted middle-right, chevron right):
 //                  Workout Logs · Programs · On Demand · Workout Library ·
 //                  Workout Builder.
 //
-// The program-card action is the ONE primary button of the screen; the five
-// rows below are navigation, not competing actions. Data: useDashboard
-// (today's resolved day — a PLANNED schedule entry already overrides the
-// cursor server-side), workoutsApi.active() (in-progress session, any date),
-// the routine detail (exercise names + day index/count), and one programs
-// list query (cheap ROUTINE/SESSION counts for the Programs and On Demand
-// rows — Logs and Library have no cheap count endpoint, so they show none).
+// The program-card action is the ONE primary button of the screen; the banner's
+// Join is primary-TINTED and the five rows below are navigation, not competing
+// actions. Data: useDashboard (today's resolved day — a PLANNED schedule entry
+// already overrides the cursor server-side), workoutsApi.active() (in-progress
+// session, any date), the routine detail (exercise names + day index/count),
+// and one programs list query (catalog rows for the card's tagline/daysDone/
+// phaseCount + cheap ROUTINE/SESSION counts for the nav rows — Logs and
+// Library have no cheap count endpoint, so they show none).
+//
+// §6 reconcile-on-open: the workout tab is the app's landing screen, so the
+// missed-schedule sweep (POST /api/schedule/reconcile-missed, idempotent)
+// fires here once per page session (module-level flag) and invalidates
+// ["schedule"] (+ dashboard) when it resolves — the calendar repeats the same
+// sweep on its own mount.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ComponentType } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, type ComponentType } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Screen, TopBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { tourAttrs } from "@/lib/tour/attrs";
 import type { TourDecl } from "@/lib/tour/types";
@@ -37,9 +46,10 @@ import {
 } from "lucide-react";
 import { useApp } from "@/lib/client/store";
 import { qk, useDashboard, usePrograms } from "@/lib/client/query";
-import { routinesApi, workoutsApi } from "@/lib/client/api";
+import { routinesApi, workoutsApi, scheduleReconcileApi } from "@/lib/client/api";
 import { rowBar, rowTall } from "@/lib/ui/tokens";
 import { errorMessage } from "@/features/routines/screen-helpers";
+import { ChallengeBanner } from "./challenge-banner";
 import { ProgramCard, ProgramCardSkeleton } from "./program-card";
 
 interface NavRow {
@@ -49,6 +59,11 @@ interface NavRow {
   icon: ComponentType<{ className?: string }>;
   decl: TourDecl;
 }
+
+/** §6 reconcile-on-open guard — the sweep runs once per page session (the
+ *  workout tab is the landing screen; remounts after tab switches must not
+ *  re-POST it). The sweep itself is idempotent server-side either way. */
+let reconcileStarted = false;
 
 const NAV_ROWS: readonly NavRow[] = [
   {
@@ -90,6 +105,7 @@ const NAV_ROWS: readonly NavRow[] = [
 
 export default function WorkoutScreen() {
   const navigate = useApp((s) => s.navigate);
+  const qc = useQueryClient();
   const dashboardQuery = useDashboard();
   // The in-progress session (any date). Key shares the ["workout"] prefix with
   // qk.workoutByDate so useInvalidate().workout() refreshes it after Start.
@@ -98,8 +114,24 @@ export default function WorkoutScreen() {
     queryFn: () => workoutsApi.active(),
     staleTime: 15_000,
   });
-  // One programs list call feeds both cheap row counts (ROUTINE / SESSION).
+  // One programs list call feeds the program card (catalog row of the card's
+  // routine — tagline/daysDone/phaseCount) and both cheap row counts.
   const programsQuery = usePrograms();
+
+  // ---------- §6 reconcile sweep (on app open; idempotent server-side) ----------
+  useEffect(() => {
+    if (reconcileStarted) return;
+    reconcileStarted = true;
+    scheduleReconcileApi
+      .run()
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["schedule"] });
+        qc.invalidateQueries({ queryKey: qk.dashboard });
+      })
+      .catch(() => {
+        /* fire-and-forget — offline or transient failure is non-fatal */
+      });
+  }, [qc]);
 
   const dashboard = dashboardQuery.data;
   const activeWorkout = activeSessionQuery.data?.workout ?? null;
@@ -158,6 +190,9 @@ export default function WorkoutScreen() {
       }
     >
       <ScrollBody>
+        {/* Part 9 §10 — challenge banner above the program card (renders
+            nothing while loading, errored, joined or dismissed). */}
+        <ChallengeBanner />
         {loading ? (
           <ProgramCardSkeleton />
         ) : error ? (
@@ -179,7 +214,7 @@ export default function WorkoutScreen() {
             </button>
           </div>
         ) : dashboard ? (
-          <ProgramCard dashboard={dashboard} activeWorkout={activeWorkout} routine={routineQuery.data} />
+          <ProgramCard dashboard={dashboard} activeWorkout={activeWorkout} routine={routineQuery.data} programs={programsQuery.data} />
         ) : null}
 
         <nav aria-label="Workout destinations" className="flex flex-col gap-3">

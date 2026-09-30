@@ -314,6 +314,8 @@ export type PredefinedSetInput = {
   // ---- Part 8 §6.4 weight prescription ----
   weightKind?: "FIXED" | "COPY_LAST" | "PERCENT_1RM" | null;
   pct?: number | null;
+  // ---- Part 9 §12: per-set AMRAP (synced with setType server-side) ----
+  isAmrap?: boolean;
 };
 
 export const routinesApi = {
@@ -336,15 +338,29 @@ export const routinesApi = {
   logDay: (id: string, data: { dayId: string; date: string }) =>
     request<WorkoutDTO>(`/api/routines/${id}/log`, { method: "POST", body: body(data) }),
 
-  addDay: (routineId: string, name: string, dayType?: "WORKOUT" | "REST") =>
+  addDay: (
+    routineId: string,
+    name: string,
+    dayType?: "WORKOUT" | "REST",
+    extra?: { phaseId?: string | null; minutes?: number | null; muscles?: string[]; equipment?: string[] },
+  ) =>
     request<RoutineDTO>(`/api/routines/${routineId}/days`, {
       method: "POST",
-      body: body({ name, ...(dayType ? { dayType } : {}) }),
+      body: body({ name, ...(dayType ? { dayType } : {}), ...(extra ?? {}) }),
     }),
   updateDay: (
     routineId: string,
     dayId: string,
-    data: { name?: string; sortOrder?: number; dayType?: "WORKOUT" | "REST" },
+    data: {
+      name?: string;
+      sortOrder?: number;
+      dayType?: "WORKOUT" | "REST";
+      // ---- Part 9 §12: builder day fields (additive) ----
+      phaseId?: string | null;
+      minutes?: number | null;
+      muscles?: string[];
+      equipment?: string[];
+    },
   ) =>
     request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}`, { method: "PATCH", body: body(data) }),
   removeDay: (routineId: string, dayId: string) =>
@@ -355,7 +371,12 @@ export const routinesApi = {
       method: "POST",
       body: body({ exerciseId }),
     }),
-  updateExercise: (routineId: string, dayId: string, reId: string, data: { sortOrder?: number; groupId?: string | null }) =>
+  updateExercise: (
+    routineId: string,
+    dayId: string,
+    reId: string,
+    data: { sortOrder?: number; groupId?: string | null; tip?: string | null; restNone?: boolean },
+  ) =>
     request<RoutineDTO>(`/api/routines/${routineId}/days/${dayId}/exercises/${reId}`, {
       method: "PATCH",
       body: body(data),
@@ -973,4 +994,61 @@ export const socialApi = {
 export const accountDeleteApi = {
   /** POST /api/account/delete (§9) — soft delete + anonymize + sign out. */
   delete: () => request<{ ok: true }>("/api/account/delete", { method: "POST", body: body({ confirm: "DELETE" }) }),
+};
+
+// ---------- Part 9 §12: builder variants, phases & publish ----------
+
+/** One phase row of a variant (builder editor). */
+export type BuilderVariantPhaseDTO = { id: string; idx: number; name: string };
+
+/** One ProgramVariant of a routine (builder editor). */
+export type BuilderVariantDTO = {
+  id: string;
+  difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | string;
+  daysPerWeek: number;
+  equipment: string[];
+  phases: BuilderVariantPhaseDTO[];
+};
+
+/** GET /api/programs/:id/variants — variant tree + day phase map + publish. */
+export type BuilderVariantsDTO = {
+  variants: BuilderVariantDTO[];
+  /** dayId → phaseId (null = unassigned). */
+  dayPhaseIds: Record<string, string | null>;
+  publish: { isPublic: boolean; tagline: string | null; description: string | null; weeks: number | null };
+};
+
+export const builderVariantsApi = {
+  /** GET /api/programs/:id/variants (§12). */
+  list: (routineId: string) => request<BuilderVariantsDTO>(`/api/programs/${routineId}/variants`),
+  /** PUT /api/programs/:id/variants/:difficulty (§12) — upsert on demand. */
+  putVariant: (
+    routineId: string,
+    difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED",
+    data: { daysPerWeek?: number; equipment?: string[] } = {},
+  ) =>
+    request<BuilderVariantDTO>(`/api/programs/${routineId}/variants/${difficulty}`, {
+      method: "PUT",
+      body: body(data),
+    }),
+  /** POST /api/programs/:id/phases (§12) — append/insert a phase. */
+  addPhase: (routineId: string, data: { name?: string; difficulty?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED"; afterIdx?: number } = {}) =>
+    request<BuilderVariantPhaseDTO & { variantId: string }>(`/api/programs/${routineId}/phases`, {
+      method: "POST",
+      body: body(data),
+    }),
+  /** DELETE /api/programs/:id/phases/:phaseId (§12) — days become unassigned. */
+  removePhase: (routineId: string, phaseId: string) =>
+    request<{ ok: true; unassignedDays: number }>(`/api/programs/${routineId}/phases/${phaseId}`, {
+      method: "DELETE",
+    }),
+  /** PUT /api/programs/:id/publish (§12) — isPublic toggle (+ detail fields). */
+  publish: (
+    routineId: string,
+    data: { isPublic: boolean; tagline?: string | null; description?: string | null; weeks?: number | null },
+  ) =>
+    request<{ isPublic: boolean }>(`/api/programs/${routineId}/publish`, {
+      method: "PUT",
+      body: body(data),
+    }),
 };

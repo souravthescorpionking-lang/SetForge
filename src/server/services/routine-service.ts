@@ -126,10 +126,32 @@ export async function copyRoutine(userId: string, id: string) {
 
 // ---------- days ----------
 
+/** Resolve an optional phaseId patch against the routine (owner already
+ *  checked): undefined → untouched, null/"" → unassigned, else must be a
+ *  phase of one of the routine's variants. Part 9 §12 builder. */
+async function resolveOwnedPhase(
+  routineId: string,
+  phaseId: string | null | undefined,
+): Promise<string | null | undefined> {
+  if (phaseId === undefined) return undefined;
+  if (phaseId === null || phaseId === "") return null;
+  const phase = await db.programPhase.findFirst({ where: { id: phaseId, variant: { routineId } } });
+  if (!phase) throw badRequest("Phase does not belong to this program");
+  return phase.id;
+}
+
 export async function createRoutineDay(
   userId: string,
   routineId: string,
-  input: { name: string; dayType?: string },
+  input: {
+    name: string;
+    dayType?: string;
+    // ---- Part 9 §12: builder day fields (additive) ----
+    phaseId?: string | null;
+    minutes?: number | null;
+    muscles?: string[] | null;
+    equipment?: string[] | null;
+  },
 ) {
   const r = await db.routine.findFirst({ where: { id: routineId, userId } });
   if (!r) throw notFound("Routine not found");
@@ -137,9 +159,21 @@ export async function createRoutineDay(
   if ((r.kind ?? "ROUTINE") === "SESSION") {
     throw badRequest("A session has exactly one workout day — convert it to a routine to add days");
   }
+  const phaseId = await resolveOwnedPhase(routineId, input.phaseId);
   const count = await db.routineDay.count({ where: { routineId } });
   await db.routineDay.create({
-    data: { id: uuid7(), userId, routineId, name: input.name.trim(), dayType, sortOrder: count },
+    data: {
+      id: uuid7(),
+      userId,
+      routineId,
+      name: input.name.trim(),
+      dayType,
+      sortOrder: count,
+      ...(phaseId != null ? { phaseId } : {}),
+      ...(input.minutes != null ? { estMinutes: input.minutes } : {}),
+      ...(input.muscles ? { primaryMuscles: JSON.stringify(input.muscles) } : {}),
+      ...(input.equipment ? { equipment: JSON.stringify(input.equipment) } : {}),
+    },
   });
   return getRoutine(userId, routineId);
 }
@@ -148,7 +182,16 @@ export async function updateRoutineDay(
   userId: string,
   routineId: string,
   dayId: string,
-  patch: { name?: string; sortOrder?: number; dayType?: string },
+  patch: {
+    name?: string;
+    sortOrder?: number;
+    dayType?: string;
+    // ---- Part 9 §12: builder day fields (additive) ----
+    phaseId?: string | null;
+    minutes?: number | null;
+    muscles?: string[] | null;
+    equipment?: string[] | null;
+  },
 ) {
   const r = await db.routine.findFirst({ where: { id: routineId, userId }, include: routineInclude });
   if (!r) throw notFound("Routine not found");
@@ -168,12 +211,19 @@ export async function updateRoutineDay(
     }
   }
 
+  const phaseId = await resolveOwnedPhase(routineId, patch.phaseId);
+
   await db.routineDay.update({
     where: { id: dayId },
     data: {
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
       ...(patch.dayType !== undefined ? { dayType: patch.dayType === "REST" ? "REST" : "WORKOUT" } : {}),
+      // ---- Part 9 §12 ----
+      ...(phaseId !== undefined ? { phaseId } : {}),
+      ...(patch.minutes !== undefined ? { estMinutes: patch.minutes } : {}),
+      ...(patch.muscles !== undefined ? { primaryMuscles: JSON.stringify(patch.muscles ?? []) } : {}),
+      ...(patch.equipment !== undefined ? { equipment: JSON.stringify(patch.equipment ?? []) } : {}),
     },
   });
   return getRoutine(userId, routineId);
@@ -223,7 +273,7 @@ export async function updateRoutineExercise(
   routineId: string,
   dayId: string,
   reId: string,
-  patch: { sortOrder?: number; groupId?: string | null },
+  patch: { sortOrder?: number; groupId?: string | null; tip?: string | null; restNone?: boolean },
 ) {
   const re = await db.routineExercise.findFirst({ where: { id: reId, userId, dayId } });
   if (!re) throw notFound("Exercise not found in this day");
@@ -232,6 +282,9 @@ export async function updateRoutineExercise(
     data: {
       ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
       ...(patch.groupId !== undefined ? { groupId: patch.groupId === "" ? null : patch.groupId } : {}),
+      // ---- Part 9 §12: trainer tip + restNone (additive) ----
+      ...(patch.tip !== undefined ? { tip: patch.tip === "" ? null : patch.tip } : {}),
+      ...(patch.restNone !== undefined ? { restNone: patch.restNone } : {}),
     },
   });
   return getRoutine(userId, routineId);
@@ -251,6 +304,25 @@ export async function reorderRoutineExercises(userId: string, routineId: string,
 
 // ---------- predefined sets ----------
 
+/** §12 AMRAP consistency law: setType 'AMRAP' ⇔ isAmrap true. Whichever side
+ *  the patch touches, the other follows so the two stored fields can never
+ *  disagree (readers may check either). */
+function reconcileAmrap(
+  setType: string | null | undefined,
+  isAmrap: boolean | undefined,
+  prevSetType: string | null,
+): { setType: string | null | undefined; isAmrap: boolean | undefined } {
+  let nextType = setType;
+  let nextAmrap = isAmrap;
+  if (nextType !== undefined && nextAmrap === undefined) nextAmrap = nextType === "AMRAP";
+  if (nextAmrap !== undefined && nextType === undefined && (nextAmrap || prevSetType === "AMRAP")) {
+    nextType = nextAmrap ? "AMRAP" : null;
+  }
+  if (nextAmrap === true && nextType !== undefined && nextType !== "AMRAP") nextType = "AMRAP";
+  if (nextAmrap === false && (nextType ?? prevSetType) === "AMRAP") nextType = null;
+  return { setType: nextType, isAmrap: nextAmrap };
+}
+
 export async function addPredefinedSet(
   userId: string,
   routineId: string,
@@ -267,10 +339,13 @@ export async function addPredefinedSet(
     restPlannedSec?: number | null;
     weightKind?: string | null;
     pct?: number | null;
+    // ---- Part 9 §12 ----
+    isAmrap?: boolean;
   },
 ) {
   const re = await db.routineExercise.findFirst({ where: { id: reId, userId, dayId } });
   if (!re) throw notFound("Exercise not found in this day");
+  const { setType, isAmrap } = reconcileAmrap(input.setType ?? null, input.isAmrap, null);
   const count = await db.predefinedSet.count({ where: { routineExerciseId: reId } });
   await db.predefinedSet.create({
     data: {
@@ -280,12 +355,13 @@ export async function addPredefinedSet(
       reps: input.reps ?? null,
       distance: input.distance ?? null,
       timeSec: input.timeSec ?? null,
-      setType: input.setType ?? null,
+      setType: setType ?? null,
       rpe: input.rpe ?? null,
       tempo: input.tempo ?? null,
       restPlannedSec: input.restPlannedSec ?? null,
       weightKind: input.weightKind ?? null,
       pct: input.pct ?? null,
+      isAmrap: isAmrap ?? false,
       sortOrder: count,
     },
   });
@@ -309,10 +385,13 @@ export async function updatePredefinedSet(
     restPlannedSec?: number | null;
     weightKind?: string | null;
     pct?: number | null;
+    // ---- Part 9 §12 ----
+    isAmrap?: boolean;
   },
 ) {
   const s = await db.predefinedSet.findFirst({ where: { id: setId, routineExerciseId: reId } });
   if (!s) throw notFound("Set not found");
+  const { setType, isAmrap } = reconcileAmrap(input.setType, input.isAmrap, s.setType ?? null);
   await db.predefinedSet.update({
     where: { id: setId },
     data: {
@@ -320,12 +399,13 @@ export async function updatePredefinedSet(
       ...(input.reps !== undefined ? { reps: input.reps } : {}),
       ...(input.distance !== undefined ? { distance: input.distance } : {}),
       ...(input.timeSec !== undefined ? { timeSec: input.timeSec } : {}),
-      ...(input.setType !== undefined ? { setType: input.setType } : {}),
+      ...(setType !== undefined ? { setType: setType ?? null } : {}),
       ...(input.rpe !== undefined ? { rpe: input.rpe } : {}),
       ...(input.tempo !== undefined ? { tempo: input.tempo } : {}),
       ...(input.restPlannedSec !== undefined ? { restPlannedSec: input.restPlannedSec } : {}),
       ...(input.weightKind !== undefined ? { weightKind: input.weightKind } : {}),
       ...(input.pct !== undefined ? { pct: input.pct } : {}),
+      ...(isAmrap !== undefined ? { isAmrap } : {}),
     },
   });
   return getRoutine(userId, routineId);

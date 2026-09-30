@@ -174,6 +174,11 @@ export const goalCreateSchema = goalBaseSchema.refine(
 export const goalUpdateSchema = goalBaseSchema.partial().omit({ exerciseId: true });
 
 // ---------- routines ----------
+// (list schemas hoisted here — the §12 builder day fields validate against
+// them before this point in the file)
+const muscleList = z.array(z.enum(MUSCLES)).max(20);
+const equipmentList = z.array(z.enum(EQUIPMENT)).max(21);
+
 export const routineCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   notes: z.string().max(2000).nullable().optional(),
@@ -192,16 +197,29 @@ export const routineGroupCreateSchema = z.object({
 export const routineDayCreateSchema = z.object({
   name: z.string().trim().min(1).max(80),
   dayType: z.enum(DAY_TYPES).default("WORKOUT"),
+  // ---- Part 9 §12: builder day fields (additive) ----
+  phaseId: z.string().min(1).nullish(), // ProgramPhase of the target variant
+  minutes: z.number().int().min(0).max(600).nullish(),
+  muscles: muscleList.nullish(),
+  equipment: equipmentList.nullish(),
 });
 export const routineDayUpdateSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   dayType: z.enum(DAY_TYPES).optional(),
   sortOrder: z.number().int().min(0).optional(),
+  // ---- Part 9 §12: builder day fields (additive) ----
+  phaseId: z.string().min(1).nullish(), // null → unassigned day
+  minutes: z.number().int().min(0).max(600).nullish(),
+  muscles: muscleList.nullish(),
+  equipment: equipmentList.nullish(),
 });
 export const routineExerciseCreateSchema = z.object({ exerciseId: z.string().min(1) });
 export const routineExerciseUpdateSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   groupId: z.string().nullable().optional(),
+  // ---- Part 9 §12: per-exercise trainer tip + restNone (additive) ----
+  tip: z.string().trim().max(600).nullable().optional(),
+  restNone: z.boolean().optional(),
 });
 export const predefinedSetCreateSchema = z.object({
   weight: nullableNum(100000),
@@ -216,6 +234,8 @@ export const predefinedSetCreateSchema = z.object({
   // ---- Part 8 §6.4 weight prescription kinds (additive) ----
   weightKind: z.enum(["FIXED", "COPY_LAST", "PERCENT_1RM"]).nullable().optional(),
   pct: nullableNum(100),
+  // ---- Part 9 §12: per-set AMRAP (kept consistent with setType server-side) ----
+  isAmrap: z.boolean().optional(),
 });
 export const predefinedSetUpdateSchema = predefinedSetCreateSchema;
 export const routineLogSchema = z.object({ dayId: z.string().min(1), date: isoDate });
@@ -446,8 +466,6 @@ export const sessionFromWorkoutSchema = z.object({
 
 // ---------- Part 6: feature expansion ----------
 
-const muscleList = z.array(z.enum(MUSCLES)).max(20);
-const equipmentList = z.array(z.enum(EQUIPMENT)).max(21);
 const labelList = z.array(z.string().trim().min(1).max(30)).max(20);
 
 export const profilePatchSchema = z.object({
@@ -483,6 +501,36 @@ export const programMetaPatchSchema = z.object({
   highlights: z.array(z.string().trim().min(1).max(60)).max(4).nullish(),
   labels: labelList.nullish(),
   isFavorite: z.boolean().optional(),
+  // ---- Part 9 §12: publish + program details (additive write path) ----
+  tagline: z.string().trim().max(120).nullish(),
+  description: z.string().max(4000).nullish(),
+  weeks: z.number().int().min(1).max(104).nullish(),
+  isPublic: z.boolean().optional(),
+});
+
+// ---- Part 9 §12: builder variant/phase/publish payloads ----
+
+/** POST /api/programs/:id/phases — name optional (server defaults "Phase {n}");
+ *  difficulty scopes the variant that owns the phase (default: the routine's
+ *  legacy difficulty, else INTERMEDIATE — created on demand). */
+export const programPhaseCreateSchema = z.object({
+  name: z.string().trim().min(1).max(40).optional(),
+  difficulty: z.enum(DIFFICULTIES).optional(),
+  afterIdx: z.number().int().min(0).optional(),
+});
+
+/** PUT /api/programs/:id/variants/:difficulty — upsert the variant's meta. */
+export const programVariantMetaSchema = z.object({
+  daysPerWeek: z.number().int().min(1).max(7).optional(),
+  equipment: equipmentList.optional(),
+});
+
+/** PUT /api/programs/:id/publish — isPublic toggle (+ optional detail fields). */
+export const programPublishSchema = z.object({
+  isPublic: z.boolean(),
+  tagline: z.string().trim().max(120).nullish(),
+  description: z.string().max(4000).nullish(),
+  weeks: z.number().int().min(1).max(104).nullish(),
 });
 
 export const scheduleTimeSchema = z.object({
