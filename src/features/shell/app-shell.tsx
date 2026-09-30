@@ -33,8 +33,17 @@ import ProgramsScreen from "@/features/screens/programs";
 import ProgramDetailScreen from "@/features/screens/program-detail";
 import ProgramDayScreen from "@/features/screens/program-day";
 import DayArrangeScreen from "@/features/screens/day-arrange";
+import DayScreen from "@/features/screens/day";
+import DayRearrangeScreen from "@/features/screens/day-rearrange";
+import DayReplaceScreen from "@/features/screens/day-replace";
+import DayNotesScreen from "@/features/screens/day-notes";
 import OnDemandScreen from "@/features/screens/on-demand";
 import OnDemandDetailScreen from "@/features/screens/on-demand-detail";
+import OnDemandFiltersScreen from "@/features/screens/on-demand-filters";
+import AccountSubscriptionScreen from "@/features/screens/account-subscription";
+import AccountSupportScreen from "@/features/screens/account-support";
+import AccountSocialScreen from "@/features/screens/account-social";
+import AccountDeleteScreen from "@/features/screens/account-delete";
 import LibraryScreen from "@/features/screens/library";
 import LibraryEntryScreen from "@/features/screens/library-entry";
 import BuilderScreen from "@/features/screens/builder";
@@ -182,11 +191,22 @@ function renderScreen(route: Route): ReactNode {
       return <ProgramDayScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
     case "day-arrange":
       return <DayArrangeScreen routineId={route.params.routineId} dayId={route.params.dayId} />;
+    // ---- Part 9 §5: day-first routes ----
+    case "day":
+      return <DayScreen dayId={route.params.dayId} />;
+    case "day-rearrange":
+      return <DayRearrangeScreen dayId={route.params.dayId} />;
+    case "day-replace":
+      return <DayReplaceScreen dayId={route.params.dayId} reId={route.params.reId} />;
+    case "day-notes":
+      return <DayNotesScreen dayId={route.params.dayId} reId={route.params.reId} />;
     // ---- On Demand ----
     case "on-demand":
       return <OnDemandScreen />;
     case "on-demand-detail":
       return <OnDemandDetailScreen routineId={route.params.routineId} />;
+    case "on-demand-filters":
+      return <OnDemandFiltersScreen />;
     // ---- Library ----
     case "library":
       return <LibraryScreen />;
@@ -238,6 +258,15 @@ function renderScreen(route: Route): ReactNode {
       // Authenticated visit of #/auth — the redirect effect is in flight;
       // render Workout for that single frame.
       return <WorkoutScreen />;
+    // ---- Part 9 §9: account destinations (via More) ----
+    case "account-subscription":
+      return <AccountSubscriptionScreen />;
+    case "account-support":
+      return <AccountSupportScreen />;
+    case "account-social":
+      return <AccountSocialScreen />;
+    case "account-delete":
+      return <AccountDeleteScreen />;
     case "dev":
       return <DevShowcaseScreen />;
   }

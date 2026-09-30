@@ -390,6 +390,17 @@ export const programFollowSchema = z.object({
 export const cursorAdvanceSchema = z.object({ n: z.number().int().min(1).max(366).default(1) });
 export const cursorJumpSchema = z.object({ dayIndex: z.number().int().min(0) });
 
+// ---- Part 9 §2/§4/§9: difficulty, program start, support ----
+export const difficultyPatchSchema = z.object({ difficulty: z.enum(DIFFICULTIES) });
+export const programStartSchema = z.object({
+  phaseIdx: z.number().int().min(0).optional(), // defaults to 0 (Phase 1)
+});
+export const supportTicketSchema = z.object({
+  subject: z.string().trim().min(3, "Subject is too short").max(120),
+  body: z.string().trim().min(10, "Tell us a bit more").max(4000),
+});
+export const accountDeleteSchema = z.object({ confirm: z.literal("DELETE") });
+
 export const startDaySchema = z.object({
   dayId: z.string().min(1).optional(), // defaults to cursor day / single session day
   date: isoDate.optional(), // defaults to local today (server timezone fallback)

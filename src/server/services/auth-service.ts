@@ -266,7 +266,7 @@ export async function getUserWithSettings(userId: string) {
   // Part 6: normalise Json columns so the wire type matches SettingsDTO.
   const raw = user.settings!;
   return {
-    user: { id: user.id, email: user.email, name: user.name },
+    user: { id: user.id, email: user.email, name: user.name, difficulty: user.difficulty ?? "INTERMEDIATE" },
     settings: {
       ...raw,
       tempoPresets: jsonStringArray(raw.tempoPresets).length > 0 ? jsonStringArray(raw.tempoPresets) : [...DEFAULT_TEMPO_PRESETS],

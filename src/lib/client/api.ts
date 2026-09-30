@@ -788,3 +788,150 @@ export const backupApi = {
   runs: () => request<{ runs: BackupRunDTO[] }>("/api/backup/runs"),
   runNow: () => request<{ ok: true; run: BackupRunDTO }>("/api/backup/run-now", { method: "POST" }),
 };
+
+// ---------- Part 9: difficulty, variants, days, on-demand, challenges, account ----------
+
+export const userApi = {
+  /** PATCH /api/user/difficulty (§2) — global difficulty switch. */
+  setDifficulty: (difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED") =>
+    request<{ difficulty: string; oldDifficulty: string; switched: boolean; variantKept: string | null }>(
+      "/api/user/difficulty",
+      { method: "PATCH", body: body({ difficulty }) },
+    ),
+};
+
+export const programStartApi = {
+  /** POST /api/programs/:id/start { phaseIdx } (§4). */
+  start: (routineId: string, phaseIdx?: number) =>
+    request<{ routineId: string; variantId: string | null; difficulty: string; phaseIdx: number; dayIndex: number }>(
+      `/api/programs/${routineId}/start`,
+      { method: "POST", body: body({ ...(phaseIdx != null ? { phaseIdx } : {}) }) },
+    ),
+};
+
+export const phaseOrderApi = {
+  /** PUT /api/phases/:id/order { dayOrder } (§4) — PhaseOverride save. */
+  put: (phaseId: string, dayOrder: string[]) =>
+    request<{ phaseId: string; dayOrder: string[] }>(`/api/phases/${phaseId}/order`, {
+      method: "PUT",
+      body: body({ dayOrder }),
+    }),
+  /** DELETE /api/phases/:id/order — Reset Order (§4). */
+  reset: (phaseId: string) =>
+    request<{ ok: true }>(`/api/phases/${phaseId}/order`, { method: "DELETE" }),
+};
+
+export type DayOverridePatch = {
+  seriesOrder?: string[][] | null;
+  replacements?: Record<string, string> | null;
+  notes?: Record<string, string> | null;
+};
+
+export const dayApi = {
+  /** GET /api/days/:id (§5) — override-merged day detail. */
+  get: (dayId: string) => request<unknown>(`/api/days/${dayId}`),
+  /** PUT /api/days/:id/override (§5.1/5.2/5.4). */
+  putOverride: (dayId: string, patch: DayOverridePatch) =>
+    request<{ ok: true }>(`/api/days/${dayId}/override`, { method: "PUT", body: body(patch) }),
+  /** POST /api/days/:id/favorite (§5) — toggle DayFavorite. */
+  favourite: (dayId: string) =>
+    request<{ isFavorite: boolean }>(`/api/days/${dayId}/favorite`, { method: "POST" }),
+  /** DELETE /api/days/:id/favorite. */
+  unfavourite: (dayId: string) =>
+    request<{ isFavorite: boolean }>(`/api/days/${dayId}/favorite`, { method: "DELETE" }),
+  /** POST /api/days/:id/mark-off (§5). */
+  markOff: (dayId: string) =>
+    request<{ completedDayIds: string[]; advanced: boolean }>(`/api/days/${dayId}/mark-off`, { method: "POST" }),
+};
+
+export const exerciseSuggestionsApi = {
+  /** GET /api/exercises/:id/suggestions (§5.2). */
+  list: (exerciseId: string) =>
+    request<{ suggestions: unknown[] }>(`/api/exercises/${exerciseId}/suggestions`),
+};
+
+export type OnDemandQuery = {
+  q?: string;
+  category?: string;
+  intensity?: string[];
+  muscles?: string[];
+  duration?: string;
+  equipment?: string[];
+};
+
+export const onDemandApi = {
+  /** GET /api/on-demand (§7) — server-side filtered sessions. */
+  list: (params: OnDemandQuery = {}) => {
+    const flat: Record<string, string | number | boolean | undefined> = {
+      q: params.q,
+      category: params.category,
+      duration: params.duration,
+      intensity: params.intensity?.join(","),
+      muscles: params.muscles?.join(","),
+      equipment: params.equipment?.join(","),
+    };
+    return request<unknown[]>(`/api/on-demand${qs(flat)}`);
+  },
+};
+
+export const scheduleReconcileApi = {
+  /** POST /api/schedule/reconcile-missed (§6) — idempotent MISSED sweep. */
+  run: () =>
+    request<{ missed: number; completed: number; checked: number }>("/api/schedule/reconcile-missed", {
+      method: "POST",
+    }),
+};
+
+export type ChallengeDTO = {
+  id: string;
+  name: string;
+  startsOn: string;
+  weeks: number;
+  isActive: boolean;
+  variantId: string;
+  programName: string;
+  userVariantId: string | null;
+  joined: boolean;
+};
+
+export const challengesApi = {
+  /** GET /api/challenges/active (§10). */
+  active: () => request<{ challenge: ChallengeDTO | null }>("/api/challenges/active"),
+  /** POST /api/challenges/:id/join (§10). */
+  join: (challengeId: string) =>
+    request<{ routineId: string; variantId: string | null; startsOn: string; weeks: number }>(
+      `/api/challenges/${challengeId}/join`,
+      { method: "POST" },
+    ),
+  /** DELETE /api/challenges/:id/dismiss (§10). */
+  dismiss: (challengeId: string) =>
+    request<{ ok: true }>(`/api/challenges/${challengeId}/dismiss`, { method: "DELETE" }),
+};
+
+export const supportApi = {
+  /** POST /api/support (§9) — rate limit 5/day/user. */
+  create: (data: { subject: string; body: string }) =>
+    request<{ ok: true }>("/api/support", { method: "POST", body: body(data) }),
+};
+
+export const socialApi = {
+  /** GET /api/account/social (§9). */
+  list: () => request<{ providers: Array<{ id: string; label: string; linked: boolean }> }>("/api/account/social"),
+  /** POST /api/account/social (§9) — link (env-gated in sandbox). */
+  link: (providerId: string) =>
+    request<{ ok: boolean; redirectUrl?: string }>("/api/account/social", {
+      method: "POST",
+      body: body({ provider: providerId, action: "link" }),
+    }),
+  /** DELETE /api/account/social (§9) — unlink. */
+  unlink: (providerId: string) =>
+    request<{ ok: boolean }>("/api/account/social", {
+      method: "DELETE",
+      body: body({ provider: providerId, action: "unlink" }),
+    }),
+};
+
+export const accountDeleteApi = {
+  /** POST /api/account/delete (§9) — soft delete + anonymize + sign out. */
+  delete: () => request<{ ok: true }>("/api/account/delete", { method: "POST", body: body({ confirm: "DELETE" }) }),
+};

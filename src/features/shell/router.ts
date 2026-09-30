@@ -15,8 +15,14 @@
 //   #/programs/{id}                            → screens/program-detail     { routineId }
 //   #/programs/{id}/day/{dayId}                → screens/program-day        { routineId, dayId }
 //   #/programs/{id}/day/{dayId}/arrange        → screens/day-arrange        { routineId, dayId }
+//   #/days/{dayId}                             → screens/day                { dayId }   Part 9 §5
+//   #/days/{dayId}/rearrange                   → screens/day-rearrange      { dayId }   §5.1
+//   #/days/{dayId}/replace/{reId}              → screens/day-replace        { dayId, reId } §5.2
+//   #/days/{dayId}/notes/{reId}                → screens/day-notes          { dayId, reId } §5.4
 //   #/on-demand                                → screens/on-demand          (—)
 //   #/on-demand/{id}                           → screens/on-demand-detail   { routineId }
+//   #/on-demand/filters                        → screens/on-demand-filters  (—)   Part 9 §7
+//   #/account/subscription|support|social|delete → screens/account-*        (—)   Part 9 §9
 //   #/library                                  → screens/library            (—)
 //   #/library/{catalogKey}                     → screens/library-entry      { catalogKey }
 //   #/builder                                  → screens/builder            (—)   hub
@@ -61,8 +67,13 @@ export type RouteName =
   | "program-detail"
   | "program-day"
   | "day-arrange"
+  | "day"
+  | "day-rearrange"
+  | "day-replace"
+  | "day-notes"
   | "on-demand"
   | "on-demand-detail"
+  | "on-demand-filters"
   | "library"
   | "library-entry"
   | "builder"
@@ -85,6 +96,10 @@ export type RouteName =
   | "settings"
   | "help"
   | "auth"
+  | "account-subscription"
+  | "account-support"
+  | "account-social"
+  | "account-delete"
   | "dev";
 
 /** Params extracted from the URL contract (all optional — presence depends on route). */
@@ -93,9 +108,9 @@ export type RouteParams = {
   exerciseId?: string;
   /** #/programs/{id} and every nested program/builder route. */
   routineId?: string;
-  /** #/programs/{id}/day/{dayId} (+ /arrange) */
+  /** #/programs/{id}/day/{dayId} (+ /arrange) and #/days/{dayId}(+ /rearrange|/replace|/notes) */
   dayId?: string;
-  /** #/builder/(program|session)/{id}/exercise/{reId} */
+  /** #/builder/(program|session)/{id}/exercise/{reId} + #/days/{dayId}/(replace|notes)/{reId} */
   reId?: string;
   /** #/logs/{workoutId} */
   workoutId?: string;
@@ -118,8 +133,13 @@ export type Route =
   | ({ name: "program-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
   | ({ name: "program-day"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
   | ({ name: "day-arrange"; params: RouteParams & { routineId: string; dayId: string } } & RouteMeta)
+  | ({ name: "day"; params: RouteParams & { dayId: string } } & RouteMeta)
+  | ({ name: "day-rearrange"; params: RouteParams & { dayId: string } } & RouteMeta)
+  | ({ name: "day-replace"; params: RouteParams & { dayId: string; reId: string } } & RouteMeta)
+  | ({ name: "day-notes"; params: RouteParams & { dayId: string; reId: string } } & RouteMeta)
   | ({ name: "on-demand" } & RouteMeta)
   | ({ name: "on-demand-detail"; params: RouteParams & { routineId: string } } & RouteMeta)
+  | ({ name: "on-demand-filters" } & RouteMeta)
   | ({ name: "library" } & RouteMeta)
   | ({ name: "library-entry"; params: RouteParams & { catalogKey: string } } & RouteMeta)
   | ({ name: "builder" } & RouteMeta)
@@ -142,6 +162,10 @@ export type Route =
   | ({ name: "settings" } & RouteMeta)
   | ({ name: "help" } & RouteMeta)
   | ({ name: "auth" } & RouteMeta)
+  | ({ name: "account-subscription" } & RouteMeta)
+  | ({ name: "account-support" } & RouteMeta)
+  | ({ name: "account-social" } & RouteMeta)
+  | ({ name: "account-delete" } & RouteMeta)
   | ({ name: "dev" } & RouteMeta);
 
 /** Route used before the real hash is read (and on the server): #/workout. */
@@ -177,6 +201,15 @@ export function canonicalHash(hash: string): string | null {
     return `#/session/exercise/${segs.slice(1).join("/")}${query}`;
   }
   if (head === "history") return `#/logs${query}`;
+
+  // Part 9 legacy rewrites: program-scoped day routes → day-first routes.
+  if (head === "programs" && segs.length >= 4 && segs[2] === "day" && segs[3]) {
+    const id = segs[1];
+    const dayId = segs[3];
+    if (segs.length === 5 && segs[4] === "arrange") return `#/days/${dayId}/rearrange${query}`;
+    if (segs.length === 4) return `#/days/${dayId}${query}`;
+    void id;
+  }
 
   if (head === "programs" && segs.length >= 3) {
     const id = segs[1];
@@ -245,7 +278,32 @@ export function parseRoute(hash: string): Route | null {
 
     case "on-demand":
       if (segs.length === 1) return { name: "on-demand", ...meta };
+      if (segs.length === 2 && segs[1] === "filters") return { name: "on-demand-filters", ...meta };
       if (segs.length === 2 && segs[1]) return { name: "on-demand-detail", params: { routineId: segs[1] }, ...meta };
+      return null;
+
+    // ---- Part 9 §5: day-first routes (program days, on-demand days, log template view) ----
+    case "days": {
+      if (segs.length >= 2 && segs[1]) {
+        const dayId = segs[1];
+        if (segs.length === 2) return { name: "day", params: { dayId }, ...meta };
+        if (segs.length === 3 && segs[2] === "rearrange") return { name: "day-rearrange", params: { dayId }, ...meta };
+        if (segs.length === 4 && segs[2] === "replace" && segs[3]) {
+          return { name: "day-replace", params: { dayId, reId: segs[3] }, ...meta };
+        }
+        if (segs.length === 4 && segs[2] === "notes" && segs[3]) {
+          return { name: "day-notes", params: { dayId, reId: segs[3] }, ...meta };
+        }
+      }
+      return null;
+    }
+
+    // ---- Part 9 §9: account destinations (via More) ----
+    case "account":
+      if (segs.length === 2 && segs[1] === "subscription") return { name: "account-subscription", ...meta };
+      if (segs.length === 2 && segs[1] === "support") return { name: "account-support", ...meta };
+      if (segs.length === 2 && segs[1] === "social") return { name: "account-social", ...meta };
+      if (segs.length === 2 && segs[1] === "delete") return { name: "account-delete", ...meta };
       return null;
 
     case "library":

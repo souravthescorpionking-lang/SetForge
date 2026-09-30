@@ -18,6 +18,7 @@ import {
   clampCursor,
   compareDateKeys,
   deriveEntryStatus,
+  diffDateKeys,
   isFollowable,
   isValidSession,
   localDateKey,
@@ -39,12 +40,106 @@ const dayInclude = {
 
 const routineInclude = {
   days: { orderBy: { sortOrder: "asc" as const }, include: dayInclude },
+  // ---- Part 9 §2: variant tree on every routine load ----
+  variants: { include: { phases: { orderBy: { idx: "asc" as const } } } },
 } satisfies Prisma.RoutineInclude;
 
 type DayFull = RoutineDay & Prisma.RoutineDayGetPayload<{ include: typeof dayInclude }>;
-type RoutineFull = Routine & { days: DayFull[] };
+type RoutineFull = Routine & { days: DayFull[] } & Prisma.RoutineGetPayload<{ include: typeof routineInclude }>;
 
 const entryInclude = { routine: true, day: true } satisfies Prisma.ScheduleEntryInclude;
+
+// ---------- Part 9 §2: variant-aware day ordering ----------
+
+/**
+ * Days of the ACTIVE variant, ordered (phase idx, day sortOrder).
+ * variantId null → resolve the variant matching routine.difficulty, else the
+ * first variant (legacy pre-Part9 rows self-heal here). No variants at all →
+ * phaseless days, else every day (safety net for builder-created programs).
+ */
+export function variantDaysOf(routine: RoutineFull, variantId: string | null | undefined): DayFull[] {
+  const variants = routine.variants ?? [];
+  const chosen =
+    (variantId ? variants.find((v) => v.id === variantId) : undefined) ??
+    variants.find((v) => v.difficulty === (routine.difficulty ?? null)) ??
+    variants[0];
+  if (!chosen) {
+    const phaseless = routine.days.filter((d) => d.phaseId == null);
+    return phaseless.length > 0 ? phaseless : routine.days;
+  }
+  const phaseIdx = new Map(chosen.phases.map((p) => [p.id, p.idx]));
+  return routine.days
+    .filter((d) => d.phaseId != null && phaseIdx.has(d.phaseId))
+    .sort(
+      (a, b) =>
+        (phaseIdx.get(a.phaseId!) ?? 0) - (phaseIdx.get(b.phaseId!) ?? 0) ||
+        a.sortOrder - b.sortOrder,
+    );
+}
+
+/** Variant of a routine matching a difficulty (null → routine difficulty → first). Generic: keeps the phase payload when included. */
+export function variantForDifficulty<T extends { id: string; difficulty: string }>(
+  routine: { difficulty: string | null; variants: T[] },
+  difficulty: string | null | undefined,
+): T | null {
+  const variants = routine.variants ?? [];
+  if (variants.length === 0) return null;
+  return (
+    (difficulty ? variants.find((v) => v.difficulty === difficulty) : undefined) ??
+    variants.find((v) => v.difficulty === (routine.difficulty ?? null)) ??
+    variants[0]
+  );
+}
+
+/**
+ * Effective variant day order = template order with per-user PhaseOverrides
+ * applied (§4 Program tab drag). Used by the cursor, schedule generation and
+ * every screen that lists a variant's days.
+ */
+export async function effectiveVariantDays(
+  userId: string,
+  routine: RoutineFull,
+  variantId: string | null | undefined,
+): Promise<DayFull[]> {
+  const days = variantDaysOf(routine, variantId);
+  const chosen =
+    (variantId ? routine.variants.find((v) => v.id === variantId) : undefined) ??
+    variantForDifficulty(routine, null);
+  if (!chosen) return days;
+  const overrides = await db.phaseOverride.findMany({
+    where: { userId, phaseId: { in: chosen.phases.map((p) => p.id) } },
+  });
+  if (overrides.length === 0) return days;
+  const orderMap = new Map(
+    overrides.map((o) => {
+      let ids: string[] = [];
+      try {
+        ids = Array.isArray(o.dayOrder) ? (o.dayOrder as string[]) : JSON.parse(String(o.dayOrder));
+      } catch {
+        ids = [];
+      }
+      return [o.phaseId, ids.filter((x) => typeof x === "string")];
+    }),
+  );
+  const byPhase = new Map<string, DayFull[]>();
+  for (const p of chosen.phases) byPhase.set(p.id, []);
+  const orphan: DayFull[] = [];
+  for (const d of days) {
+    if (d.phaseId && byPhase.has(d.phaseId)) byPhase.get(d.phaseId)!.push(d);
+    else orphan.push(d);
+  }
+  const out: DayFull[] = [];
+  for (const p of chosen.phases) {
+    const list = byPhase.get(p.id)!;
+    const order = orderMap.get(p.id);
+    if (order && order.length > 0) {
+      const pos = new Map(order.map((id, i) => [id, i]));
+      list.sort((a, b) => (pos.get(a.id) ?? list.length) - (pos.get(b.id) ?? list.length) || a.sortOrder - b.sortOrder);
+    }
+    out.push(...list);
+  }
+  return [...orphan, ...out].filter((d) => days.includes(d));
+}
 
 // ---------- settings / today ----------
 
@@ -107,8 +202,13 @@ async function findQualifyingWorkout(userId: string, routineId: string, dayId: s
 async function loadActive(userId: string) {
   return db.activeRoutine.findUnique({
     where: { userId },
-    include: { routine: { include: routineInclude } },
+    include: { routine: { include: routineInclude }, variant: true },
   });
+}
+
+/** Active variant's effective day list (§2 cursor domain). */
+async function activeDays(userId: string, active: NonNullable<Awaited<ReturnType<typeof loadActive>>>) {
+  return effectiveVariantDays(userId, active.routine, active.variantId);
 }
 
 /**
@@ -121,7 +221,7 @@ export async function applyProgramRules(userId: string) {
   const active = await loadActive(userId);
   if (!active) return { todayKey, settings, active: null, days: [] as ProgramDay[] };
 
-  const days = active.routine.days;
+  const days = await activeDays(userId, active); // Part 9 §2: variant-filtered
   let idx = clampCursor(active.cursorDayIndex, days.length);
   let anchor =
     active.lastAdvancedForDate ?? localDateKey(settings.timezone, active.startedAt);
@@ -193,7 +293,8 @@ async function moveCursor(
   const todayKey = localDateKey(settings.timezone, new Date());
   const active = await loadActive(userId);
   if (!active) throw badRequest("No program followed");
-  const len = active.routine.days.length;
+  const days = await activeDays(userId, active);
+  const len = days.length;
   if (len === 0) throw badRequest("Program has no days");
 
   const nextIdx =
@@ -209,7 +310,7 @@ async function moveCursor(
       lastAdvancedForDate: todayKey,
     },
   });
-  const day = active.routine.days[nextIdx];
+  const day = days[nextIdx];
   return { dayIndex: nextIdx, day: toProgramDay(day) };
 }
 
@@ -218,10 +319,14 @@ async function moveCursor(
 export async function followProgram(userId: string, routineId: string, input: { startDayIndex?: number } = {}) {
   const r = await db.routine.findFirst({ where: { id: routineId, userId, deletedAt: null }, include: routineInclude });
   if (!r) throw notFound("Program not found");
-  if (!isFollowable(r.kind ?? "ROUTINE", r.days)) {
+  // Part 9 §2: follow at the USER's difficulty (fallback: routine difficulty → first variant).
+  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  const variant = variantForDifficulty(r, user?.difficulty ?? null);
+  const days = await effectiveVariantDays(userId, r, variant?.id ?? null);
+  if (!isFollowable(r.kind ?? "ROUTINE", days)) {
     throw badRequest("Only routines with at least one workout day can be followed");
   }
-  const start = clampCursor(input.startDayIndex ?? 0, r.days.length);
+  const start = clampCursor(input.startDayIndex ?? 0, days.length);
   const settings = await getProgramSettings(userId);
   const todayKey = localDateKey(settings.timezone, new Date());
   await db.$transaction(async (tx) => {
@@ -232,13 +337,20 @@ export async function followProgram(userId: string, routineId: string, input: { 
         userId,
         routineId: r.id,
         cursorDayIndex: start,
+        cursorPhaseIdx: 0,
+        variantId: variant?.id ?? null,
         startedAt: new Date(),
         lastAdvancedAt: null,
         lastAdvancedForDate: todayKey,
       },
     });
+    // Part 9 §6: fresh cursor → regenerate the program schedule from today.
+    await tx.scheduleEntry.deleteMany({
+      where: { userId, routineId: r.id, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+    });
   });
-  return { routineId: r.id, dayIndex: start, day: toProgramDay(r.days[start]) };
+  await generateScheduleFromCursor(userId);
+  return { routineId: r.id, dayIndex: start, day: toProgramDay(days[start]) };
 }
 
 export async function unfollowProgram(userId: string) {
@@ -249,18 +361,24 @@ export async function unfollowProgram(userId: string) {
 export async function getActiveRoutineState(userId: string) {
   const active = await loadActive(userId);
   if (!active) return null;
-  const idx = clampCursor(active.cursorDayIndex, active.routine.days.length);
-  const day = active.routine.days[idx];
+  const days = await activeDays(userId, active);
+  const idx = clampCursor(active.cursorDayIndex, days.length);
+  const day = days[idx];
+  const variant = active.variant ?? variantForDifficulty(active.routine, null);
   return {
     routineId: active.routineId,
     routineName: active.routine.name,
     routineKind: active.routine.kind ?? "ROUTINE",
     cursorDayIndex: idx,
-    dayCount: active.routine.days.length,
+    dayCount: days.length,
     dayId: day?.id ?? "",
     dayName: day?.name ?? "",
     dayType: day?.dayType ?? "WORKOUT",
     startedAt: active.startedAt.toISOString(),
+    // Part 9 §2: variant cursor
+    variantId: variant?.id ?? null,
+    variantDifficulty: variant?.difficulty ?? null,
+    cursorPhaseIdx: active.cursorPhaseIdx ?? 0,
   };
 }
 
@@ -280,10 +398,11 @@ export async function skipCursorDay(userId: string) {
   const todayKey = localDateKey(settings.timezone, new Date());
   const active = await loadActive(userId);
   if (!active) throw badRequest("No program followed");
-  const len = active.routine.days.length;
+  const days = await activeDays(userId, active);
+  const len = days.length;
   if (len === 0) throw badRequest("Program has no days");
   const skippedIdx = clampCursor(active.cursorDayIndex, len);
-  const skippedDay = active.routine.days[skippedIdx];
+  const skippedDay = days[skippedIdx];
   const nextIdx = advanceIndex(skippedIdx, len, 1);
 
   await db.$transaction(async (tx) => {
@@ -320,7 +439,7 @@ export async function skipCursorDay(userId: string) {
       });
     }
   });
-  const nextDay = active.routine.days[nextIdx];
+  const nextDay = days[nextIdx];
   return { skipped: toProgramDay(skippedDay), dayIndex: nextIdx, day: toProgramDay(nextDay) };
 }
 
@@ -328,8 +447,9 @@ export async function skipCursorDay(userId: string) {
 export async function markRestDone(userId: string) {
   const active = await loadActive(userId);
   if (!active) throw badRequest("No program followed");
-  const idx = clampCursor(active.cursorDayIndex, active.routine.days.length);
-  const day = active.routine.days[idx];
+  const days = await activeDays(userId, active);
+  const idx = clampCursor(active.cursorDayIndex, days.length);
+  const day = days[idx];
   if ((day?.dayType ?? "WORKOUT") !== "REST") throw badRequest("Current day is not a rest day");
   return moveCursor(userId, { kind: "advance", n: 1 });
 }
@@ -561,9 +681,10 @@ export async function startProgramDay(
   } else {
     const active = await loadActive(userId);
     if (active && active.routineId === r.id) {
-      day = r.days[clampCursor(active.cursorDayIndex, r.days.length)];
+      const variantDays = await activeDays(userId, active);
+      day = variantDays[clampCursor(active.cursorDayIndex, variantDays.length)];
     }
-    day = day ?? r.days.find((d) => (d.dayType ?? "WORKOUT") !== "REST");
+    day = day ?? variantDaysOf(r, active?.variantId ?? null).find((d) => (d.dayType ?? "WORKOUT") !== "REST");
   }
   if (!day) throw badRequest("Program has no workout day to start");
   if ((day.dayType ?? "WORKOUT") === "REST") throw badRequest("Cannot start a rest day");
@@ -571,6 +692,8 @@ export async function startProgramDay(
   const settings = await getProgramSettings(userId);
   const todayKey = input.date ?? localDateKey(settings.timezone, new Date());
   const date = toDayUtc(todayKey);
+  const userRow = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  const userDifficulty = userRow?.difficulty ?? "INTERMEDIATE";
 
   // was this day scheduled? (PLANNED entry matching routine+day+date)
   const planned = await db.scheduleEntry.findFirst({
@@ -596,6 +719,9 @@ export async function startProgramDay(
         sourceDayId: day!.id,
         scheduledStart: wasScheduled,
         startAt: w.startAt ?? new Date(),
+        // Part 9 §1/§8: Log provenance captured at start — difficulty immutable, sourceLabel derived.
+        difficulty: w.difficulty ?? userDifficulty,
+        sourceLabel: w.sourceLabel ?? sourceLabelFor(kind === "SESSION" ? "SESSION" : "ROUTINE_DAY", r.name, day!.name),
       },
     });
     const affected = await appendDayToWorkout(tx, userId, day!, w.id, date);
@@ -635,7 +761,7 @@ async function tryAdvanceForWorkout(userId: string, workout: Workout, opts: { fo
   const active = await loadActive(userId);
   if (!active) return { advanced: false, nextDay: null };
   if (workout.sourceRoutineId !== active.routineId) return { advanced: false, nextDay: null };
-  const days = active.routine.days;
+  const days = await activeDays(userId, active);
   const idx = clampCursor(active.cursorDayIndex, days.length);
   const day = days[idx];
   if (!day || day.id !== workout.sourceDayId) return { advanced: false, nextDay: null };
@@ -678,9 +804,12 @@ export async function finishWorkout(userId: string, workoutId: string) {
   const w = await db.workout.findFirst({ where: { id: workoutId, userId } });
   if (!w) throw notFound("Workout not found");
   const finishedAt = w.finishedAt ?? new Date();
+  // Part 9 §1/§8: Log duration — active seconds from startAt (fallback: first set → finish).
+  const startRef = w.startAt ?? w.createdAt;
+  const durationSec = Math.max(0, Math.round((finishedAt.getTime() - startRef.getTime()) / 1000));
   await db.workout.update({
     where: { id: w.id },
-    data: { finishedAt, endAt: w.endAt ?? finishedAt },
+    data: { finishedAt, endAt: w.endAt ?? finishedAt, durationSec },
   });
   // Part 8 §6.3: evaluate progression rules for sessions sourced from a routine.
   await evaluateWorkoutProgression(userId, w.id);
@@ -759,7 +888,8 @@ export async function undoFinishWorkout(userId: string, workoutId: string) {
     Date.now() - active.lastAdvancedAt.getTime() < 120_000
   ) {
     // revert to this workout's day if the recent advance was (likely) from it
-    const dayIdx = active.routine.days.findIndex((d) => d.id === w.sourceDayId);
+    const variantDays = await activeDays(userId, active);
+    const dayIdx = variantDays.findIndex((d) => d.id === w.sourceDayId);
     if (dayIdx >= 0) {
       const settings = await getProgramSettings(userId);
       const todayKey = localDateKey(settings.timezone, new Date());
@@ -964,7 +1094,7 @@ export async function listSchedule(userId: string, input: { from?: string; to?: 
   if (settings.showProjectedDays) {
     const active = await loadActive(userId);
     if (active) {
-      const days = active.routine.days.map(toProgramDay);
+      const days = (await activeDays(userId, active)).map(toProgramDay);
       const idx = clampCursor(active.cursorDayIndex, days.length);
       const plannedDates = new Set(entries.filter((e) => e.status === "PLANNED").map((e) => e.date));
       projected = projectCursor({ days, startIndex: idx, todayKey, settings, count: 28 })
@@ -1133,14 +1263,16 @@ export async function getDashboard(userId: string) {
   };
 
   const plannedEntry = plannedToday && plannedToday.status === "PLANNED" ? plannedToday : null;
+  // Part 9 §2: the cursor domain is the active VARIANT's effective days.
+  const variantDayList = active ? await activeDays(userId, active) : [];
 
   if (plannedEntry) {
     const dayIdx = active && active.routineId === plannedEntry.routineId && plannedEntry.dayId
-      ? active.routine.days.findIndex((d) => d.id === plannedEntry.dayId)
+      ? variantDayList.findIndex((d) => d.id === plannedEntry.dayId)
       : -1;
     today = {
       date: todayKey,
-      kind: "WORKOUT",
+      kind: (plannedEntry.day?.dayType ?? "WORKOUT") === "REST" ? "REST" : "WORKOUT",
       scheduled: mapScheduleEntry(plannedEntry),
       routine: { id: plannedEntry.routine.id, name: plannedEntry.routine.name, kind: plannedEntry.routine.kind ?? "ROUTINE" },
       day: plannedEntry.day
@@ -1149,12 +1281,12 @@ export async function getDashboard(userId: string) {
             name: plannedEntry.day.name,
             dayType: plannedEntry.day.dayType ?? "WORKOUT",
             index: dayIdx,
-            count: active && active.routineId === plannedEntry.routineId ? active.routine.days.length : 0,
+            count: active && active.routineId === plannedEntry.routineId ? variantDayList.length : 0,
           }
         : null,
     };
   } else if (active) {
-    const days = active.routine.days;
+    const days = variantDayList;
     const idx = clampCursor(active.cursorDayIndex, days.length);
     const day = days[idx];
     today = {
@@ -1177,11 +1309,11 @@ export async function getDashboard(userId: string) {
     const k = dayKey(e.date);
     entryByDate.set(k, [...(entryByDate.get(k) ?? []), e]);
   }
-  const activeDays = active ? active.routine.days.map(toProgramDay) : [];
+  const activeDayDtos = variantDayList.map(toProgramDay);
   const projection = active
     ? projectCursor({
-        days: activeDays,
-        startIndex: clampCursor(active.cursorDayIndex, activeDays.length),
+        days: activeDayDtos,
+        startIndex: clampCursor(active.cursorDayIndex, activeDayDtos.length),
         todayKey,
         settings,
         count: 7,
@@ -1400,31 +1532,58 @@ export async function markDayOff(userId: string, routineId: string, dayId: strin
     }
   }
 
-  // DONE schedule entry for today (if none for this day)
+  // DONE schedule entry for today (if none for this day). Part 9 §5: the mark-off
+  // also mints the Log (Workout PROGRAM, durationSec 0, markedOff) + COMPLETE entry.
   const settings = await getProgramSettings(userId);
   const todayKey = localDateKey(settings.timezone, new Date());
+  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  const todayDate = toDayUtc(todayKey);
   const existing = await db.scheduleEntry.findFirst({
-    where: { userId, deletedAt: null, date: toDayUtc(todayKey), dayId },
+    where: { userId, deletedAt: null, date: todayDate, dayId },
+  });
+  const markOffWorkout = await db.workout.create({
+    data: {
+      id: uuid7(),
+      userId,
+      date: todayDate,
+      sourceType: "ROUTINE_DAY",
+      sourceRoutineId: routineId,
+      sourceDayId: dayId,
+      sourceLabel: `${routine.name} · Day off`,
+      difficulty: user?.difficulty ?? null,
+      durationSec: 0,
+      finishedAt: new Date(),
+    },
   });
   if (existing && existing.status === "PLANNED") {
-    await db.scheduleEntry.update({ where: { id: existing.id }, data: { status: "DONE" } });
+    await db.scheduleEntry.update({
+      where: { id: existing.id },
+      data: { status: "DONE", workoutId: markOffWorkout.id, markedOff: true },
+    });
   } else if (!existing) {
     await db.scheduleEntry.create({
       data: {
         id: uuid7(),
         userId,
-        date: toDayUtc(todayKey),
+        date: todayDate,
         sourceType: "ROUTINE_DAY",
         routineId,
         dayId,
         status: "DONE",
+        workoutId: markOffWorkout.id,
+        markedOff: true,
         estMinutes: day.estMinutes ?? routine.estMinutes ?? null,
       },
     });
   }
 
-  // Cursor advance only when marking off the cursor day
-  if (active && routine.days[clampCursor(active.cursorDayIndex, routine.days.length)]?.id === dayId) {
+  // Cursor advance only when marking off the cursor day (variant-aware, Part 9 §2)
+  const activeFull = active ? await loadActive(userId) : null;
+  const variantDayList = activeFull ? await activeDays(userId, activeFull) : [];
+  const cursorDayId = activeFull
+    ? variantDayList[clampCursor(activeFull.cursorDayIndex, variantDayList.length)]?.id
+    : null;
+  if (active && cursorDayId === dayId) {
     await advanceCursorOp(userId, 1);
     advanced = true;
   }
@@ -1441,14 +1600,20 @@ export async function unmarkDayOff(userId: string, routineId: string, dayId: str
   return { completedDayIds: completed };
 }
 
-/** POST /api/programs/:id/days/:dayId/favourite — toggle the day favourite flag. */
+/** POST /api/programs/:id/days/:dayId/favourite — toggle the day favourite (DayFavorite table, legacy flag kept in sync). */
 export async function toggleDayFavourite(userId: string, routineId: string, dayId: string): Promise<{ isFavorite: boolean }> {
   const routine = await loadOwnedRoutine(userId, routineId);
   const day = routine.days.find((d) => d.id === dayId);
   if (!day) throw notFound("Day not found");
-  const next = !day.isFavorite;
-  await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: next } });
-  return { isFavorite: next };
+  const existing = await db.dayFavorite.findUnique({ where: { userId_dayId: { userId, dayId } } });
+  if (existing) {
+    await db.dayFavorite.delete({ where: { userId_dayId: { userId, dayId } } });
+    await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: false } });
+    return { isFavorite: false };
+  }
+  await db.dayFavorite.create({ data: { userId, dayId } });
+  await db.routineDay.update({ where: { id: dayId }, data: { isFavorite: true } });
+  return { isFavorite: true };
 }
 
 /**
@@ -1607,4 +1772,304 @@ export async function setScheduleTime(userId: string, id: string, time: string |
   if (!entry) throw notFound("Schedule entry not found");
   const updated = await db.scheduleEntry.update({ where: { id }, data: { timeOfDay: time } });
   return mapScheduleEntry({ ...updated, routine: { name: entry.routine.name }, day: entry.day ? { name: entry.day.name } : null });
+}
+
+// ---------- Part 9 §2: difficulty ----------
+
+export function sourceLabelFor(sourceType: string, routineName: string | null, dayName: string | null): string {
+  if (sourceType === "SESSION") return "On demand";
+  if (sourceType === "ROUTINE_DAY") return routineName ? `${routineName}${dayName ? ` · ${dayName}` : ""}` : "Program";
+  return "Custom";
+}
+
+/**
+ * PATCH /api/user/difficulty (§2). Sets the global difficulty; when a program is
+ * followed the ActiveRoutine switches to the sibling variant at the new
+ * difficulty (kept + flagged when the sibling does not exist), the cursor
+ * restarts at (0,0) and future program schedule entries regenerate (§6).
+ */
+export async function changeDifficulty(userId: string, difficulty: "BEGINNER" | "INTERMEDIATE" | "ADVANCED") {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user) throw notFound("User not found");
+  const oldDifficulty = (user.difficulty ?? "INTERMEDIATE") as "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+  if (oldDifficulty === difficulty) {
+    return { difficulty, oldDifficulty, switched: false, variantKept: null as string | null };
+  }
+
+  const active = await loadActive(userId);
+  let variantKept: string | null = null;
+
+  await db.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { difficulty } });
+    if (!active) return;
+    const settings = await getProgramSettings(userId);
+    const todayKey = localDateKey(settings.timezone, new Date());
+    const sibling = await tx.programVariant.findFirst({ where: { routineId: active.routineId, difficulty } });
+    if (sibling) {
+      await tx.activeRoutine.update({
+        where: { id: active.id },
+        data: { variantId: sibling.id, cursorPhaseIdx: 0, cursorDayIndex: 0, lastAdvancedAt: new Date(), lastAdvancedForDate: todayKey },
+      });
+    } else {
+      variantKept = oldDifficulty;
+      await tx.activeRoutine.update({
+        where: { id: active.id },
+        data: { cursorPhaseIdx: 0, cursorDayIndex: 0, lastAdvancedAt: new Date(), lastAdvancedForDate: todayKey },
+      });
+    }
+    // §2: future program schedule entries deleted, regenerated in §6 order.
+    await tx.scheduleEntry.deleteMany({
+      where: { userId, routineId: active.routineId, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+    });
+  });
+
+  if (active) await generateScheduleFromCursor(userId);
+  return { difficulty, oldDifficulty, switched: true, variantKept };
+}
+
+export async function getUserDifficulty(userId: string): Promise<"BEGINNER" | "INTERMEDIATE" | "ADVANCED"> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { difficulty: true } });
+  return (user?.difficulty ?? "INTERMEDIATE") as "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+}
+
+// ---------- Part 9 §4/§6: program start + schedule generation ----------
+
+/**
+ * §6 On Start: for each Day from the start phase in user order → date = start + offset.
+ * REST days consume a date (entry kind REST, no dot). Idempotent: existing
+ * (date, day) pairs and dates already carrying a PLANNED entry are skipped.
+ */
+export async function generateScheduleFromCursor(userId: string, fromDateKey?: string) {
+  const settings = await getProgramSettings(userId);
+  const todayKey = fromDateKey ?? localDateKey(settings.timezone, new Date());
+  const active = await loadActive(userId);
+  if (!active) return { created: 0 };
+  const days = await activeDays(userId, active);
+  if (days.length === 0) return { created: 0 };
+  const startIdx = clampCursor(active.cursorDayIndex, days.length);
+
+  const existing = await db.scheduleEntry.findMany({ where: { userId, deletedAt: null } });
+  const seenPairs = new Set(existing.map((e) => `${dayKey(e.date)}:${e.dayId ?? ""}`));
+  const plannedDates = new Set(existing.filter((e) => e.status === "PLANNED").map((e) => dayKey(e.date)));
+
+  let created = 0;
+  let offset = 0;
+  for (let i = startIdx; i < days.length; i++, offset++) {
+    const d = days[i];
+    const dateKey = addDaysKey(todayKey, offset);
+    if (seenPairs.has(`${dateKey}:${d.id}`)) continue;
+    if (plannedDates.has(dateKey)) continue; // one PLANNED entry per (user, date)
+    await db.scheduleEntry.create({
+      data: {
+        id: uuid7(),
+        userId,
+        date: toDayUtc(dateKey),
+        sourceType: "ROUTINE_DAY",
+        routineId: active.routineId,
+        dayId: d.id,
+        status: "PLANNED",
+        estMinutes: d.estMinutes ?? undefined,
+      },
+    });
+    plannedDates.add(dateKey);
+    seenPairs.add(`${dateKey}:${d.id}`);
+    created += 1;
+  }
+  return { created };
+}
+
+/**
+ * POST /api/programs/:id/start { phaseIdx } (§4). Sets currentVariantId (the
+ * variant at the USER's difficulty), cursor = (phaseIdx, 0), programStartedAt
+ * and regenerates the schedule (§6).
+ */
+export async function startProgram(userId: string, routineId: string, input: { phaseIdx?: number } = {}) {
+  const r = await db.routine.findFirst({ where: { id: routineId, userId, deletedAt: null }, include: routineInclude });
+  if (!r) throw notFound("Program not found");
+  const difficulty = await getUserDifficulty(userId);
+  const variant = variantForDifficulty(r, difficulty);
+  const days = await effectiveVariantDays(userId, r, variant?.id ?? null);
+  if (!isFollowable(r.kind ?? "ROUTINE", days)) {
+    throw badRequest("Only programs with at least one workout day can be started");
+  }
+  // cursorPhaseIdx points at the requested phase; the flat cursor index is the
+  // first day of that phase (0 when the phase has no days).
+  let phaseIdx = input.phaseIdx ?? 0;
+  if (variant) phaseIdx = Math.min(Math.max(0, phaseIdx), Math.max(0, variant.phases.length - 1));
+  let cursorDayIndex = 0;
+  if (variant && variant.phases.length > 0) {
+    const phase = variant.phases[phaseIdx];
+    const firstIdx = days.findIndex((d) => d.phaseId === phase?.id);
+    cursorDayIndex = firstIdx >= 0 ? firstIdx : 0;
+  }
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  await db.$transaction(async (tx) => {
+    await tx.activeRoutine.deleteMany({ where: { userId } });
+    await tx.activeRoutine.create({
+      data: {
+        id: uuid7(),
+        userId,
+        routineId: r.id,
+        variantId: variant?.id ?? null,
+        cursorPhaseIdx: phaseIdx,
+        cursorDayIndex,
+        startedAt: new Date(),
+        lastAdvancedAt: null,
+        lastAdvancedForDate: todayKey,
+      },
+    });
+    await tx.scheduleEntry.deleteMany({
+      where: { userId, routineId: r.id, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+    });
+  });
+  await generateScheduleFromCursor(userId);
+  return {
+    routineId: r.id,
+    variantId: variant?.id ?? null,
+    difficulty: variant?.difficulty ?? difficulty,
+    phaseIdx,
+    dayIndex: cursorDayIndex,
+    day: toProgramDay(days[cursorDayIndex]),
+  };
+}
+
+// ---------- Part 9 §6: missed reconcile ----------
+
+/**
+ * POST /api/schedule/reconcile-missed (idempotent; cron + on-open).
+ * PLANNED entries whose local date passed the missed cutoff without a
+ * qualifying workout → MISSED (persisted, missedAt stamped). REST entries
+ * never reconcile to MISSED (§6: "entry kind REST, no dot").
+ */
+export async function reconcileMissedSchedule(userId: string) {
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  const nowMs = Date.now();
+  const rows = await db.scheduleEntry.findMany({
+    where: { userId, deletedAt: null, status: "PLANNED", date: { lt: toDayUtc(todayKey) } },
+    include: { day: true, workout: { include: { exercises: { include: { sets: true } } } } },
+  });
+  let missed = 0;
+  let completed = 0;
+  for (const e of rows) {
+    if ((e.day?.dayType ?? "WORKOUT") === "REST") continue; // REST never misses
+    const hasData = e.workout ? workoutHasLoggedData(e.workout) : false;
+    const derived = deriveEntryStatus({
+      storedStatus: "PLANNED",
+      dateKey: dayKey(e.date),
+      todayKey,
+      linkedWorkoutHasData: hasData,
+      linkedWorkoutFinished: !!e.workout?.finishedAt,
+      missedCutoffMs: missedCutoffMsFor(dayKey(e.date), e.timeOfDay),
+      nowMs,
+    });
+    if (derived === "MISSED") {
+      await db.scheduleEntry.update({ where: { id: e.id }, data: { status: "MISSED", missedAt: e.missedAt ?? new Date(nowMs) } });
+      missed += 1;
+    } else if (derived === "DONE") {
+      await db.scheduleEntry.update({ where: { id: e.id }, data: { status: "DONE" } });
+      completed += 1;
+    }
+  }
+  return { missed, completed, checked: rows.length };
+}
+
+// ---------- Part 9 §10: challenges ----------
+
+export async function getActiveChallenge(userId: string) {
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  const challenge = await db.challenge.findFirst({
+    where: { isActive: true },
+    include: { programVariant: { include: { routine: { select: { id: true, name: true, userId: true } } } }, dismisses: { where: { userId } } },
+    orderBy: { startsOn: "desc" },
+  });
+  if (!challenge) return null;
+  const startsOnKey = dayKey(challenge.startsOn);
+  // startsOn ≥ today-7 (recent or upcoming) and not dismissed
+  const diff = diffDateKeys(todayKey, startsOnKey);
+  if (diff < -7) return null;
+  if (challenge.dismisses.length > 0) return null;
+  return {
+    id: challenge.id,
+    name: challenge.name,
+    startsOn: startsOnKey,
+    weeks: challenge.weeks,
+    isActive: challenge.isActive,
+    variantId: challenge.programVariantId,
+    programName: challenge.programVariant.routine.name,
+    // Resolves the JOINING user's own copy of the template program (challenges
+    // point at one user's variant; every user owns their materialized copy).
+    userVariantId: await resolveUserVariantId(userId, challenge.programVariant),
+    joined: await isChallengeJoined(userId, challenge.programVariant),
+  };
+}
+
+async function resolveUserVariantId(userId: string, variant: { difficulty: string; routine: { name: string } }) {
+  const routine = await db.routine.findFirst({
+    where: { userId, name: variant.routine.name, kind: "ROUTINE", deletedAt: null },
+    include: { variants: true },
+  });
+  if (!routine) return null;
+  const own = routine.variants.find((v) => v.difficulty === variant.difficulty) ?? routine.variants[0];
+  return own?.id ?? null;
+}
+
+async function isChallengeJoined(userId: string, variant: { difficulty: string; routine: { name: string } }) {
+  const active = await loadActive(userId);
+  if (!active?.variantId) return false;
+  const activeVariant = await db.programVariant.findUnique({ where: { id: active.variantId }, include: { routine: { select: { name: true } } } });
+  return !!activeVariant && activeVariant.routine.name === variant.routine.name && activeVariant.difficulty === variant.difficulty;
+}
+
+/** POST /api/challenges/:id/join (§10): start flow at user difficulty with programStartedAt = startsOn. */
+export async function joinChallenge(userId: string, challengeId: string) {
+  const challenge = await db.challenge.findUnique({ where: { id: challengeId }, include: { programVariant: { include: { routine: { select: { name: true } } } } } });
+  if (!challenge || !challenge.isActive) throw notFound("Challenge not found");
+  // The joiner's own copy of the template program at their difficulty.
+  const routine = await db.routine.findFirst({
+    where: { userId, name: challenge.programVariant.routine.name, kind: "ROUTINE", deletedAt: null },
+    include: routineInclude,
+  });
+  if (!routine) throw notFound("Join the challenge from a fresh account — the program template is missing");
+  const difficulty = await getUserDifficulty(userId);
+  const variant = variantForDifficulty(routine, difficulty);
+  const days = await effectiveVariantDays(userId, routine, variant?.id ?? null);
+  const startsOnKey = dayKey(challenge.startsOn);
+  const settings = await getProgramSettings(userId);
+  const todayKey = localDateKey(settings.timezone, new Date());
+  await db.$transaction(async (tx) => {
+    await tx.activeRoutine.deleteMany({ where: { userId } });
+    await tx.activeRoutine.create({
+      data: {
+        id: uuid7(),
+        userId,
+        routineId: routine.id,
+        variantId: variant?.id ?? null,
+        cursorPhaseIdx: 0,
+        cursorDayIndex: 0,
+        startedAt: toDayUtc(startsOnKey), // programStartedAt = startsOn (§10)
+        lastAdvancedAt: null,
+        lastAdvancedForDate: todayKey,
+      },
+    });
+    await tx.scheduleEntry.deleteMany({
+      where: { userId, routineId: routine.id, status: "PLANNED", date: { gte: toDayUtc(todayKey) }, deletedAt: null },
+    });
+  });
+  await generateScheduleFromCursor(userId, compareDateKeys(startsOnKey, todayKey) > 0 ? startsOnKey : todayKey);
+  return { routineId: routine.id, variantId: variant?.id ?? null, startsOn: startsOnKey, weeks: challenge.weeks };
+}
+
+/** DELETE /api/challenges/:id/dismiss — hide the banner for this user. */
+export async function dismissChallenge(userId: string, challengeId: string) {
+  const challenge = await db.challenge.findUnique({ where: { id: challengeId } });
+  if (!challenge) throw notFound("Challenge not found");
+  await db.challengeDismiss.upsert({
+    where: { userId_challengeId: { userId, challengeId } },
+    create: { id: uuid7(), userId, challengeId },
+    update: {},
+  });
+  return { ok: true as const };
 }
