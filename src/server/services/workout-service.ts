@@ -363,7 +363,7 @@ export async function updateWorkoutExercise(
   userId: string,
   workoutId: string,
   weId: string,
-  patch: { sortOrder?: number; groupId?: string | null },
+  patch: { sortOrder?: number; groupId?: string | null; exerciseId?: string },
 ) {
   const we = await db.workoutExercise.findFirst({ where: { id: weId, userId, workoutId } });
   if (!we) throw notFound("Exercise not found in this workout");
@@ -372,6 +372,24 @@ export async function updateWorkoutExercise(
       const g = await db.workoutGroup.findFirst({ where: { id: patch.groupId, userId, workoutId } });
       if (!g) throw notFound("Group not found");
     }
+  }
+  // ---- Part 9 §8: log-scoped exercise swap (sets kept on the same rows) ----
+  if (patch.exerciseId != null && patch.exerciseId !== we.exerciseId) {
+    const exercise = await db.exercise.findFirst({ where: { id: patch.exerciseId, userId } });
+    if (!exercise) throw notFound("Exercise not found");
+    const oldExerciseId = we.exerciseId;
+    const newExerciseId = patch.exerciseId;
+    const updated = await db.$transaction(async (tx) => {
+      const row = await tx.workoutExercise.update({
+        where: { id: weId },
+        data: { exerciseId: newExerciseId },
+      });
+      // the performed sets just moved between exercises — rebuild both PRs
+      await recomputePRs(tx, userId, oldExerciseId);
+      await recomputePRs(tx, userId, newExerciseId);
+      return row;
+    });
+    return { ok: true, id: updated.id };
   }
   const updated = await db.workoutExercise.update({
     where: { id: weId },

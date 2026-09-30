@@ -40,6 +40,8 @@ export const qk = {
   // ---- Part 9 §5: day overview (override-merged) + replace suggestions ----
   day: (dayId: string) => ["day", dayId] as const,
   exerciseSuggestions: (exerciseId: string) => ["exercise-suggestions", exerciseId] as const,
+  // ---- Part 9 §7: on-demand catalog (server-filtered by the URL state) ----
+  onDemand: (params?: Record<string, unknown>) => ["on-demand", params ?? {}] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {

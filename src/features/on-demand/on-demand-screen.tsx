@@ -1,50 +1,59 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OnDemandScreen — #/on-demand (Part 8 §3.6).
+// OnDemandScreen — #/on-demand (Part 9 §7).
 //
-//   TopBar (56)  : BackButton(→ #/workout) · "On Demand" · 📅 (→ #/calendar) ·
-//                  TopBarHelp
-//   SubBar (48)  : search input "Search sessions…"
-//   ScrollBody   : filter chip row 40 (All · ★ · ≤20m · ≤40m · up to 6 muscle
-//                  chips derived from the loaded sessions) · 72px session rows
-//                  (4px colour bar · name / `Chest, Triceps · 5 exercises` ·
-//                  `{est} min` right · ★ favourite toggle) · loading skeletons
-//                  at real heights · dashed empty state.
+//   TopBar (56)  : BackButton(→ #/workout) · "On Demand" · filter icon-button
+//                  (orange dot + count badge while §7 filters are active →
+//                  #/on-demand/filters) · TopBarHelp
+//   SubBar (48)  : search input "Search sessions…" (server q, 300ms debounce)
+//   ScrollBody   : §7 chip row 40 (All · Warm up / Rehab · Favorites · Coach
+//                  picks · Specialization · Limited equipment · Limited time)
+//                  · 72px session rows — R1 name + intensity pill ·
+//                  R2 "{series} series · {min} min · {equipment}" · ★ favourite
+//                  (DayFavorite) · loading skeletons at real heights ·
+//                  dashed empty states.
 //
-// On Demand content IS the SESSION-kind routines (Routine.kind === "SESSION"):
-// the query/filter/row machinery is adapted from the routines-screen sessions
-// tab (usePrograms("SESSION") + routinesApi.list() join). Metadata degrades
-// silently: muscles fall back from day.primaryMuscles to the union of the
-// exercises' primary muscles, and est minutes from routine/day estMinutes to a
-// sets-based estimate (≈2.5 min/set, rounded to 5).
+// THE URL IS THE SOURCE OF TRUTH: chips + search + the filters-screen state
+// all live in the #/on-demand hash query (filter-url.ts); every change is a
+// replaceHash write, so refresh/deep links restore the exact view. Category
+// chips + the filters screen refetch SERVER-side (onDemandApi.list); the
+// Favorites/Coach picks chips are flags applied to the returned DTOs.
+// Card tap → #/days/{dayId} (§5 Day Overview — day-first route).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { BackButton } from "@/components/layout/back-button";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarDays, Dumbbell, Hammer, Search, Star } from "lucide-react";
+import { Dumbbell, Hammer, Search, SlidersHorizontal, Star } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
-import { programsMetaApi, routinesApi } from "@/lib/client/api";
-import { qk, useInvalidate, useOnline, usePrograms } from "@/lib/client/query";
+import { dayApi, onDemandApi } from "@/lib/client/api";
+import { qk, useOnline } from "@/lib/client/query";
 import { queueMutation } from "@/lib/client/offline";
-import type { ProgramSummaryDTO, RoutineDTO, RoutineExerciseDTO } from "@/lib/types";
-import { MUSCLE_LABELS, type Muscle } from "@/lib/constants";
+import { DIFFICULTY_LABELS, type Difficulty } from "@/lib/constants";
 import { errorMessage } from "@/features/routines/screen-helpers";
-
-/** ≤20m / ≤40m duration chips. */
-const DURATION_CHIPS = [20, 40] as const;
-/** Muscle chips are derived from the loaded sessions — capped at 6 (§3.6). */
-const MUSCLE_CHIP_CAP = 6;
+import { replaceHash, useHashRoute } from "@/features/shell/router";
+import type { OnDemandSessionDTO } from "@/lib/client/api";
+import {
+  countOnDemandFilters,
+  onDemandFiltersHash,
+  onDemandListHash,
+  parseOnDemandFilters,
+  toOnDemandQuery,
+  type OnDemandUrlFilters,
+} from "./filter-url";
 
 const ROW_CLS =
   "flex h-18 cursor-pointer select-none items-center overflow-hidden whitespace-nowrap rounded-lg border bg-card pr-1 transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+
+const CHIP_ROW_CLS =
+  "no-scrollbar flex h-10 w-full flex-none items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap";
 
 const chipClass = (active: boolean) =>
   cn(
@@ -54,126 +63,82 @@ const chipClass = (active: boolean) =>
       : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
   );
 
-const CHIP_ROW_CLS =
-  "no-scrollbar flex h-10 w-full flex-none items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap";
-
-const muscleLabel = (m: string) => MUSCLE_LABELS[m as Muscle] ?? m;
-
-/** Sessions are single-day: the first WORKOUT day carries the content. */
-function sessionDayOf(routine: RoutineDTO | undefined) {
-  if (!routine) return null;
-  return routine.days.find((d) => (d.dayType ?? "WORKOUT") === "WORKOUT") ?? null;
-}
-
-/** Sets-based minute estimate (≈2.5 min per set incl. rest), rounded to 5. */
-function estimateMinutes(exercises: RoutineExerciseDTO[]): number | null {
-  const totalSets = exercises.reduce((n, re) => n + re.sets.length, 0);
-  if (totalSets === 0) return null;
-  return Math.max(5, Math.round((totalSets * 2.5) / 5) * 5);
-}
-
-type SessionMeta = {
-  /** Estimated minutes (routine/day metadata, else derived from set count). */
-  est: number | null;
-  /** Display muscles: day.primaryMuscles, else the exercises' primary union. */
-  muscles: string[];
-  /** Exercise count of the session's workout day. */
-  exerciseCount: number;
-  /** Row colour bar: first exercise's category colour (data-backed). */
-  barColour: string;
+const EQUIPMENT_LABELS: Record<string, string> = {
+  NONE: "None",
+  MINIMAL: "Minimal",
+  GYM: "Gym",
 };
+
+const intensityLabel = (v: string | null) =>
+  v && v in DIFFICULTY_LABELS ? DIFFICULTY_LABELS[v as Difficulty] : null;
 
 export default function OnDemandScreen() {
   const navigate = useApp((s) => s.navigate);
   const online = useOnline();
-  const invalidate = useInvalidate();
   const qc = useQueryClient();
+  const route = useHashRoute();
 
-  // ---------- data ----------
-  const programsQuery = usePrograms("SESSION");
-  const programs = useMemo(
-    () => [...(programsQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
-    [programsQuery.data],
+  // ---------- URL-derived filter state (the §7 source of truth) ----------
+  const filters: OnDemandUrlFilters = useMemo(
+    () => (route.name === "on-demand" ? parseOnDemandFilters(route.query) : parseOnDemandFilters(new URLSearchParams())),
+    [route.name, route.query],
   );
 
-  // full routine payloads — favourite state + day metadata join
-  const routinesQuery = useQuery({ queryKey: qk.routines, queryFn: () => routinesApi.list() });
-  const routinesById = useMemo(() => {
-    const m = new Map<string, RoutineDTO>();
-    for (const r of routinesQuery.data?.routines ?? []) m.set(r.id, r);
-    return m;
-  }, [routinesQuery.data]);
+  const writeFilters = (next: OnDemandUrlFilters) => replaceHash(onDemandListHash(next));
 
-  // ---------- ui state ----------
-  const [searchInput, setSearchInput] = useState("");
-  /** "ALL" | "FAV" | "M20" | "M40" | a muscle key ("CHEST"…) — muscle keys cannot collide with the sentinels. */
-  const [chip, setChip] = useState<string>("ALL");
-
-  // ---------- per-session derived meta ----------
-  const sessionsMeta = useMemo(() => {
-    const m = new Map<string, SessionMeta>();
-    for (const p of programs) {
-      const r = routinesById.get(p.id);
-      const day = sessionDayOf(r);
-      const exercises = day?.exercises ?? [];
-      const dayMuscles = (day?.primaryMuscles ?? []).filter(Boolean);
-      const muscles =
-        dayMuscles.length > 0
-          ? dayMuscles
-          : [...new Set(exercises.flatMap((re) => re.exercise.primaryMuscles ?? []))];
-      const est = r?.estMinutes ?? day?.estMinutes ?? estimateMinutes(exercises);
-      m.set(p.id, {
-        est,
-        muscles,
-        exerciseCount: exercises.length > 0 ? exercises.length : p.exerciseCount,
-        barColour: exercises[0]?.exercise.category?.colour ?? "#f97316",
-      });
-    }
-    return m;
-  }, [programs, routinesById]);
-
-  /** Muscle chip options derived from the loaded sessions (§3.6, ≤6). */
-  const muscleOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const v of sessionsMeta.values()) for (const m of v.muscles) s.add(m);
-    return [...s]
-      .sort((a, b) => muscleLabel(a).localeCompare(muscleLabel(b)))
-      .slice(0, MUSCLE_CHIP_CAP);
-  }, [sessionsMeta]);
-
-  // ---------- filtering ----------
-  const visibleSessions = useMemo(() => {
-    const q = searchInput.trim().toLowerCase();
-    const isMuscle = chip !== "ALL" && chip !== "FAV" && chip !== "M20" && chip !== "M40";
-    return programs.filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q)) {
-        const notes = routinesById.get(p.id)?.notes ?? "";
-        if (!notes.toLowerCase().includes(q)) return false;
+  // search input — seeded from the URL once on mount; every keystroke is local
+  // and the DEBOUNCED value is written back to the URL (which drives the query).
+  const [searchInput, setSearchInput] = useState(() => filters.q);
+  const debouncedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
+    debouncedTimer.current = setTimeout(() => {
+      if (searchInput.trim() !== filters.q) {
+        writeFilters({ ...filters, q: searchInput.trim() });
       }
-      const meta = sessionsMeta.get(p.id);
-      if (chip === "FAV" && !(routinesById.get(p.id)?.isFavorite ?? false)) return false;
-      if (chip === "M20" && !(meta?.est != null && meta.est <= 20)) return false;
-      if (chip === "M40" && !(meta?.est != null && meta.est <= 40)) return false;
-      if (isMuscle && !(meta?.muscles ?? []).includes(chip)) return false;
-      return true;
-    });
-  }, [programs, searchInput, chip, sessionsMeta, routinesById]);
+    }, 300);
+    return () => {
+      if (debouncedTimer.current) clearTimeout(debouncedTimer.current);
+    };
+  }, [searchInput]);
+
+  // ---------- data (server-side §7 filtering) ----------
+  const serverQuery = useMemo(() => toOnDemandQuery(filters), [filters]);
+  const sessionsQuery = useQuery({
+    queryKey: qk.onDemand(serverQuery),
+    queryFn: () => onDemandApi.list(serverQuery),
+  });
+
+  // Favorites / Coach picks are DTO flags → applied client-side (same fetch).
+  const visibleSessions = useMemo(() => {
+    const all = sessionsQuery.data ?? [];
+    if (filters.chip === "FAV") return all.filter((s) => s.isFavorite);
+    if (filters.chip === "PICKS") return all.filter((s) => s.isFeatured);
+    return all;
+  }, [sessionsQuery.data, filters.chip]);
+
+  const activeFilterCount = countOnDemandFilters(filters);
+  /** No sessions exist at all AND nothing is filtered → the true empty state. */
+  const nothingAtAll =
+    !sessionsQuery.isLoading &&
+    (sessionsQuery.data?.length ?? 0) === 0 &&
+    filters.chip === "ALL" &&
+    !filters.q.trim() &&
+    activeFilterCount === 0;
 
   // ---------- mutations ----------
-  const toggleFavourite = async (program: ProgramSummaryDTO) => {
-    const current = routinesById.get(program.id)?.isFavorite ?? false;
-    const next = !current;
-    // optimistic patch of the routines cache (the list reads isFavorite from it)
-    qc.setQueryData<{ routines: RoutineDTO[] }>(qk.routines, (old) =>
-      old
-        ? { ...old, routines: old.routines.map((r) => (r.id === program.id ? { ...r, isFavorite: next } : r)) }
-        : old,
+  const toggleFavourite = async (session: OnDemandSessionDTO) => {
+    if (!session.dayId) return;
+    const next = !session.isFavorite;
+    // optimistic patch of the on-demand cache — the list reads isFavorite from it
+    qc.setQueryData<OnDemandSessionDTO[]>(qk.onDemand(serverQuery), (old) =>
+      old ? old.map((s) => (s.id === session.id ? { ...s, isFavorite: next } : s)) : old,
     );
     if (!online) {
       queueMutation(
-        `/api/programs/${program.id}/meta`,
-        "PUT",
-        { isFavorite: next },
+        `/api/days/${session.dayId}/favorite`,
+        next ? "POST" : "DELETE",
+        undefined,
         next ? "Added to favourites" : "Removed from favourites",
       );
       toast.info(
@@ -182,89 +147,94 @@ export default function OnDemandScreen() {
       return;
     }
     try {
-      await programsMetaApi.update(program.id, { isFavorite: next });
-      invalidate.routines();
+      const res = next
+        ? await dayApi.favourite(session.dayId)
+        : await dayApi.unfavourite(session.dayId);
       toast.success(
-        next ? `“${program.name}” added to favourites` : `“${program.name}” removed from favourites`,
+        res.isFavorite ? `“${session.name}” added to favourites` : `“${session.name}” removed from favourites`,
       );
     } catch (e) {
-      invalidate.routines();
       toast.error(errorMessage(e));
+    } finally {
+      qc.invalidateQueries({ queryKey: ["on-demand"] });
     }
   };
 
-  const clearFilters = () => {
-    setSearchInput("");
-    setChip("ALL");
-  };
+  const clearFilters = () => replaceHash("#/on-demand");
+
+  const openFilters = () => navigate(onDemandFiltersHash(filters));
 
   // ---------- rows ----------
-  const renderStar = (program: ProgramSummaryDTO, isFav: boolean) => (
+  const renderStar = (session: OnDemandSessionDTO) => (
     <span className="flex flex-none" onClick={(e) => e.stopPropagation()}>
       <Button
         type="button"
         variant="ghost"
-        className={cn("h-11 w-11 p-0", isFav && "text-amber-500 hover:text-amber-500")}
-        aria-pressed={isFav}
-        aria-label={isFav ? `Unfavourite ${program.name}` : `Favourite ${program.name}`}
+        className={cn("h-11 w-11 p-0", session.isFavorite && "text-amber-500 hover:text-amber-500")}
+        aria-pressed={session.isFavorite}
+        aria-label={session.isFavorite ? `Unfavourite ${session.name}` : `Favourite ${session.name}`}
         tour={{ id: "onDemand.favourite", label: "Favourite", help: "Star the session to find it faster.", order: 70 }}
-        onClick={() => void toggleFavourite(program)}
+        onClick={() => void toggleFavourite(session)}
       >
-        <Star className="h-5 w-5" aria-hidden fill={isFav ? "currentColor" : "none"} />
+        <Star className="h-5 w-5" aria-hidden fill={session.isFavorite ? "currentColor" : "none"} />
       </Button>
     </span>
   );
 
-  const renderSessionRow = (program: ProgramSummaryDTO) => {
-    const meta = sessionsMeta.get(program.id);
-    const isFav = routinesById.get(program.id)?.isFavorite ?? false;
-    const muscles = meta?.muscles ?? [];
-    const count = meta?.exerciseCount ?? 0;
-
+  const renderSessionRow = (session: OnDemandSessionDTO) => {
+    const intensity = intensityLabel(session.intensity);
+    const equipment = session.equipmentLevel ? (EQUIPMENT_LABELS[session.equipmentLevel] ?? null) : null;
     const line2 = [
-      ...(muscles.length > 0 ? [muscles.map(muscleLabel).join(", ")] : []),
-      `${count} ${count === 1 ? "exercise" : "exercises"}`,
+      `${session.seriesCount} series`,
+      ...(session.minutes != null ? [`${session.minutes} min`] : []),
+      ...(equipment ? [equipment] : ["—"]),
     ].join(" · ");
 
     return (
       <div
-        key={program.id}
+        key={session.id}
         data-row
         role="button"
         tabIndex={0}
-        aria-label={`${program.name} — ${meta?.est != null ? `${meta.est} minutes, ` : ""}${count} exercises`}
-        {...tourAttrs({ id: "onDemand.sessionRow", label: "Session row", help: "Open the session to see its groups and start it.", order: 60 })}
+        aria-label={`${session.name}${intensity ? ` — ${intensity}` : ""}${session.minutes != null ? ` · ${session.minutes} minutes` : ""}${session.isFeatured ? " · coach pick" : ""}`}
+        {...tourAttrs({ id: "onDemand.sessionRow", label: "Session row", help: "Open the session's day overview to start it.", order: 60 })}
         className={ROW_CLS}
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("button, input, a, [role=menuitem]")) return;
-          navigate(`/on-demand/${program.id}`);
+          if (session.dayId) navigate(`/days/${session.dayId}`);
+          else navigate(`/on-demand/${session.id}`);
         }}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            navigate(`/on-demand/${program.id}`);
+            if (session.dayId) navigate(`/days/${session.dayId}`);
+            else navigate(`/on-demand/${session.id}`);
           }
         }}
       >
-        <span aria-hidden className="w-1 flex-none self-stretch" style={{ backgroundColor: meta?.barColour ?? "#f97316" }} />
-        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 pl-2">
-          <span className="truncate text-sm font-semibold leading-none">{program.name}</span>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 pl-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{session.name}</span>
+            {session.isFeatured ? (
+              <Star className="h-3.5 w-3.5 flex-none text-primary" aria-hidden fill="currentColor" />
+            ) : null}
+            {intensity ? (
+              <span
+                className={cn(
+                  "flex h-6 flex-none items-center rounded-full border border-primary/40 bg-primary/10 px-2 text-[10px] font-bold uppercase leading-none text-primary",
+                )}
+              >
+                {intensity}
+              </span>
+            ) : null}
+          </div>
           <span className="truncate text-xs leading-none text-muted-foreground">{line2}</span>
         </div>
-        {meta?.est != null ? (
-          <span className="flex-none pr-2 text-xs font-semibold tabular-nums leading-none text-muted-foreground">
-            {meta.est} min
-          </span>
-        ) : null}
-        {renderStar(program, isFav)}
+        {renderStar(session)}
       </div>
     );
   };
-
-  const empty = !programsQuery.isLoading && programs.length === 0;
-  const filteredEmpty =
-    !programsQuery.isLoading && programs.length > 0 && visibleSessions.length === 0;
 
   // ---------- render ----------
   return (
@@ -275,15 +245,25 @@ export default function OnDemandScreen() {
           leading={<BackButton fallbackHash="#/workout" label="Back to Workout" />}
           actions={
             <>
-              <button
+              <Button
                 type="button"
-                {...tourAttrs({ id: "onDemand.calendar", label: "Calendar", help: "Open the month calendar and schedule.", order: 10 })}
-                aria-label="Calendar"
-                onClick={() => navigate("/calendar")}
-                className="flex h-11 w-11 flex-none items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                variant="ghost"
+                size="icon"
+                className="relative h-11 w-11 flex-none"
+                aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : "Filters"}
+                tour={{ id: "onDemand.filters", label: "Filters", help: "Open the full filter screen for sessions.", order: 10 }}
+                onClick={openFilters}
               >
-                <CalendarDays className="h-5 w-5" aria-hidden />
-              </button>
+                <SlidersHorizontal className="h-5 w-5" aria-hidden />
+                {activeFilterCount > 0 ? (
+                  <span
+                    aria-hidden
+                    className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground ring-2 ring-background"
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </Button>
               <TopBarHelp />
             </>
           }
@@ -298,7 +278,7 @@ export default function OnDemandScreen() {
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search sessions…"
               aria-label="Search sessions"
-              {...tourAttrs({ id: "onDemand.search", label: "Search sessions", help: "Filter the sessions by name or notes.", order: 10 })}
+              {...tourAttrs({ id: "onDemand.search", label: "Search sessions", help: "Search sessions by name or exercise.", order: 20 })}
               className="h-full w-full min-w-0 flex-1 rounded-none border-0 bg-transparent pl-2 pr-3 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
@@ -306,67 +286,81 @@ export default function OnDemandScreen() {
       }
     >
       <ScrollBody>
-        {/* §3.6 filter chips: All · ★ · ≤20m · ≤40m · muscle chips (derived) */}
+        {/* §7 chips — single-select; category chips refetch, flags filter locally */}
         <div data-row data-chip-scroller role="group" aria-label="Session filters" className={CHIP_ROW_CLS}>
           <button
             type="button"
-            aria-pressed={chip === "ALL"}
-            className={chipClass(chip === "ALL")}
-            {...tourAttrs({ id: "onDemand.filterAll", label: "All filter", help: "Clear every filter to show all sessions.", order: 20 })}
-            onClick={() => setChip("ALL")}
+            aria-pressed={filters.chip === "ALL"}
+            className={chipClass(filters.chip === "ALL")}
+            {...tourAttrs({ id: "onDemand.filterAll", label: "All filter", help: "Clear every chip to show all sessions.", order: 30 })}
+            onClick={() => writeFilters({ ...filters, chip: "ALL" })}
           >
             All
           </button>
           <button
             type="button"
-            aria-pressed={chip === "FAV"}
-            className={chipClass(chip === "FAV")}
-            {...tourAttrs({ id: "onDemand.filterFavourites", label: "Favourites filter", help: "Show only the sessions you starred.", order: 30 })}
-            onClick={() => setChip("FAV")}
+            aria-pressed={filters.chip === "WARMUP_REHAB"}
+            className={chipClass(filters.chip === "WARMUP_REHAB")}
+            {...tourAttrs({ id: "onDemand.filterWarmup", label: "Warm up filter", help: "Warm-up and rehab sessions for easy days.", order: 40 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "WARMUP_REHAB" ? "ALL" : "WARMUP_REHAB" })}
           >
-            <Star className="h-3.5 w-3.5" aria-hidden fill={chip === "FAV" ? "currentColor" : "none"} />
-            Favourites
+            Warm up / Rehab
           </button>
-          {DURATION_CHIPS.map((m) => {
-            const key = `M${m}`;
-            return (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={chip === key}
-                className={chipClass(chip === key)}
-                {...tourAttrs(
-                  m === 20
-                    ? { id: "onDemand.filter20", label: "≤20m filter", help: "Sessions estimated at 20 minutes or less.", order: 40 }
-                    : { id: "onDemand.filter40", label: "≤40m filter", help: "Sessions estimated at 40 minutes or less.", order: 50 },
-                )}
-                onClick={() => setChip(key)}
-              >
-                ≤{m}m
-              </button>
-            );
-          })}
-          {muscleOptions.map((m) => (
-            <button
-              key={m}
-              type="button"
-              aria-pressed={chip === m}
-              className={chipClass(chip === m)}
-              {...tourAttrs({ skipTour: true, reason: "Data-driven muscle filter chips derived from the loaded sessions" })}
-              onClick={() => setChip(m)}
-            >
-              {muscleLabel(m)}
-            </button>
-          ))}
+          <button
+            type="button"
+            aria-pressed={filters.chip === "FAV"}
+            className={chipClass(filters.chip === "FAV")}
+            {...tourAttrs({ id: "onDemand.filterFavourites", label: "Favourites filter", help: "Show only the sessions you starred.", order: 50 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "FAV" ? "ALL" : "FAV" })}
+          >
+            <Star className="h-3.5 w-3.5" aria-hidden fill={filters.chip === "FAV" ? "currentColor" : "none"} />
+            Favorites
+          </button>
+          <button
+            type="button"
+            aria-pressed={filters.chip === "PICKS"}
+            className={chipClass(filters.chip === "PICKS")}
+            {...tourAttrs({ id: "onDemand.filterPicks", label: "Coach picks", help: "Sessions the coaches highlight for you.", order: 60 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "PICKS" ? "ALL" : "PICKS" })}
+          >
+            Coach picks
+          </button>
+          <button
+            type="button"
+            aria-pressed={filters.chip === "SPECIALIZATION"}
+            className={chipClass(filters.chip === "SPECIALIZATION")}
+            {...tourAttrs({ id: "onDemand.filterSpecialization", label: "Specialization filter", help: "Sessions focused on one muscle group.", order: 70 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "SPECIALIZATION" ? "ALL" : "SPECIALIZATION" })}
+          >
+            Specialization
+          </button>
+          <button
+            type="button"
+            aria-pressed={filters.chip === "LIMITED_EQUIPMENT"}
+            className={chipClass(filters.chip === "LIMITED_EQUIPMENT")}
+            {...tourAttrs({ id: "onDemand.filterEquipment", label: "Limited equipment", help: "Sessions for minimal gear or travel.", order: 80 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "LIMITED_EQUIPMENT" ? "ALL" : "LIMITED_EQUIPMENT" })}
+          >
+            Limited equipment
+          </button>
+          <button
+            type="button"
+            aria-pressed={filters.chip === "LIMITED_TIME"}
+            className={chipClass(filters.chip === "LIMITED_TIME")}
+            {...tourAttrs({ id: "onDemand.filterTime", label: "Limited time", help: "Short sessions when time is tight.", order: 90 })}
+            onClick={() => writeFilters({ ...filters, chip: filters.chip === "LIMITED_TIME" ? "ALL" : "LIMITED_TIME" })}
+          >
+            Limited time
+          </button>
         </div>
 
-        {programsQuery.isLoading ? (
+        {sessionsQuery.isLoading ? (
           <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading sessions">
             {Array.from({ length: 4 }, (_, i) => (
               <div key={i} className="h-18 animate-pulse rounded-lg bg-muted/40" />
             ))}
           </div>
-        ) : empty ? (
+        ) : nothingAtAll ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <Dumbbell className="h-6 w-6 text-muted-foreground" aria-hidden />
             <p className="max-w-[280px] text-center text-sm font-semibold">
@@ -375,14 +369,14 @@ export default function OnDemandScreen() {
             <Button
               type="button"
               className="gap-1.5"
-              tour={{ id: "onDemand.openBuilder", label: "Open Builder", help: "Go to the Builder to create a session.", order: 80, when: ["empty"] }}
+              tour={{ id: "onDemand.openBuilder", label: "Open Builder", help: "Go to the Builder to create a session.", order: 100, when: ["empty"] }}
               onClick={() => navigate("/builder")}
             >
               <Hammer className="h-4 w-4" aria-hidden />
               Open Builder
             </Button>
           </div>
-        ) : filteredEmpty ? (
+        ) : visibleSessions.length === 0 ? (
           <div className="flex h-[200px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border">
             <Search className="h-6 w-6 text-muted-foreground" aria-hidden />
             <p className="text-sm font-semibold">Nothing matches these filters</p>
@@ -390,7 +384,7 @@ export default function OnDemandScreen() {
               type="button"
               variant="outline"
               className="gap-1.5"
-              tour={{ id: "onDemand.clearFilters", label: "Clear filters", help: "Reset the filters when nothing matches.", order: 90 }}
+              tour={{ id: "onDemand.clearFilters", label: "Clear filters", help: "Reset the filters when nothing matches.", order: 110 }}
               onClick={clearFilters}
             >
               Clear filters
@@ -398,7 +392,7 @@ export default function OnDemandScreen() {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {visibleSessions.map((program) => renderSessionRow(program))}
+            {visibleSessions.map((session) => renderSessionRow(session))}
           </div>
         )}
       </ScrollBody>

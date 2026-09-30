@@ -5,6 +5,7 @@ import { DEFAULT_TEMPO_PRESETS } from "@/lib/constants";
 import { uuid7 } from "@/lib/uuid7";
 import { toDayUtc } from "@/lib/dates";
 import { badRequest, notFound } from "../http";
+import { getEnv, type Env } from "../env";
 import { recomputePRs } from "./workout-service";
 import { z } from "zod";
 import type { BackupDTO } from "@/lib/types";
@@ -576,4 +577,143 @@ export async function deleteWorkoutHistory(
     for (const exerciseId of exerciseIds) await recomputePRs(tx, userId, exerciseId);
   });
   return { ok: true, deletedWorkouts: workoutIds.length };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Part 9 §9 — support tickets, social providers, soft delete + purge.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ---------- support tickets ----------
+
+const SUPPORT_DAILY_LIMIT = 5;
+
+/**
+ * §9 Message support: create a SupportTicket. Rate limit 5/day/user counted
+ * over a rolling 24h window (simpler than local-midnight resets and honest —
+ * a burst today still throttles tomorrow's tail at most).
+ */
+export async function createSupportTicket(userId: string, input: { subject: string; body: string }) {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recent = await db.supportTicket.count({ where: { userId, createdAt: { gte: since } } });
+  if (recent >= SUPPORT_DAILY_LIMIT) {
+    throw badRequest(`Support message limit reached (${SUPPORT_DAILY_LIMIT} per day). Try again tomorrow.`);
+  }
+  await db.supportTicket.create({
+    data: { id: uuid7(), userId, subject: input.subject, body: input.body },
+  });
+  console.log(`[support] ticket created for user ${userId} (${recent + 1}/${SUPPORT_DAILY_LIMIT} in 24h)`);
+  return { ok: true as const };
+}
+
+// ---------- social sign-in providers (§9; env-gated, no OAuth in this build) ----------
+
+const PROVIDER_LABELS: Record<string, string> = {
+  google: "Google",
+  apple: "Apple",
+};
+
+/** Comma list from AUTH_SOCIAL_PROVIDERS, normalised (lowercase, deduped, non-empty). */
+function socialProviderIds(env: Env): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const raw of env.AUTH_SOCIAL_PROVIDERS.split(",")) {
+    const id = raw.trim().toLowerCase();
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function providerLabel(id: string): string {
+  return PROVIDER_LABELS[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+/** True only when the provider's OAuth client credentials exist in the environment. */
+function oauthProviderConfigured(provider: string, env: Env): boolean {
+  if (provider === "google") return Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET);
+  return false; // no other provider has credentials wired in this build
+}
+
+/**
+ * GET /api/account/social. Surfaces the env-configured provider list with an
+ * honest `linked` state: this deployment has no OAuth sign-in flow, so no
+ * account can ever have a linked provider — `linked` is always false.
+ */
+export function listSocialProviders() {
+  const env = getEnv();
+  return {
+    providers: socialProviderIds(env).map((id) => ({ id, label: providerLabel(id), linked: false })),
+  };
+}
+
+/**
+ * POST /api/account/social {provider}. Linking needs a live OAuth flow; this
+ * build has none, so a 200 {ok:false} with the honest reason is returned —
+ * never a faked success.
+ */
+export function linkSocialProvider(provider: string): { ok: boolean; message: string } {
+  const env = getEnv();
+  if (!socialProviderIds(env).includes(provider)) throw badRequest("Unknown provider");
+  if (!oauthProviderConfigured(provider, env)) {
+    return { ok: false, message: "Social sign-in is not configured on this deployment" };
+  }
+  // Credentials present, but this build ships no OAuth round-trip — still honest.
+  return { ok: false, message: "Social sign-in is not available in this build" };
+}
+
+/**
+ * DELETE /api/account/social {provider}. With no OAuth flow nothing can be
+ * linked, so unlinking is always rejected with a 400 (honest state).
+ */
+export function unlinkSocialProvider(provider: string): { ok: true } {
+  const env = getEnv();
+  if (!socialProviderIds(env).includes(provider)) throw badRequest("Unknown provider");
+  throw badRequest("No linked account");
+}
+
+// ---------- soft delete + 30-day purge ----------
+
+const PURGE_AFTER_DAYS = 30;
+
+/**
+ * §9 Delete account: SOFT delete. The email is anonymized to a unique
+ * `deleted+{userId}@setforge.invalid` (frees the original address for reuse —
+ * the anonymized one is rejected naturally by the unique constraint on signup),
+ * the name is cleared, and every Session row is destroyed (signed out
+ * everywhere). login() rejects `deletedAt != null` users, so the account is
+ * unreachable from that moment. purgeDeletedAccounts() hard-deletes the row
+ * (cascading every related record) after 30 days.
+ */
+export async function softDeleteAccount(userId: string): Promise<void> {
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user) throw notFound("Account not found");
+  if (user.deletedAt) return; // idempotent — already soft-deleted
+  await db.$transaction([
+    db.session.deleteMany({ where: { userId } }),
+    db.user.update({
+      where: { id: userId },
+      data: {
+        deletedAt: new Date(),
+        email: `deleted+${userId}@setforge.invalid`,
+        name: null,
+      },
+    }),
+  ]);
+  console.log(`[account] soft-deleted: user ${userId} (purge in ${PURGE_AFTER_DAYS} days)`);
+}
+
+/**
+ * §9 purge job: hard-delete users soft-deleted more than 30 days ago. The
+ * database-level cascades on User relations wipe all owned data. Idempotent —
+ * runs on every server boot (bootstrap.ts), safe to re-run.
+ */
+export async function purgeDeletedAccounts(): Promise<{ purged: number }> {
+  const cutoff = new Date(Date.now() - PURGE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  const result = await db.user.deleteMany({ where: { deletedAt: { lt: cutoff } } });
+  if (result.count > 0) {
+    console.log(`[account] purged ${result.count} deleted account(s) past the ${PURGE_AFTER_DAYS}-day window`);
+  }
+  return { purged: result.count };
 }

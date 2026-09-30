@@ -15,6 +15,7 @@ import { conflict, unauthorized, badRequest } from "../http";
 import { getEnv } from "../env";
 import { jsonStringArray } from "@/server/media";
 import { DEFAULT_TEMPO_PRESETS } from "@/lib/constants";
+import { softDeleteAccount } from "./account-service";
 
 export async function signup(input: { email: string; password: string; name?: string; timezone?: string }) {
   const email = normaliseEmail(input.email);
@@ -175,6 +176,12 @@ export async function login(input: { email: string; password: string }) {
     console.warn(`[auth] failed login: ${email}`);
     throw unauthorized("Invalid email or password");
   }
+  // Part 9 §9: soft-deleted accounts can never sign back in — the anonymized
+  // email already misses this lookup; this covers the anonymized address too.
+  if (user.deletedAt) {
+    console.warn(`[auth] login blocked for deleted account: ${email}`);
+    throw unauthorized("Account deleted");
+  }
   // Transparent upgrade: legacy scrypt digests are re-hashed with Argon2id on login.
   if (verdict.needsUpgrade && isLegacyHash(user.passwordHash)) {
     await db.user.update({
@@ -263,6 +270,9 @@ export async function getUserWithSettings(userId: string) {
     include: { settings: true },
   });
   if (!user) throw unauthorized();
+  // Part 9 §9: a soft-deleted account must not hydrate a session (defence in
+  // depth — softDeleteAccount already destroyed every Session row).
+  if (user.deletedAt) throw unauthorized("Account deleted");
   // Part 6: normalise Json columns so the wire type matches SettingsDTO.
   const raw = user.settings!;
   return {
@@ -289,9 +299,10 @@ export async function changePassword(userId: string, current: string, next: stri
 }
 
 export async function deleteAccount(userId: string) {
-  await db.session.deleteMany({ where: { userId } });
-  await db.user.delete({ where: { id: userId } }); // cascades everywhere
-  console.log(`[auth] account deleted: ${userId}`);
+  // Part 9 §9: deletion is a SOFT delete now (anonymize + sessions destroyed);
+  // the boot-time purge job hard-deletes after 30 days. One semantics for every
+  // caller — the legacy hard delete is retired.
+  await softDeleteAccount(userId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

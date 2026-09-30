@@ -94,6 +94,11 @@ export interface GroupCardEntry {
   dragHandle?: ReactNode;
   /** Guided pointer: this entry holds the current set (3px accent bar rows). */
   currentSetIndex?: number;
+  /** Part 9 §8 (log detail): extra rows rendered at the bottom of THIS entry
+   *  (performed table · max weight · rest expand · edit history). The consumer
+   *  owns the content — the card only anchors it below the mode bodies, so
+   *  multi-exercise groups keep each exercise's rows attached to it. */
+  footer?: ReactNode;
 }
 
 export interface GroupCardGroup {
@@ -169,9 +174,12 @@ function menuForMode(mode: CardMode): GroupMenuItem[] {
 
 function repsCellText(set: CardSet, fields: Array<"weight" | "reps" | "distance" | "timeSec">): string {
   // Part 9 §5: AMRAP prescribed sets spell out "AMRAP" (tap → Term definition).
+  // Part 9 §8: performed AMRAP sets carry their actual reps → "AMRAP→{n}".
   const reps =
     set.setType === "AMRAP"
-      ? "AMRAP"
+      ? set.reps == null
+        ? "AMRAP"
+        : `AMRAP→${set.reps}`
       : set.reps == null
         ? "∞"
         : String(set.reps);
@@ -473,6 +481,9 @@ export function GroupCard({
                   Expand sets
                 </button>
               ) : null}
+
+              {/* §8 per-entry footer — consumer-owned rows (performed data) */}
+              {entry.footer != null ? <div className="mt-1">{entry.footer}</div> : null}
             </div>
           );
         })}

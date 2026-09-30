@@ -42,6 +42,14 @@ const envSchema = z.object({
   // ----- Part 6: auth email confirmation -----
   AUTH_EMAIL_CONFIRM: boolish.default(false), // true = signup requires email confirmation before login
 
+  // ----- Part 9 §9: account surfaces -----
+  // Comma list of social sign-in providers to surface on /account/social.
+  // Surfacing is honest state only — linking additionally requires provider
+  // credentials (see oauthProviderConfigured in account-service).
+  AUTH_SOCIAL_PROVIDERS: z.string().default("google,apple"),
+  // Billing placeholder for /account/subscription ("none" = no billing wired).
+  PAYMENTS_PROVIDER: z.enum(["none", "stripe"]).default("none"),
+
   // ----- Part 6: media adapter (none | local | s3) -----
   MEDIA_PROVIDER: z.enum(["none", "local", "s3"]).default("none"),
   MEDIA_LOCAL_DIR: z.string().default("./data/media"),

@@ -1,33 +1,29 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LogsScreen — #/logs (Part 8 §3.4 Workout Logs).
+// LogsScreen — #/logs (Part 9 §8 Workout Logs).
 //
-//   TopBar (56)  : BackButton(→ #/workout) · "Workout Logs" · 📅 (→ #/calendar)
-//                  · ⋮ (Filters → #/calendar/filters · Export CSV → the same
-//                  accountApi.exportCsv("workouts") download Settings uses)
-//   SubBar (48)  : search input ("Search…") — server-side matching over
-//                  exercise names, notes (comment) and labels (category names)
-//                  via workoutsApi.list({ search })
-//   ScrollBody   : month separators (32px, "September 2026") → one day card per
-//                  LOGGED session (several per day possible; list is date-desc):
-//
-//     |▌ THU 26            Push day · PPL | 48px  day-of-week + date (bold) ·
-//     |  12 sets · 3,400 kg · 48 min      | 40px  name/note right, stats below
-//
-//   Day card: border rounded-lg + 4px colour bar. DATA NOTE (documented gap in
-//   the worklog): WorkoutSummaryDTO carries no sourceType/sourceRoutine name,
-//   so the bar cannot be source-coloured (Program/On Demand/Freestyle) without
-//   a server DTO change; it uses the session's primary CATEGORY colour (the
-//   same Law-7 signal singleton GroupCards use), falling back to neutral muted
-//   for sessions without categories. Row 1's right label likewise degrades to
-//   the session note → category names ("Chest · Shoulders · Triceps").
+//   TopBar (56)  : BackButton(→ #/workout) · "Logs" · list⇄calendar toggle
+//                  (state in the URL: ?view=calendar|list, default list) ·
+//                  ⋮ (Filters → #/calendar/filters · Export CSV)
+//   SubBar (48)  : search input — server-side matching over name, sourceLabel
+//                  (program / on demand / custom) and exercise names via
+//                  workoutsApi.list({ search })
+//   ScrollBody   : ?dayId= → 40px "Filtered: {day}" chip row with ✕ (clears
+//                  the param; the day screen's History action deep-links here)
+//                  list view   → month separators (32px) + flat 56px rows
+//                  (date-desc, multi-session days stack):
+//                     L1  THU 26 · name (bold, ellipsis) · difficulty pill
+//                     L2  sourceLabel (muted) · "{h}h {m} min {s} sec"
+//                         (formatDurationParts — zero units dropped)
+//                  calendar view → LogCalendar (local §8 month grid: 40px
+//                  cells, accent dots on trained days, day tap → that day's
+//                  sessions → #/logs/{id})
 //
 //   Delete: long-press (450ms, pointer events; scroll/move cancels) opens the
 //   destructive-confirm AlertDialog → workoutsApi.remove (§6.9 USER_DELETE
-//   remove semantics) → sonner toast with Undo → workoutLifecycleApi.restore.
-//   The same delete also lives on the detail screen's ⋮ menu, so keyboard
-//   users always have a path.
+//   semantics) → sonner toast with Undo → workoutLifecycleApi.restore. The
+//   same delete lives on the detail screen's ⋮ menu for keyboard users.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -57,24 +53,29 @@ import {
   CalendarDays,
   Dumbbell,
   FileDown,
+  List,
   Loader2,
   MoreVertical,
   RotateCw,
   Search,
   SlidersHorizontal,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { useApp } from "@/lib/client/store";
 import { qk, useInvalidate, useOnline } from "@/lib/client/query";
-import { accountApi, workoutLifecycleApi, workoutsApi } from "@/lib/client/api";
-import { dayKeyOf, formatDayLabel, parseDayKey, round2, todayKey } from "@/lib/client/format";
-import { rowBase, rowTall } from "@/lib/ui/tokens";
+import { accountApi, dayApi, workoutLifecycleApi, workoutsApi } from "@/lib/client/api";
+import { dayKeyOf, formatDayLabel, formatDurationParts, todayKey } from "@/lib/client/format";
+import { useHashRoute } from "@/features/shell/router";
+import { rowBase } from "@/lib/ui/tokens";
 import { monthLabelLong, monthOf } from "@/features/calendar/month-utils";
 import { errorMessage } from "@/features/routines/screen-helpers";
 import { hapticWarning } from "@/lib/client/haptics";
 import { cn } from "@/lib/utils";
+import { LogCalendar } from "./log-calendar";
+import { dayBadge, logRowName } from "./log-shared";
 import type { WorkoutSummaryDTO } from "@/lib/types";
 
 // ---------- pure helpers ----------
@@ -98,40 +99,6 @@ function groupByMonth(workouts: WorkoutSummaryDTO[]): MonthGroup[] {
   return groups;
 }
 
-/** "THU 26" — day-of-week + date for the card's first row. */
-function dayBadge(dayKey: string): string {
-  const d = parseDayKey(dayKey);
-  const dow = d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" }).toUpperCase();
-  return `${dow} ${d.getUTCDate()}`;
-}
-
-/** Seconds → "45 s" / "48 min" (the spec's list row format). */
-function formatMinutes(sec: number): string {
-  if (sec < 60) return `${sec} s`;
-  return `${Math.max(1, Math.round(sec / 60))} min`;
-}
-
-/** Row 2: "12 sets · 3,400 kg · 48 min" (distance replaces volume on cardio days). */
-function statsLine(w: WorkoutSummaryDTO): string {
-  const parts: string[] = [`${w.setCount} ${w.setCount === 1 ? "set" : "sets"}`];
-  if (w.volume > 0) parts.push(`${Math.round(w.volume).toLocaleString()} kg`);
-  else if (w.distance > 0) parts.push(`${round2(w.distance)} km`);
-  if (w.durationSec > 0) parts.push(formatMinutes(w.durationSec));
-  return parts.join(" · ");
-}
-
-/**
- * Row 1 right label. The spec wants "session/day name · program name" — that
- * provenance is not in WorkoutSummaryDTO (worklog gap), so the best available
- * label is the session note, else its category names.
- */
-function cardLabel(w: WorkoutSummaryDTO): string | null {
-  const comment = w.comment?.trim();
-  if (comment) return comment;
-  if (w.categories.length > 0) return w.categories.slice(0, 3).map((c) => c.name).join(" · ");
-  return null;
-}
-
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -141,13 +108,13 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced;
 }
 
-// ---------- day card ----------
+// ---------- log row (56px, two stacked single lines) ----------
 
 const LONG_PRESS_MS = 450;
 /** Pointer travel (px) beyond which a press is treated as a scroll, not a hold. */
 const PRESS_SLOP = 8;
 
-function DayCard({
+function LogRow({
   summary,
   onDelete,
 }: {
@@ -156,8 +123,8 @@ function DayCard({
 }) {
   const navigate = useApp((s) => s.navigate);
   const dayKey = dayKeyOf(summary.date);
-  const label = cardLabel(summary);
-  const barColour = summary.categories[0]?.colour;
+  const name = logRowName(summary);
+  const difficulty = summary.difficulty?.trim() || null;
 
   // long-press machinery (refs — no re-renders during the hold)
   const timer = useRef<number | null>(null);
@@ -198,9 +165,10 @@ function DayCard({
     <article
       role="button"
       tabIndex={0}
-      {...tourAttrs({ id: "logs.day", label: "Session card", help: "Open a logged session; press and hold to delete it.", order: 40 })}
-      aria-label={`Open session of ${formatDayLabel(dayKey)}`}
-      className="flex cursor-pointer select-none overflow-hidden rounded-lg border bg-card transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      data-row
+      {...tourAttrs({ id: "logs.day", label: "Session row", help: "Open a logged session; press and hold to delete it.", order: 50 })}
+      aria-label={`Open ${name} session of ${formatDayLabel(dayKey)}`}
+      className="flex h-14 w-full cursor-pointer select-none flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-card whitespace-nowrap transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       onClick={() => {
         if (longFired.current) {
           longFired.current = false; // the hold already opened the delete dialog
@@ -220,24 +188,54 @@ function DayCard({
       onPointerCancel={clearPress}
       onPointerLeave={clearPress}
     >
-      {/* 4px colour bar — primary category colour (muted when categoriless) */}
-      <div aria-hidden className={cn("w-1 flex-none", !barColour && "bg-muted")} style={barColour ? { backgroundColor: barColour } : undefined} />
-      <div className="min-w-0 flex-1">
-        {/* row 1 — 48px: THU 26 · label */}
-        <div data-row className={`${rowTall} gap-3 px-3`}>
-          <span className="flex-none text-sm font-bold tracking-wide tabular-nums">{dayBadge(dayKey)}</span>
-          {label ? (
-            <span className="ml-auto min-w-0 truncate text-sm text-muted-foreground">{label}</span>
-          ) : (
-            <span className="ml-auto h-px min-w-0 flex-1 bg-border/60" aria-hidden />
-          )}
-        </div>
-        {/* row 2 — 40px: sets · volume · duration */}
-        <div data-row className={`${rowBase} px-3`}>
-          <span className="min-w-0 flex-1 truncate text-sm tabular-nums text-muted-foreground">{statsLine(summary)}</span>
-        </div>
+      {/* L1 — THU 26 · name ..... difficulty pill */}
+      <div className="flex min-w-0 w-full items-center gap-2 px-3">
+        <span className="flex-none text-[11px] font-bold tracking-wide tabular-nums leading-none text-muted-foreground">
+          {dayBadge(dayKey)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-bold leading-none">{name}</span>
+        {difficulty ? (
+          <span
+            aria-label={`Difficulty ${difficulty.toLowerCase()}`}
+            className="flex h-6 flex-none items-center rounded-full border border-primary/50 bg-primary/10 px-2 text-[10px] font-bold uppercase leading-none text-primary"
+          >
+            {difficulty}
+          </span>
+        ) : null}
+      </div>
+      {/* L2 — sourceLabel ..... duration (zero units dropped) */}
+      <div className="flex min-w-0 w-full items-center gap-2 px-3">
+        <span className="min-w-0 flex-1 truncate text-[11px] leading-none text-muted-foreground">
+          {summary.sourceLabel ?? "Custom"}
+        </span>
+        <span className="flex-none text-[11px] tabular-nums leading-none text-muted-foreground">
+          {formatDurationParts(summary.durationSec)}
+        </span>
       </div>
     </article>
+  );
+}
+
+// ---------- ?dayId= filter chip (40px row, ✕ clears the param) ----------
+
+function DayFilterChip({ dayName, onClear }: { dayName: string; onClear: () => void }) {
+  return (
+    <div
+      data-row
+      className="flex h-10 w-full flex-none items-center gap-2 overflow-hidden rounded-lg border border-primary/40 bg-primary/5 px-3 whitespace-nowrap"
+    >
+      <span className="flex-none text-[10px] font-bold uppercase tracking-wider text-primary">Filtered</span>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{dayName}</span>
+      <button
+        type="button"
+        {...tourAttrs({ id: "logs.filteredChip", label: "Clear filter", help: "Show all sessions again by leaving the day filter.", order: 40 })}
+        aria-label="Clear the day filter"
+        onClick={onClear}
+        className="flex h-8 w-8 flex-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <X className="h-4 w-4" aria-hidden />
+      </button>
+    </div>
   );
 }
 
@@ -245,22 +243,52 @@ function DayCard({
 
 export default function LogsScreen() {
   const navigate = useApp((s) => s.navigate);
+  const settings = useApp((s) => s.settings);
   const invalidate = useInvalidate();
   const online = useOnline();
+  const route = useHashRoute();
+
+  // ---------- URL state (?view= · ?dayId= — both deep-linkable) ----------
+  const view: "list" | "calendar" =
+    route.name === "logs" && route.query.get("view") === "calendar" ? "calendar" : "list";
+  const dayId = route.name === "logs" ? (route.query.get("dayId")?.trim() || null) : null;
+
+  const setView = (next: "list" | "calendar") => {
+    const params = new URLSearchParams();
+    if (next === "calendar") params.set("view", "calendar");
+    if (dayId) params.set("dayId", dayId);
+    const qs = params.toString();
+    navigate(qs ? `/logs?${qs}` : "/logs");
+  };
+  const clearDayFilter = () => navigate(view === "calendar" ? "/logs?view=calendar" : "/logs");
 
   // search (SubBar) — debounced into the list query key
   const [searchInput, setSearchInput] = useState("");
   const debounced = useDebounced(searchInput, 250);
   const search = debounced.trim();
 
+  const listParams = useMemo(
+    () => ({ ...(search ? { search } : {}), ...(dayId ? { dayId } : {}) }),
+    [search, dayId],
+  );
   const listQuery = useQuery({
-    queryKey: qk.workoutList(search ? { search } : {}),
-    queryFn: () => workoutsApi.list(search ? { search } : undefined),
+    queryKey: qk.workoutList(listParams),
+    queryFn: () => workoutsApi.list(listParams),
     // keep the previous list on screen while a new search resolves
     placeholderData: (prev) => prev,
   });
   const workouts = useMemo(() => listQuery.data?.workouts ?? [], [listQuery.data]);
   const monthGroups = useMemo(() => groupByMonth(workouts), [workouts]);
+
+  // day name for the ?dayId= chip (falls back to the logs' own identity)
+  const dayQuery = useQuery({
+    queryKey: qk.day(dayId ?? ""),
+    queryFn: () => dayApi.get(dayId!),
+    enabled: !!dayId,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const filteredDayName = dayQuery.data?.name ?? (workouts.length > 0 ? logRowName(workouts[0]) : "this day");
 
   // delete flow (long-press → destructive confirm → remove + Undo toast)
   const [deleteTarget, setDeleteTarget] = useState<WorkoutSummaryDTO | null>(null);
@@ -313,24 +341,56 @@ export default function LogsScreen() {
   };
 
   const retry = () => void listQuery.refetch();
+  const weekStart = settings?.weekStart === 0 ? 0 : 1;
+
+  const emptyBody = dayId ? (
+    <>
+      <p className="text-sm font-semibold">No sessions of this day yet</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Every workout logged from this day lands here (currently filtered).
+      </p>
+    </>
+  ) : search ? (
+    <>
+      <p className="text-sm font-semibold">{`No sessions match “${search}”`}</p>
+      <p className="mt-1 text-sm text-muted-foreground">Try an exercise, program or source name.</p>
+    </>
+  ) : (
+    <>
+      <p className="text-sm font-semibold">No sessions yet</p>
+      <p className="mt-1 text-sm text-muted-foreground">Your logged workouts appear here.</p>
+    </>
+  );
 
   return (
     <Screen
       topBar={
         <TopBar
           leading={<BackButton fallbackHash="#/workout" label="Back to Workout" />}
-          title="Workout Logs"
+          title="Logs"
           actions={
             <>
-              <button
-                type="button"
-                {...tourAttrs({ id: "logs.calendar", label: "Calendar", help: "Open the month calendar and schedule.", order: 10 })}
-                aria-label="Calendar"
-                onClick={() => navigate("/calendar")}
-                className="flex h-11 w-11 flex-none items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                <CalendarDays className="h-5 w-5" aria-hidden />
-              </button>
+              {view === "calendar" ? (
+                <button
+                  type="button"
+                  {...tourAttrs({ id: "logs.toggleList", label: "List view", help: "Switch back to the month-by-month session list.", order: 10 })}
+                  aria-label="Switch to list view"
+                  onClick={() => setView("list")}
+                  className="flex h-11 w-11 flex-none items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <List className="h-5 w-5" aria-hidden />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  {...tourAttrs({ id: "logs.toggleCalendar", label: "Calendar view", help: "Switch to a month grid with dots on days you trained.", order: 10 })}
+                  aria-label="Switch to calendar view"
+                  onClick={() => setView("calendar")}
+                  className="flex h-11 w-11 flex-none items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <CalendarDays className="h-5 w-5" aria-hidden />
+                </button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -371,7 +431,7 @@ export default function LogsScreen() {
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search…"
               aria-label="Search workout logs"
-              {...tourAttrs({ id: "logs.search", label: "Search", help: "Find sessions by exercise, note or label.", order: 30 })}
+              {...tourAttrs({ id: "logs.search", label: "Search", help: "Find sessions by exercise, program or source name.", order: 30 })}
               className="h-full w-full min-w-0 flex-1 rounded-none border-0 bg-transparent pl-2 pr-3 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
@@ -380,27 +440,37 @@ export default function LogsScreen() {
     >
       <ScrollBody>
         {listQuery.isLoading ? (
-          <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading workout logs">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex flex-col gap-3">
-                <Skeleton className="h-8 w-40 rounded-lg" />
-                {[0, 1].map((j) => (
-                  <Skeleton key={j} className="h-[88px] rounded-lg" />
-                ))}
-              </div>
-            ))}
-          </div>
+          view === "calendar" ? (
+            <LogCalendar
+              workouts={[]}
+              emphasisedDayId={dayId}
+              weekStart={weekStart}
+              loading
+              onOpenLog={(id) => navigate(`/logs/${id}`)}
+            />
+          ) : (
+            <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading workout logs">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex flex-col gap-3">
+                  <Skeleton className="h-8 w-40 rounded-lg" />
+                  {[0, 1].map((j) => (
+                    <Skeleton key={j} className="h-14 rounded-lg" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )
         ) : listQuery.error ? (
           <div
             data-row
             role="alert"
-            className={`${rowTall} gap-2 rounded-lg border border-destructive/40 bg-card px-4 text-sm text-destructive`}
+            className={`${rowBase} my-2 gap-2 rounded-lg border border-destructive/40 bg-card px-4 text-sm text-destructive`}
           >
             <TriangleAlert className="h-4 w-4 flex-none" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{errorMessage(listQuery.error)}</span>
             <button
               type="button"
-              {...tourAttrs({ id: "logs.retry", label: "Retry", help: "Reload your workout logs.", order: 50 })}
+              {...tourAttrs({ id: "logs.retry", label: "Retry", help: "Reload your workout logs.", order: 60 })}
               aria-label="Try again"
               onClick={retry}
               className="flex h-8 w-8 flex-none items-center justify-center rounded-md transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -411,13 +481,22 @@ export default function LogsScreen() {
         ) : workouts.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center">
             <Dumbbell className="mb-3 h-10 w-10 text-muted-foreground/50" aria-hidden />
-            <p className="text-sm font-semibold">{search ? `No sessions match “${search}”` : "No sessions yet"}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {search ? "Try an exercise name, note or label." : "Your logged workouts appear here."}
-            </p>
+            {emptyBody}
+          </div>
+        ) : view === "calendar" ? (
+          <div className="flex flex-col gap-4">
+            {dayId ? <DayFilterChip dayName={filteredDayName} onClear={clearDayFilter} /> : null}
+            <LogCalendar
+              workouts={workouts}
+              emphasisedDayId={dayId}
+              weekStart={weekStart}
+              loading={false}
+              onOpenLog={(id) => navigate(`/logs/${id}`)}
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-4">
+            {dayId ? <DayFilterChip dayName={filteredDayName} onClear={clearDayFilter} /> : null}
             {monthGroups.map((g) => (
               <section key={g.key} className="flex flex-col gap-3" aria-label={g.label}>
                 {/* month separator — 32px, not a data-row */}
@@ -427,7 +506,7 @@ export default function LogsScreen() {
                   <span className="h-px min-w-0 flex-1 bg-border/60" aria-hidden />
                 </h2>
                 {g.workouts.map((w) => (
-                  <DayCard key={w.id} summary={w} onDelete={setDeleteTarget} />
+                  <LogRow key={w.id} summary={w} onDelete={setDeleteTarget} />
                 ))}
               </section>
             ))}
@@ -442,7 +521,7 @@ export default function LogsScreen() {
             <AlertDialogTitle>Delete this session?</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget
-                ? `The session on ${formatDayLabel(dayKeyOf(deleteTarget.date))} (${statsLine(deleteTarget)}) will be removed from your logs. You can undo for a few seconds.`
+                ? `${logRowName(deleteTarget)} on ${formatDayLabel(dayKeyOf(deleteTarget.date))} (${formatDurationParts(deleteTarget.durationSec)}) will be removed from your logs. You can undo for a few seconds.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

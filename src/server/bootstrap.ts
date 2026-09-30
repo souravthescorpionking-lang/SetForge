@@ -8,6 +8,7 @@ import { seedSystemData } from "./seed";
 import { copyDatabase } from "./db-portability";
 import { loadSystemCatalog, backfillUserExercises } from "./catalog";
 import { backfillExistingProfiles } from "./services/profile-service";
+import { purgeDeletedAccounts } from "./services/account-service";
 
 let bootPromise: Promise<BootResult> | null = null;
 
@@ -161,6 +162,12 @@ async function runBootstrap(): Promise<BootResult> {
   } catch (e) {
     console.warn("[bootstrap] catalog load skipped:", e instanceof Error ? e.message : String(e));
   }
+
+  // 3c) Part 9 §9: purge accounts soft-deleted more than 30 days ago.
+  //     Fire-and-forget — never blocks or fails the boot; idempotent per run.
+  void purgeDeletedAccounts().catch((e) => {
+    console.warn("[bootstrap] account purge failed:", e instanceof Error ? e.message : String(e));
+  });
 
   // 4) smoke-verify core tables
   try {

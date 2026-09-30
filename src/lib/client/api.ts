@@ -205,8 +205,8 @@ export const workoutsApi = {
       `/api/workouts/${workoutId}/exercises`,
       { method: "POST", body: body({ exerciseId }) },
     ),
-  updateExercise: (workoutId: string, weId: string, data: { sortOrder?: number; groupId?: string | null }) =>
-    request<{ ok: true }>(`/api/workouts/${workoutId}/exercises/${weId}`, {
+  updateExercise: (workoutId: string, weId: string, data: { sortOrder?: number; groupId?: string | null; exerciseId?: string }) =>
+    request<{ ok: true; id: string }>(`/api/workouts/${workoutId}/exercises/${weId}`, {
       method: "PATCH",
       body: body(data),
     }),
@@ -880,6 +880,24 @@ export type OnDemandQuery = {
   equipment?: string[];
 };
 
+/** One row of GET /api/on-demand (Part 9 §7) — a SESSION-kind routine with
+ *  its on-demand metadata. `dayId` is the session's single workout day (the
+ *  §5 Day Overview route); `isFavorite` comes from the DayFavorite table. */
+export type OnDemandSessionDTO = {
+  id: string;
+  dayId: string | null;
+  name: string;
+  minutes: number | null;
+  intensity: string | null; // BEGINNER | INTERMEDIATE | ADVANCED
+  durationBand: string | null; // LE20 | 20_45 | GE45
+  equipmentLevel: string | null; // NONE | MINIMAL | GYM
+  categories: string[]; // ⊆ WARMUP_REHAB|SPECIALIZATION|LIMITED_EQUIPMENT|LIMITED_TIME|COACH_FAVORITE
+  isFeatured: boolean;
+  seriesCount: number;
+  isFavorite: boolean;
+  exerciseNames: string[]; // first 3 — fallback display
+};
+
 export const onDemandApi = {
   /** GET /api/on-demand (§7) — server-side filtered sessions. */
   list: (params: OnDemandQuery = {}) => {
@@ -891,7 +909,7 @@ export const onDemandApi = {
       muscles: params.muscles?.join(","),
       equipment: params.equipment?.join(","),
     };
-    return request<unknown[]>(`/api/on-demand${qs(flat)}`);
+    return request<OnDemandSessionDTO[]>(`/api/on-demand${qs(flat)}`);
   },
 };
 

@@ -1,13 +1,13 @@
 "use client";
 
-// Screen slot — #/logs (Part 8 §3.4 Workout Logs)
+// Screen slot — #/logs (Part 9 §8 Logs)
 
 import { registerScreen } from "@/lib/tour/register";
 
 const SCREEN = registerScreen({
   id: "logs",
-  title: "Workout Logs",
-  purpose: "Every logged session by month: search, filter, open or repeat any day.",
+  title: "Logs",
+  purpose: "Every logged session: search, switch to the calendar view, open or repeat any workout.",
   emptyPurpose: "Your logged sessions will stack up here month by month.",
 });
 void SCREEN;

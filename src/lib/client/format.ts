@@ -77,6 +77,23 @@ export function formatSec(sec: number | null | undefined): string {
   return formatDuration(sec);
 }
 
+/**
+ * Seconds → "{h}h {m} min {s} sec" DROPPING zero units (Part 9 §8 log rows).
+ *   2772 → "46 min 12 sec" · 3900 → "1h 5 min" · 38 → "38 sec" · 0 → "0 sec".
+ */
+export function formatDurationParts(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec)) return "–";
+  const total = Math.max(0, Math.round(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h}h`);
+  if (m > 0) parts.push(`${m} min`);
+  if (s > 0 || parts.length === 0) parts.push(`${s} sec`);
+  return parts.join(" ");
+}
+
 export function formatDistance(km: number | null | undefined): string {
   if (km == null) return "–";
   return `${round2(km)} km`;

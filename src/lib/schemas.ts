@@ -107,6 +107,8 @@ export const workoutExerciseAddSchema = z.object({ exerciseId: z.string().min(1)
 export const workoutExerciseUpdateSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   groupId: z.string().nullable().optional(),
+  // ---- Part 9 §8: log-scoped exercise swap (sets kept, exerciseId replaced) ----
+  exerciseId: z.string().min(1).optional(),
 });
 export const orderSchema = reorderSchema;
 

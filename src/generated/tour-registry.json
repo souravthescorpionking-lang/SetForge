@@ -1,11 +1,17 @@
 {
-  "version": "ca16ccf3",
+  "version": "e184f961",
   "screens": {
     "account-delete": {
       "title": "Delete account",
       "purpose": "Permanently remove your account and data after a 30-day grace period.",
       "steps": [],
       "version": "382cdcc8"
+    },
+    "account-privacy": {
+      "title": "Privacy policy",
+      "purpose": "How SetForge stores and protects your training data.",
+      "steps": [],
+      "version": "d838a343"
     },
     "account-social": {
       "title": "Social accounts",
@@ -24,6 +30,12 @@
       "purpose": "Send the team a message; replies land in your email.",
       "steps": [],
       "version": "7dbca496"
+    },
+    "account-terms": {
+      "title": "Terms of service",
+      "purpose": "The agreement between you and SetForge.",
+      "steps": [],
+      "version": "d08a6355"
     },
     "auth": {
       "title": "Sign in",
@@ -184,16 +196,16 @@
     },
     "log-detail": {
       "title": "Log detail",
-      "purpose": "One logged session in full: groups, sets, note, repeat and manage.",
+      "purpose": "One logged session performed: set table, rest, max weight, edit history and repeat.",
       "steps": [],
-      "version": "b863a985"
+      "version": "7171ca81"
     },
     "logs": {
-      "title": "Workout Logs",
-      "purpose": "Every logged session by month: search, filter, open or repeat any day.",
+      "title": "Logs",
+      "purpose": "Every logged session: search, switch to the calendar view, open or repeat any workout.",
       "emptyPurpose": "Your logged sessions will stack up here month by month.",
       "steps": [],
-      "version": "7996fb61"
+      "version": "4ed7ff35"
     },
     "more": {
       "title": "More",
@@ -304,6 +316,118 @@
     }
   },
   "components": {
+    "accountDelete": {
+      "steps": [
+        {
+          "id": "accountDelete.confirmInput",
+          "label": "Confirm field",
+          "help": "Type DELETE (uppercase word) to unlock the delete button.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountDelete.submit",
+          "label": "Delete account",
+          "help": "Soft-delete now; data is purged after the 30-day grace period.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "accountSocial": {
+      "steps": [
+        {
+          "id": "accountSocial.link",
+          "label": "Link",
+          "help": "Connect this provider for sign-in (needs deployment OAuth).",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountSocial.unlink",
+          "label": "Unlink",
+          "help": "Disconnect this provider after confirming.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "accountSubscription": {
+      "steps": [
+        {
+          "id": "accountSubscription.manageBilling",
+          "label": "Manage billing",
+          "help": "No billing provider is wired on this deployment — nothing to manage.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "accountSupport": {
+      "steps": [
+        {
+          "id": "accountSupport.subject",
+          "label": "Subject",
+          "help": "One line summarising your message (3–120 characters).",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountSupport.body",
+          "label": "Message",
+          "help": "The full message (10–4000 characters). We reply by email.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "accountSupport.send",
+          "label": "Send message",
+          "help": "Send to the team — 5 messages per day, replies by email.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
     "arrangeBlocks": {
       "steps": [
         {
@@ -861,7 +985,7 @@
         {
           "id": "calendar.prev",
           "label": "Prev month",
-          "help": "Step the grid back one month.",
+          "help": "Scroll the calendar back one month.",
           "order": 10,
           "when": [
             "always"
@@ -885,7 +1009,7 @@
         {
           "id": "calendar.next",
           "label": "Next month",
-          "help": "Step the grid forward one month.",
+          "help": "Scroll the calendar forward one month.",
           "order": 30,
           "when": [
             "always"
@@ -897,7 +1021,7 @@
         {
           "id": "calendar.viewMonth",
           "label": "Month view",
-          "help": "Switch to the month grid of day cells.",
+          "help": "Switch to the scrolling month grid of day cells.",
           "order": 40,
           "when": [
             "always"
@@ -933,7 +1057,7 @@
         {
           "id": "calendar.dayCell",
           "label": "Day cell",
-          "help": "Tap a day to select it; dots mark workouts and schedule.",
+          "help": "Tap a day to see its sessions; dots mark their status.",
           "order": 70,
           "when": [
             "always"
@@ -967,6 +1091,18 @@
           "scope": "component"
         },
         {
+          "id": "calendar.entryRow",
+          "label": "Session row",
+          "help": "Open this session's log or day overview.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "calendar.schedule",
           "label": "Schedule",
           "help": "Pick a routine session for the selected day.",
@@ -994,7 +1130,19 @@
           "id": "calendar.reopen",
           "label": "Reopen",
           "help": "Put a done, missed or skipped session back on the plan.",
-          "order": 100,
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "calendar.workoutRow",
+          "label": "Workout row",
+          "help": "Open this logged workout's detail.",
+          "order": 120,
           "when": [
             "always"
           ],
@@ -2837,7 +2985,7 @@
         {
           "id": "logDetail.menu",
           "label": "Menu",
-          "help": "Edit sets, save as session, move, share or delete.",
+          "help": "Rearrange, replace, notes, save as session, move, share or delete.",
           "order": 10,
           "when": [
             "always"
@@ -2881,15 +3029,171 @@
           "hint": false,
           "placement": "auto",
           "scope": "component"
+        },
+        {
+          "id": "logDetail.rearrange",
+          "label": "Rearrange",
+          "help": "Reorder this log's exercises in the arrange editor.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.replace",
+          "label": "Replace exercise",
+          "help": "Swap an exercise inside this log; its sets are kept.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.notes",
+          "label": "Notes",
+          "help": "Read or edit the note saved on this log.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.replaceRow",
+          "label": "Exercise row",
+          "help": "Pick which exercise of this log to replace.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.replaceSuggest",
+          "label": "Suggestion row",
+          "help": "Pick the replacement exercise; sets are kept.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.noteEditor",
+          "label": "Note editor",
+          "help": "Write or update the note saved on this log.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.replaceApply",
+          "label": "Replace",
+          "help": "Swap the exercise in this log; its sets are kept.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.noteSave",
+          "label": "Save note",
+          "help": "Store this note on the log itself.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.editHistory",
+          "label": "Edit history",
+          "help": "Open this exercise's past sessions and edit the sets inline.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.restRow",
+          "label": "Rest row",
+          "help": "Actual rest between sets; planned values fill the gaps.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.setTable",
+          "label": "Set table",
+          "help": "Performed sets: number, short type, reps and weight.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logDetail.noteRow",
+          "label": "Note",
+          "help": "The note saved on this log; tap to edit it.",
+          "order": 160,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
         }
       ]
     },
     "logs": {
       "steps": [
         {
-          "id": "logs.calendar",
-          "label": "Calendar",
-          "help": "Open the month calendar and schedule.",
+          "id": "logs.toggleCalendar",
+          "label": "Calendar view",
+          "help": "Switch to a month grid with dots on days you trained.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logs.toggleList",
+          "label": "List view",
+          "help": "Switch back to the month-by-month session list.",
           "order": 10,
           "when": [
             "always"
@@ -2913,7 +3217,7 @@
         {
           "id": "logs.search",
           "label": "Search",
-          "help": "Find sessions by exercise, note or label.",
+          "help": "Find sessions by exercise, program or source name.",
           "order": 30,
           "when": [
             "always"
@@ -2923,10 +3227,22 @@
           "scope": "component"
         },
         {
-          "id": "logs.day",
-          "label": "Session card",
-          "help": "Open a logged session; press and hold to delete it.",
+          "id": "logs.filteredChip",
+          "label": "Clear filter",
+          "help": "Show all sessions again by leaving the day filter.",
           "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logs.day",
+          "label": "Session row",
+          "help": "Open a logged session; press and hold to delete it.",
+          "order": 50,
           "when": [
             "always"
           ],
@@ -2938,7 +3254,43 @@
           "id": "logs.retry",
           "label": "Retry",
           "help": "Reload your workout logs.",
-          "order": 50,
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logs.calendarPrev",
+          "label": "Previous month",
+          "help": "Page the log calendar back one month.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logs.calendarNext",
+          "label": "Next month",
+          "help": "Page the log calendar forward one month.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "logs.calendarCell",
+          "label": "Day cell",
+          "help": "Dots mark days you trained; tap for that day's sessions.",
+          "order": 90,
           "when": [
             "always"
           ],
@@ -3035,10 +3387,118 @@
           "scope": "component"
         },
         {
+          "id": "more.notifications",
+          "label": "Manage notifications",
+          "help": "Open settings to tune reminders and notification switches.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.subscription",
+          "label": "Manage subscription",
+          "help": "Your plan and billing status (Free plan, no billing wired).",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.support",
+          "label": "Message support",
+          "help": "Send the team a message — up to 5 per day, replies by email.",
+          "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.social",
+          "label": "Social accounts",
+          "help": "Linked sign-in providers for this account.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.invite",
+          "label": "Invite friends",
+          "help": "Share your SetForge link — or copy it to the clipboard.",
+          "order": 130,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.privacy",
+          "label": "Privacy policy",
+          "help": "How SetForge stores and protects your training data.",
+          "order": 140,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.terms",
+          "label": "Terms",
+          "help": "The terms of service for using SetForge.",
+          "order": 150,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.signOut",
+          "label": "Sign out",
+          "help": "End the session and clear offline data on this device.",
+          "order": 160,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "more.delete",
+          "label": "Delete account",
+          "help": "Soft-delete the account, anonymize data, purge after 30 days.",
+          "order": 170,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "more.help",
           "label": "Help & tours",
           "help": "Open help topics, shortcuts and screen tours.",
-          "order": 80,
+          "order": 180,
           "when": [
             "always"
           ],
@@ -3091,9 +3551,9 @@
     "onDemand": {
       "steps": [
         {
-          "id": "onDemand.calendar",
-          "label": "Calendar",
-          "help": "Open the month calendar and schedule.",
+          "id": "onDemand.filters",
+          "label": "Filters",
+          "help": "Open the full filter screen for sessions.",
           "order": 10,
           "when": [
             "always"
@@ -3105,8 +3565,8 @@
         {
           "id": "onDemand.search",
           "label": "Search sessions",
-          "help": "Filter the sessions by name or notes.",
-          "order": 10,
+          "help": "Search sessions by name or exercise.",
+          "order": 20,
           "when": [
             "always"
           ],
@@ -3117,8 +3577,20 @@
         {
           "id": "onDemand.filterAll",
           "label": "All filter",
-          "help": "Clear every filter to show all sessions.",
-          "order": 20,
+          "help": "Clear every chip to show all sessions.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemand.filterWarmup",
+          "label": "Warm up filter",
+          "help": "Warm-up and rehab sessions for easy days.",
+          "order": 40,
           "when": [
             "always"
           ],
@@ -3130,31 +3602,19 @@
           "id": "onDemand.filterFavourites",
           "label": "Favourites filter",
           "help": "Show only the sessions you starred.",
-          "order": 30,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "onDemand.filter20",
-          "label": "≤20m filter",
-          "help": "Sessions estimated at 20 minutes or less.",
-          "order": 40,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "onDemand.filter40",
-          "label": "≤40m filter",
-          "help": "Sessions estimated at 40 minutes or less.",
           "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemand.filterPicks",
+          "label": "Coach picks",
+          "help": "Sessions the coaches highlight for you.",
+          "order": 60,
           "when": [
             "always"
           ],
@@ -3165,7 +3625,7 @@
         {
           "id": "onDemand.sessionRow",
           "label": "Session row",
-          "help": "Open the session to see its groups and start it.",
+          "help": "Open the session's day overview to start it.",
           "order": 60,
           "when": [
             "always"
@@ -3187,10 +3647,46 @@
           "scope": "component"
         },
         {
+          "id": "onDemand.filterSpecialization",
+          "label": "Specialization filter",
+          "help": "Sessions focused on one muscle group.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemand.filterEquipment",
+          "label": "Limited equipment",
+          "help": "Sessions for minimal gear or travel.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemand.filterTime",
+          "label": "Limited time",
+          "help": "Short sessions when time is tight.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "onDemand.openBuilder",
           "label": "Open Builder",
           "help": "Go to the Builder to create a session.",
-          "order": 80,
+          "order": 100,
           "when": [
             "empty"
           ],
@@ -3202,7 +3698,7 @@
           "id": "onDemand.clearFilters",
           "label": "Clear filters",
           "help": "Reset the filters when nothing matches.",
-          "order": 90,
+          "order": 110,
           "when": [
             "always"
           ],
@@ -3255,6 +3751,82 @@
           "label": "Schedule",
           "help": "Pick a date for this session on the calendar.",
           "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "onDemandFilters": {
+      "steps": [
+        {
+          "id": "onDemandFilters.intensity",
+          "label": "Intensity row",
+          "help": "Toggle one or more intensity levels.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemandFilters.muscle",
+          "label": "Target area row",
+          "help": "Toggle one or more target areas.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemandFilters.duration",
+          "label": "Duration row",
+          "help": "Pick one session length; picking another replaces it.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemandFilters.equipment",
+          "label": "Equipment row",
+          "help": "Toggle the gear levels you have available.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemandFilters.clearAll",
+          "label": "Clear all",
+          "help": "Empty every filter selection on this screen.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "onDemandFilters.apply",
+          "label": "Apply",
+          "help": "Save the filters and return to the session list.",
+          "order": 110,
           "when": [
             "always"
           ],

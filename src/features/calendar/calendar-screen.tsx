@@ -1,31 +1,35 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CalendarScreen — #/calendar (p3-6). Composed ONLY from the layout primitives
-// + the ONE GroupCard (via SelectedDayPanel).
+// CalendarScreen — #/calendar (Part 9 §6 evolution of the p3-6 screen).
 //
-//   TopBar (56)  : `◄ Sep 2026 ►` (44px buttons either side of the month label
-//                  — label tap = jump to current month) | List/Month segmented
-//                  toggle (48px, updates ?view=) | Filter icon-button (→
+//   TopBar (56)  : `◄ Sep 2026 ►` (scroll to the prev/next month; label tap =
+//                  jump to the current month) | List/Month segmented toggle
+//                  (48px, updates ?view=) | Filter icon-button (→
 //                  #/calendar/filters; orange dot while filters are active)
-//   SubBar (48)  : applied-filters ChipRow (40px chips with X per filter) —
-//                  only while any filter is active (the one allowed extra,
-//                  horizontal scroller)
-//   ScrollBody   : MONTH — 32px weekday row + FIXED 6×7 grid (56px cells) →
-//                  SelectedDayPanel (48px computed date header + summary cards
-//                  that expand inline to read/SetRows — NO day-sheet Dialog)
-//                  LIST — month-grouped 56px rows (date 96px | names "·" |
-//                  count 40px); tap → ?view=month&date=…
+//   SubBar (48)  : MONTH — the §6 legend row ("● Done · ○ Scheduled · ● Missed",
+//                  colour-coded, muted) · LIST — applied-filters ChipRow while
+//                  filters are active
+//   ScrollBody   : MONTH — §6 CONTINUOUS vertical months (range =
+//                  min(earliest schedule entry, now-2 months) → now+3 months;
+//                  sticky 40px month headers; 40px day cells with status dots;
+//                  SelectedDayPanel inline after the selected day's month)
+//                  LIST — month-grouped 56px rows; tap → ?view=month&date=…
+//
+// On mount the §6 reconcile sweep runs (POST /api/schedule/reconcile-missed,
+// fire-and-forget) and invalidates ["schedule"] (+ dashboard) when it
+// resolves, so past PLANNED days without a workout settle to MISSED before
+// the grid reads them. (There is no separate Part 5 midnight/timezone refresh
+// hook client-side — the timezone rules run server-side on every schedule
+// read; grep "refresh" in features/calendar + lib/client confirms none.)
 //
 // Route/query contract: #/calendar (?view=list|month — Month default;
-// ?date=YYYY-MM-DD selects the day and drives the SelectedDayPanel). All
-// state is URL-derived; month paging is local view state that follows the
-// selected day across months. Filter state is shared with the filters screen
-// through filter-store (legacy sessionStorage persistence).
+// ?date=YYYY-MM-DD selects the day). Filter state is shared with the filters
+// screen through filter-store (legacy sessionStorage persistence).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Screen, TopBar, SubBar, ScrollBody, TopBarHelp } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { tourAttrs } from "@/lib/tour/attrs";
@@ -33,12 +37,11 @@ import { ChevronLeft, ChevronRight, LayoutGrid, List, SlidersHorizontal } from "
 import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/client/store";
 import { qk, useSchedule } from "@/lib/client/query";
-import { exercisesApi, workoutsApi } from "@/lib/client/api";
-import { todayKey } from "@/lib/client/format";
+import { exercisesApi, scheduleReconcileApi, workoutsApi } from "@/lib/client/api";
+import { dayKeyOf, todayKey } from "@/lib/client/format";
 import { replaceHash, useHashRoute } from "@/features/shell/router";
-import type { CardVisibleColumns } from "@/components/group-card/group-card";
-import type { ProjectedDayDTO, ScheduleEntryDTO } from "@/lib/types";
-import { MonthView } from "./month-view";
+import type { ProjectedDayDTO, ScheduleEntryDTO, WorkoutSummaryDTO } from "@/lib/types";
+import { MonthView, monthId } from "./month-view";
 import { ListView } from "./list-view";
 import { SelectedDayPanel } from "./selected-day-panel";
 import { FilterChipRow } from "./filter-chip-row";
@@ -47,18 +50,26 @@ import {
   applyFilters,
   countActiveFilters,
   exerciseMatchesFromHistory,
-  indexByDay,
 } from "./filter-state";
 import { monthOf, monthRangeKeys, monthLabelShort, shiftAnchor, type MonthAnchor } from "./month-utils";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Earliest bound of the §6 schedule sweep (listSchedule defaults to -60d). */
+const RANGE_FLOOR = "2000-01-01";
 
 type View = "month" | "list";
+
+/** The earlier of two month anchors. */
+function earlierAnchor(a: MonthAnchor, b: MonthAnchor): MonthAnchor {
+  if (a.year !== b.year) return a.year < b.year ? a : b;
+  return a.month <= b.month ? a : b;
+}
 
 export default function CalendarScreen() {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
   const route = useHashRoute();
+  const qc = useQueryClient();
   const filters = useCalendarFilters();
 
   // ---------- URL-derived state (?view= · ?date= — deep-linkable) ----------
@@ -67,13 +78,88 @@ export default function CalendarScreen() {
   const dateParam = route.name === "calendar" ? route.query.get("date") : null;
   const selectedDay = dateParam && DATE_RE.test(dateParam) ? dateParam : todayKey();
 
-  // anchor month — DERIVED from the selected day's month, plus a paging
-  // override that stays valid only while the URL day is unchanged (paging
-  // ◄/► never touches the URL; any date change — cell tap, list pick, deep
-  // link, "today" — naturally resets the anchor to that day's month).
-  const baseAnchor = useMemo(() => monthOf(selectedDay), [selectedDay]);
-  const [paged, setPaged] = useState<{ day: string; anchor: MonthAnchor } | null>(null);
-  const anchor = paged && paged.day === selectedDay ? paged.anchor : baseAnchor;
+  // ---------- §6 reconcile sweep (on mount; idempotent server-side) ----------
+  useEffect(() => {
+    let cancelled = false;
+    scheduleReconcileApi
+      .run()
+      .then(() => {
+        if (cancelled) return;
+        qc.invalidateQueries({ queryKey: ["schedule"] });
+        qc.invalidateQueries({ queryKey: qk.dashboard });
+      })
+      .catch(() => {
+        /* fire-and-forget — offline or transient failure is non-fatal */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // mount-only by design (the sweep is idempotent)
+  }, [qc]);
+
+  // ---------- §6 range: min(earliest entry, now-2 months) → now+3 months ----------
+  const todayAnchor = useMemo(() => monthOf(todayKey()), []);
+  const endAnchor = useMemo(() => shiftAnchor(todayAnchor, 3), [todayAnchor]);
+  const { to: endKey } = monthRangeKeys(endAnchor);
+
+  const scheduleQuery = useSchedule(RANGE_FLOOR, endKey);
+  const entries = scheduleQuery.data?.entries ?? [];
+  const earliestEntryKey = entries.length > 0 ? entries[0].date : null;
+  const startAnchor = useMemo(
+    () =>
+      earliestEntryKey
+        ? earlierAnchor(monthOf(earliestEntryKey), shiftAnchor(todayAnchor, -2))
+        : shiftAnchor(todayAnchor, -2),
+    [earliestEntryKey, todayAnchor],
+  );
+  const months = useMemo(() => {
+    const out: MonthAnchor[] = [];
+    for (
+      let a = startAnchor;
+      a.year < endAnchor.year || (a.year === endAnchor.year && a.month <= endAnchor.month);
+      a = shiftAnchor(a, 1)
+    ) {
+      out.push(a);
+    }
+    return out;
+  }, [startAnchor, endAnchor]);
+
+  const { from: rangeFromKey } = monthRangeKeys(startAnchor);
+  const workoutsQuery = useQuery({
+    queryKey: qk.workoutList({ from: rangeFromKey, to: endKey }),
+    queryFn: () => workoutsApi.list({ from: rangeFromKey, to: endKey }),
+    enabled: view === "month",
+  });
+
+  // ---------- indexes ----------
+  /** The range's workouts grouped per day key (panel rows + cell affordance). */
+  const workoutsByDay = useMemo(() => {
+    const byDay = new Map<string, WorkoutSummaryDTO[]>();
+    for (const w of workoutsQuery.data?.workouts ?? []) {
+      const key = dayKeyOf(w.date);
+      const arr = byDay.get(key) ?? [];
+      arr.push(w);
+      byDay.set(key, arr);
+    }
+    return byDay;
+  }, [workoutsQuery.data]);
+
+  /** ALL schedule entries of the range grouped per day key (multi-entry days). */
+  const entriesByDay = useMemo(() => {
+    const m = new Map<string, ScheduleEntryDTO[]>();
+    for (const e of entries) {
+      const arr = m.get(e.date) ?? [];
+      arr.push(e);
+      m.set(e.date, arr);
+    }
+    return m;
+  }, [entries]);
+
+  const projectedByDay = useMemo(() => {
+    const m = new Map<string, ProjectedDayDTO>();
+    for (const p of scheduleQuery.data?.projected ?? []) m.set(p.date, p);
+    return m;
+  }, [scheduleQuery.data]);
 
   // ---------- URL writers (replaceHash: deep-linkable, no history pollution) ----------
   const setView = (next: View) => {
@@ -89,39 +175,42 @@ export default function CalendarScreen() {
     replaceHash(`#/calendar?view=month&date=${dayKey}`);
   };
 
+  // ---------- month scrolling (◄/► + jump-to-today + deep-link/list follow) ----------
+  const [anchor, setAnchor] = useState<MonthAnchor>(() => monthOf(selectedDay));
+  const [scrollAnchor, setScrollAnchor] = useState<MonthAnchor | null>(() =>
+    dateParam && DATE_RE.test(dateParam) ? monthOf(dateParam) : null,
+  );
+  const monthsReady = !scheduleQuery.isLoading && months.length > 0;
+
+  useEffect(() => {
+    if (!monthsReady || !scrollAnchor) return;
+    const el = document.getElementById(monthId(scrollAnchor));
+    if (el) el.scrollIntoView({ block: "start" });
+    setScrollAnchor(null);
+  }, [monthsReady, scrollAnchor, view]);
+
+  const scrollToAnchor = (target: MonthAnchor) => {
+    setAnchor(target);
+    setScrollAnchor(target);
+  };
+
   const goToday = () => {
-    setPaged(null);
+    setAnchor(todayAnchor);
+    setScrollAnchor(todayAnchor);
     replaceHash(`#/calendar?view=month&date=${todayKey()}`);
   };
 
-  const shiftMonth = (delta: number) => setPaged({ day: selectedDay, anchor: shiftAnchor(anchor, delta) });
+  const shiftMonth = (delta: number) => scrollToAnchor(shiftAnchor(anchor, delta));
 
-  // ---------- data (legacy calendar-view query logic) ----------
+  /** List-view pick: select the day AND follow it into the month grid. */
+  const pickFromList = (dayKey: string) => {
+    setScrollAnchor(monthOf(dayKey));
+    setAnchor(monthOf(dayKey));
+    selectDay(dayKey);
+  };
+
+  // ---------- data (legacy calendar-view list logic — unchanged) ----------
   const weekStart = settings?.weekStart === 0 ? 0 : 1;
-  const { from: fromKey, to: toKey } = monthRangeKeys(anchor);
-
-  const monthQuery = useQuery({
-    queryKey: qk.workoutList({ from: fromKey, to: toKey }),
-    queryFn: () => workoutsApi.list({ from: fromKey, to: toKey }),
-  });
-  const byDay = useMemo(() => indexByDay(monthQuery.data?.workouts ?? []), [monthQuery.data]);
-
-  // Part 5: schedule entries + projected ghosts for the visible month
-  const scheduleQuery = useSchedule(fromKey, toKey);
-  const entryByDay = useMemo(() => {
-    const m = new Map<string, ScheduleEntryDTO>();
-    for (const e of scheduleQuery.data?.entries ?? []) {
-      const prev = m.get(e.date);
-      // prefer PLANNED entries when several land on one day
-      if (!prev || (e.status === "PLANNED" && prev.status !== "PLANNED")) m.set(e.date, e);
-    }
-    return m;
-  }, [scheduleQuery.data]);
-  const projectedByDay = useMemo(() => {
-    const m = new Map<string, ProjectedDayDTO>();
-    for (const p of scheduleQuery.data?.projected ?? []) m.set(p.date, p);
-    return m;
-  }, [scheduleQuery.data]);
 
   const allQuery = useQuery({
     queryKey: qk.workoutList({}),
@@ -148,13 +237,7 @@ export default function CalendarScreen() {
   const activeCount = countActiveFilters(filters);
   const monthLabel = monthLabelShort(anchor);
 
-  const visibleColumns: CardVisibleColumns = {
-    setType: settings?.showSetType ?? true,
-    rpe: settings?.showRpe ?? true,
-    tempo: settings?.showTempo ?? true,
-    rest: settings?.showRest ?? true,
-  };
-
+  // ---------- render ----------
   return (
     <Screen
       topBar={
@@ -167,7 +250,7 @@ export default function CalendarScreen() {
                 size="icon"
                 className="h-11 w-11 flex-none"
                 aria-label="Previous month"
-                tour={{ id: "calendar.prev", label: "Prev month", help: "Step the grid back one month.", order: 10 }}
+                tour={{ id: "calendar.prev", label: "Prev month", help: "Scroll the calendar back one month.", order: 10 }}
                 onClick={() => shiftMonth(-1)}
               >
                 <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -188,7 +271,7 @@ export default function CalendarScreen() {
                 size="icon"
                 className="h-11 w-11 flex-none"
                 aria-label="Next month"
-                tour={{ id: "calendar.next", label: "Next month", help: "Step the grid forward one month.", order: 30 }}
+                tour={{ id: "calendar.next", label: "Next month", help: "Scroll the calendar forward one month.", order: 30 }}
                 onClick={() => shiftMonth(1)}
               >
                 <ChevronRight className="h-5 w-5" aria-hidden />
@@ -209,7 +292,7 @@ export default function CalendarScreen() {
                   role="tab"
                   aria-selected={view === "month"}
                   onClick={() => setView("month")}
-                  {...tourAttrs({ id: "calendar.viewMonth", label: "Month view", help: "Switch to the month grid of day cells.", order: 40 })}
+                  {...tourAttrs({ id: "calendar.viewMonth", label: "Month view", help: "Switch to the scrolling month grid of day cells.", order: 40 })}
                   className={cn(
                     "flex h-11 w-11 items-center justify-center gap-1.5 rounded-l-md text-sm font-semibold transition-colors sm:w-auto sm:px-3",
                     view === "month"
@@ -262,40 +345,61 @@ export default function CalendarScreen() {
         />
       }
       subBar={
-        activeCount > 0 ? (
+        view === "list" && activeCount > 0 ? (
           <SubBar>
             <FilterChipRow filters={filters} />
           </SubBar>
-        ) : undefined
+        ) : (
+          <SubBar>
+            {/* §6 legend — colour-coded dots + labels, muted */}
+            <div
+              data-row
+              aria-label="Legend"
+              className="flex h-8 w-full min-w-0 items-center gap-4 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
+            >
+              <span className="flex flex-none items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+                Done
+              </span>
+              <span className="flex flex-none items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full border-[1.5px] border-primary bg-transparent" aria-hidden />
+                Scheduled
+              </span>
+              <span className="flex flex-none items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden />
+                Missed
+              </span>
+            </div>
+          </SubBar>
+        )
       }
     >
       <ScrollBody>
         {view === "month" ? (
-          <>
-            <MonthView
-              anchor={anchor}
-              weekStart={weekStart}
-              byDay={byDay}
-              entryByDay={entryByDay}
-              projectedByDay={projectedByDay}
-              selectedDay={selectedDay}
-              loading={monthQuery.isLoading}
-              onSelect={selectDay}
-            />
-            <SelectedDayPanel
-              dayKey={selectedDay}
-              summary={byDay.get(selectedDay)}
-              entry={entryByDay.get(selectedDay)}
-              visibleColumns={visibleColumns}
-            />
-          </>
+          <MonthView
+            months={months}
+            weekStart={weekStart}
+            workoutDays={new Set(workoutsByDay.keys())}
+            entriesByDay={entriesByDay}
+            projectedByDay={projectedByDay}
+            selectedDay={selectedDay}
+            loading={scheduleQuery.isLoading || workoutsQuery.isLoading}
+            onSelect={selectDay}
+            renderPanel={() => (
+              <SelectedDayPanel
+                dayKey={selectedDay}
+                entries={entriesByDay.get(selectedDay) ?? []}
+                workouts={workoutsByDay.get(selectedDay) ?? []}
+              />
+            )}
+          />
         ) : (
           <ListView
             workouts={filteredWorkouts}
             loading={
               allQuery.isLoading || (!!filters.exerciseId && historyQuery.isLoading)
             }
-            onPick={selectDay}
+            onPick={pickFromList}
           />
         )}
       </ScrollBody>

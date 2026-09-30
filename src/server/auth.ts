@@ -95,6 +95,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     await db.session.delete({ where: { id: session.id } }).catch(() => undefined);
     return null;
   }
+  // Part 9 §9: a soft-deleted account never hydrates a session (defence in
+  // depth — softDeleteAccount already destroyed every Session row). Kill any
+  // straggler token so the cookie cannot resurrect it.
+  if (session.user.deletedAt) {
+    await db.session.deleteMany({ where: { userId: session.user.id } }).catch(() => undefined);
+    return null;
+  }
   return { id: session.user.id, email: session.user.email, name: session.user.name };
 }
 

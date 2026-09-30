@@ -1,51 +1,61 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MonthView — the Part 3 calendar month page (p3-6, extended in Part 5).
+// MonthView — the §6 calendar: CONTINUOUS vertical months (Part 9 §6).
 //
-//   weekday header row : 32px (h-8) · muted · single-line · NOT a data-row
-//                        (section-header height per the layout laws)
-//   grid               : FIXED 6 rows × 7 columns — every cell EXACTLY 56px
-//                        (h-14). Grid CELLS are not rows: they carry no
-//                        data-row tag, but the 56px height is exact.
-//   cell content       : date number top-left (12px) + a 10px muted projected
-//                        day-name ghost label under it (showProjectedDays);
-//                        bottom: ≤3 dots + "+n" — schedule status dots
-//                        (PLANNED = outlined orange · DONE = filled orange ·
-//                        MISSED = muted grey · SKIPPED = grey dashed ring) plus
-//                        the legacy workout category dots; selected cell =
-//                        orange ring; today = orange date number.
+//   weekday header row : 32px (h-8) · muted · single-line — NOT a data-row
+//                        (section-header height per the layout laws); rendered
+//                        ONCE above all months
+//   month sections     : sticky 40px (h-10) data-row header "October 2026"
+//                        (sticky top-0 — the sanctioned sticky-header pattern;
+//                        next month's header pushes it away, iOS-calendar
+//                        style) + a 7-column grid of EXACTLY 40px (h-10) cells
+//   cell content       : date number top-left · bottom: ≤3 schedule status
+//                        dots + "+n" — DONE → accent filled (markedOff adds a
+//                        tiny check) · PLANNED → accent outline · MISSED →
+//                        danger · SKIPPED → dashed grey · REST → NO dot.
+//                        Projected ghost day-name (showProjectedDays) shows
+//                        only on otherwise-empty cells. Selected cell = orange
+//                        ring; today = orange date number.
 //
-// Data logic ported from legacy features/calendar/month-grid.tsx (UTC day-key
-// math, category dots); the fixed 6-row grid + 56px cells are the p3-6 spec.
+// Range & virtualization: the caller passes the §6 range (min(earliest
+// schedule entry, now-2 months) → now+3 months) — ~6 months ≈ 250 cells, so
+// plain rendering is smooth (the Part 3 list-view precedent: virtualisation
+// skipped by design at this size). Tap a day → the caller selects it; the
+// SelectedDayPanel renders inline AFTER the selected day's month via
+// `renderPanel`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { tourAttrs } from "@/lib/tour/attrs";
 import { todayKey } from "@/lib/client/format";
-import type { ProjectedDayDTO, ScheduleEntryDTO, WorkoutSummaryDTO } from "@/lib/types";
+import { Check } from "lucide-react";
+import type { ProjectedDayDTO, ScheduleEntryDTO } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { dedupeCategories, monthCells, weekdayLabels, type MonthAnchor } from "./month-utils";
+import { monthCells, monthLabelLong, monthOf, weekdayLabels, type MonthAnchor } from "./month-utils";
 
 const MAX_DOTS = 3;
 
 type Props = {
-  anchor: MonthAnchor;
+  /** The §6 month range, oldest → newest (plain render — see header note). */
+  months: MonthAnchor[];
   /** 0 = Sunday, 1 = Monday (user setting; legacy default 1). */
   weekStart: number;
-  /** Workout summaries of the visible month, indexed by day key. */
-  byDay: Map<string, WorkoutSummaryDTO>;
-  /** Part 5: schedule entries of the visible month, indexed by day key. */
-  entryByDay: Map<string, ScheduleEntryDTO>;
+  /** Day keys that carry a logged workout (cell affordance only — dots are §6 status dots). */
+  workoutDays: Set<string>;
+  /** Part 9 §6: ALL schedule entries of the range, indexed by day key. */
+  entriesByDay: Map<string, ScheduleEntryDTO[]>;
   /** Part 5: projected ghost days (showProjectedDays), indexed by day key. */
   projectedByDay: Map<string, ProjectedDayDTO>;
   selectedDay: string;
   loading: boolean;
   onSelect: (dayKey: string) => void;
+  /** Renders the SelectedDayPanel inline after the selected day's month. */
+  renderPanel?: (anchor: MonthAnchor) => ReactNode;
 };
 
-/** The schedule status dot for an entry (null = no dot). */
+/** §6 dot for one schedule status (null = no dot: REST, future unknown). */
 function scheduleDotClass(status: string): string | null {
   switch (status) {
     case "PLANNED":
@@ -53,7 +63,7 @@ function scheduleDotClass(status: string): string | null {
     case "DONE":
       return "h-1.5 w-1.5 rounded-full bg-primary";
     case "MISSED":
-      return "h-1.5 w-1.5 rounded-full bg-muted-foreground/50";
+      return "h-1.5 w-1.5 rounded-full bg-destructive";
     case "SKIPPED":
       return "h-1.5 w-1.5 rounded-full border border-dashed border-muted-foreground/60 bg-transparent";
     default:
@@ -61,23 +71,29 @@ function scheduleDotClass(status: string): string | null {
   }
 }
 
+/** Stable DOM id for a month section (scroll-to-month target). */
+export function monthId(anchor: MonthAnchor): string {
+  return `cal-${anchor.year}-${anchor.month}`;
+}
+
 export function MonthView({
-  anchor,
+  months,
   weekStart,
-  byDay,
-  entryByDay,
+  workoutDays,
+  entriesByDay,
   projectedByDay,
   selectedDay,
   loading,
   onSelect,
+  renderPanel,
 }: Props) {
-  const cells = useMemo(() => monthCells(anchor, weekStart), [anchor, weekStart]);
   const labels = useMemo(() => weekdayLabels(weekStart), [weekStart]);
   const today = todayKey();
+  const selectedAnchor = useMemo(() => monthOf(selectedDay), [selectedDay]);
 
-  if (loading && byDay.size === 0) {
+  if (loading && entriesByDay.size === 0) {
     return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading month">
+      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading calendar">
         <div className="grid grid-cols-7 gap-1">
           {labels.map((l) => (
             <div
@@ -88,18 +104,17 @@ export function MonthView({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: 42 }, (_, i) => (
-            <Skeleton key={i} className="h-14 rounded-lg" />
-          ))}
-        </div>
+        <Skeleton className="h-10 w-full rounded-lg" />
+        {Array.from({ length: 3 }, (_, i) => (
+          <Skeleton key={i} className="h-[344px] w-full rounded-lg" />
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* weekday header — 32px single-line, muted */}
+    <div className="flex flex-col gap-3">
+      {/* weekday header — 32px single-line, muted (once, above all months) */}
       <div className="grid grid-cols-7 gap-1" aria-hidden={false}>
         {labels.map((l) => (
           <div
@@ -111,91 +126,107 @@ export function MonthView({
         ))}
       </div>
 
-      {/* fixed 6×7 grid — cells are exactly 56px (h-14) */}
-      <div className="grid grid-cols-7 gap-1" role="grid" aria-label="Month grid">
-        {cells.map((dayKey, i) => {
-          if (dayKey === null) {
-            return <div key={`blank-${i}`} aria-hidden className="h-14 rounded-lg" />;
-          }
-          const workout = byDay.get(dayKey);
-          const entry = entryByDay.get(dayKey);
-          const projected = projectedByDay.get(dayKey);
-          const isToday = dayKey === today;
-          const isSelected = dayKey === selectedDay;
-          const dayNum = Number(dayKey.slice(8, 10));
-          const cats = workout ? dedupeCategories(workout) : [];
-          const schedDot = entry ? scheduleDotClass(entry.status) : null;
-          const dotsCount = (schedDot ? 1 : 0) + cats.length;
-          return (
-            <button
-              key={dayKey}
-              type="button"
-              data-day-cell={dayKey}
-              {...tourAttrs({ id: "calendar.dayCell", label: "Day cell", help: "Tap a day to select it; dots mark workouts and schedule.", order: 70 })}
-              aria-label={`${dayKey}${workout ? " — workout day" : ""}${entry ? ` — ${entry.routineName}${entry.dayName ? ` · ${entry.dayName}` : ""} (${entry.status.toLowerCase()})` : ""}`}
-              aria-current={isToday ? "date" : undefined}
-              aria-pressed={isSelected}
-              onClick={() => onSelect(dayKey)}
-              className={cn(
-                "flex h-14 select-none flex-col items-start justify-between overflow-hidden rounded-lg border p-1 text-left transition-colors",
-                isSelected
-                  ? "border-primary bg-primary/10 ring-2 ring-primary"
-                  : workout || entry?.status === "PLANNED"
-                    ? "border-border/80 bg-card hover:border-primary/50 hover:bg-primary/5"
-                    : "border-transparent bg-muted/25 hover:bg-muted/50",
-              )}
+      {months.map((anchor) => {
+        const cells = monthCells(anchor, weekStart);
+        const isPanelMonth = selectedAnchor.year === anchor.year && selectedAnchor.month === anchor.month;
+        return (
+          <section key={`${anchor.year}-${anchor.month}`} aria-label={monthLabelLong(anchor)}>
+            {/* sticky month header — 40px data-row */}
+            <h3
+              data-row
+              className="sticky top-0 z-10 flex h-10 flex-none items-center justify-between overflow-hidden whitespace-nowrap rounded-lg border border-border bg-background/95 px-3 text-sm font-semibold backdrop-blur-sm"
             >
-              <span className="flex w-full flex-col gap-0.5">
-                <span
-                  className={cn(
-                    "text-xs font-semibold leading-none tabular-nums",
-                    isToday
-                      ? "text-primary"
-                      : workout
-                        ? "text-foreground"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  {dayNum}
-                </span>
-                {projected ? (
-                  <span
-                    className="w-full truncate text-[10px] font-medium leading-none text-muted-foreground/80"
-                    title={`${projected.dayName} (projected)`}
+              <span className="truncate">{monthLabelLong(anchor)}</span>
+            </h3>
+
+            {/* 7-column grid — cells are exactly 40px (h-10) */}
+            <div className="mt-2 grid grid-cols-7 gap-1" role="grid" aria-label="Month grid">
+              {cells.map((dayKey, i) => {
+                if (dayKey === null) {
+                  return <div key={`blank-${i}`} aria-hidden className="h-10 rounded-lg" />;
+                }
+                const workout = workoutDays.has(dayKey);
+                const entries = entriesByDay.get(dayKey) ?? [];
+                const projected = projectedByDay.get(dayKey);
+                const isToday = dayKey === today;
+                const isSelected = dayKey === selectedDay;
+                const dayNum = Number(dayKey.slice(8, 10));
+
+                // §6 dots: schedule status only; REST entries render no dot.
+                const dotEntries = entries.filter((e) => scheduleDotClass(e.status) != null);
+                const markedOffDone = entries.some((e) => e.status === "DONE" && e.markedOff);
+                const hasContent = workout || dotEntries.length > 0;
+
+                const entrySummary =
+                  entries.length === 1
+                    ? `${entries[0].routineName}${entries[0].dayName ? ` · ${entries[0].dayName}` : ""} (${entries[0].status.toLowerCase()})`
+                    : entries.length > 1
+                      ? `${entries.length} entries`
+                      : "";
+                return (
+                  <button
+                    key={dayKey}
+                    type="button"
+                    data-day-cell={dayKey}
+                    {...tourAttrs({ id: "calendar.dayCell", label: "Day cell", help: "Tap a day to see its sessions; dots mark their status.", order: 70 })}
+                    aria-label={`${dayKey}${workout ? " — workout day" : ""}${entrySummary ? ` — ${entrySummary}` : ""}`}
+                    aria-current={isToday ? "date" : undefined}
+                    aria-pressed={isSelected}
+                    onClick={() => onSelect(dayKey)}
+                    className={cn(
+                      "flex h-10 select-none flex-col items-start justify-between overflow-hidden rounded-lg border p-1 text-left transition-colors",
+                      isSelected
+                        ? "border-primary bg-primary/10 ring-1 ring-primary"
+                        : hasContent
+                          ? "border-border/80 bg-card hover:border-primary/50 hover:bg-primary/5"
+                          : "border-transparent bg-muted/25 hover:bg-muted/50",
+                    )}
                   >
-                    {projected.dayName}
-                  </span>
-                ) : null}
-              </span>
-              {dotsCount > 0 ? (
-                <span className="flex w-full items-center gap-1 overflow-hidden">
-                  {schedDot ? (
                     <span
-                      className={cn(schedDot, "flex-none")}
-                      title={`${entry?.routineName}${entry?.dayName ? ` · ${entry.dayName}` : ""} — ${entry?.status.toLowerCase()}`}
-                      aria-hidden
-                    />
-                  ) : null}
-                  {cats.slice(0, Math.max(0, MAX_DOTS - (schedDot ? 1 : 0))).map((c) => (
-                    <span
-                      key={c.name}
-                      title={c.name}
-                      className="h-1.5 w-1.5 flex-none rounded-full"
-                      style={{ backgroundColor: c.colour }}
-                      aria-hidden
-                    />
-                  ))}
-                  {dotsCount > MAX_DOTS ? (
-                    <span className="text-[9px] font-semibold leading-none text-muted-foreground">
-                      +{dotsCount - MAX_DOTS}
+                      className={cn(
+                        "text-[11px] font-semibold leading-none tabular-nums",
+                        isToday
+                          ? "text-primary"
+                          : hasContent
+                            ? "text-foreground"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {dayNum}
                     </span>
-                  ) : null}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+                    {dotEntries.length > 0 ? (
+                      <span className="flex w-full items-center gap-1 overflow-hidden leading-none">
+                        {dotEntries.slice(0, MAX_DOTS).map((e, di) => (
+                          <span key={e.id} className="flex flex-none items-center leading-none">
+                            <span className={cn(scheduleDotClass(e.status))} aria-hidden />
+                            {di === 0 && e.status === "DONE" && markedOffDone ? (
+                              <Check className="h-2 w-2 text-primary" strokeWidth={4} aria-hidden />
+                            ) : null}
+                          </span>
+                        ))}
+                        {dotEntries.length > MAX_DOTS ? (
+                          <span className="text-[9px] font-semibold leading-none text-muted-foreground">
+                            +{dotEntries.length - MAX_DOTS}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : projected ? (
+                      <span
+                        className="w-full truncate text-[10px] font-medium leading-none text-muted-foreground/80"
+                        title={`${projected.dayName} (projected)`}
+                      >
+                        {projected.dayName}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+
+            {isPanelMonth && renderPanel ? renderPanel(anchor) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
