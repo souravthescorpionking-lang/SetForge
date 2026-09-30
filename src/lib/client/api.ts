@@ -25,7 +25,11 @@ import type {
   UnitDTO,
   WorkoutDTO,
   WorkoutSummaryDTO,
+  ProgramDetailDTO,
+  DayDetailDTO,
+  ExerciseSuggestionDTO,
 } from "@/lib/types";
+import type { Difficulty } from "@/lib/constants";
 
 export class ApiError extends Error {
   constructor(
@@ -394,9 +398,17 @@ export const routinesApi = {
 export type CursorResult = { dayIndex: number; day: { id: string; name: string; dayType: string } };
 
 export const programsApi = {
-  /** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION (omit = all). */
-  list: (kind?: "ROUTINE" | "SESSION") =>
-    request<ProgramSummaryDTO[]>(`/api/programs${qs({ kind })}`),
+  /** Programs list (Part 9 §3 catalog DTOs — superset of the legacy summary).
+   *  Accepts the legacy positional kind OR a params object: difficulty scopes
+   *  the variant info (omit = the user's difficulty); kind filters
+   *  ROUTINE | SESSION (omit = all). */
+  list: (kindOrParams?: "ROUTINE" | "SESSION" | { kind?: "ROUTINE" | "SESSION"; difficulty?: Difficulty }) => {
+    const params = typeof kindOrParams === "string" ? { kind: kindOrParams } : (kindOrParams ?? {});
+    return request<ProgramSummaryDTO[]>(`/api/programs${qs(params)}`);
+  },
+  /** GET /api/programs/:id?difficulty= (§4) — variant-aware program detail. */
+  detail: (routineId: string, difficulty?: Difficulty) =>
+    request<ProgramDetailDTO>(`/api/programs/${routineId}${qs({ difficulty })}`),
   follow: (routineId: string, startDayIndex?: number) =>
     request<{ routineId: string; dayIndex: number; day: { id: string; name: string; dayType: string } }>(
       `/api/programs/${routineId}/follow`,
@@ -829,7 +841,7 @@ export type DayOverridePatch = {
 
 export const dayApi = {
   /** GET /api/days/:id (§5) — override-merged day detail. */
-  get: (dayId: string) => request<unknown>(`/api/days/${dayId}`),
+  get: (dayId: string) => request<DayDetailDTO>(`/api/days/${dayId}`),
   /** PUT /api/days/:id/override (§5.1/5.2/5.4). */
   putOverride: (dayId: string, patch: DayOverridePatch) =>
     request<{ ok: true }>(`/api/days/${dayId}/override`, { method: "PUT", body: body(patch) }),
@@ -839,15 +851,24 @@ export const dayApi = {
   /** DELETE /api/days/:id/favorite. */
   unfavourite: (dayId: string) =>
     request<{ isFavorite: boolean }>(`/api/days/${dayId}/favorite`, { method: "DELETE" }),
-  /** POST /api/days/:id/mark-off (§5). */
+  /** POST /api/days/:id/mark-off (§5) — workoutId feeds the client Undo. */
   markOff: (dayId: string) =>
-    request<{ completedDayIds: string[]; advanced: boolean }>(`/api/days/${dayId}/mark-off`, { method: "POST" }),
+    request<{ completedDayIds: string[]; advanced: boolean; workoutId: string | null }>(
+      `/api/days/${dayId}/mark-off`,
+      { method: "POST" },
+    ),
+  /** DELETE /api/days/:id/mark-off — Undo (marker + mark-off Log removed). */
+  unmarkOff: (dayId: string) =>
+    request<{ completedDayIds: string[]; removedWorkouts: number }>(
+      `/api/days/${dayId}/mark-off`,
+      { method: "DELETE" },
+    ),
 };
 
 export const exerciseSuggestionsApi = {
   /** GET /api/exercises/:id/suggestions (§5.2). */
   list: (exerciseId: string) =>
-    request<{ suggestions: unknown[] }>(`/api/exercises/${exerciseId}/suggestions`),
+    request<{ suggestions: ExerciseSuggestionDTO[] }>(`/api/exercises/${exerciseId}/suggestions`),
 };
 
 export type OnDemandQuery = {

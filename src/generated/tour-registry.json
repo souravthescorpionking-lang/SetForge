@@ -1,6 +1,30 @@
 {
-  "version": "ffd627fb",
+  "version": "ca16ccf3",
   "screens": {
+    "account-delete": {
+      "title": "Delete account",
+      "purpose": "Permanently remove your account and data after a 30-day grace period.",
+      "steps": [],
+      "version": "382cdcc8"
+    },
+    "account-social": {
+      "title": "Social accounts",
+      "purpose": "Linked sign-in providers for this account.",
+      "steps": [],
+      "version": "58e4ab2b"
+    },
+    "account-subscription": {
+      "title": "Subscription",
+      "purpose": "Your plan and billing status.",
+      "steps": [],
+      "version": "929aebd9"
+    },
+    "account-support": {
+      "title": "Message support",
+      "purpose": "Send the team a message; replies land in your email.",
+      "steps": [],
+      "version": "7dbca496"
+    },
     "auth": {
       "title": "Sign in",
       "purpose": "Sign in to your SetForge account or create a new one.",
@@ -65,11 +89,35 @@
       "steps": [],
       "version": "74ad667e"
     },
+    "day": {
+      "title": "Day overview",
+      "purpose": "One training day at a glance: muscle chips, series cards and actions.",
+      "steps": [],
+      "version": "053cff17"
+    },
     "day-arrange": {
       "title": "Arrange day",
       "purpose": "Reorder a day's exercises and move whole superset groups.",
       "steps": [],
       "version": "6cf3b6d5"
+    },
+    "day-notes": {
+      "title": "Exercise notes",
+      "purpose": "Per-exercise coaching notes for this day; shown while logging.",
+      "steps": [],
+      "version": "6493a0b9"
+    },
+    "day-rearrange": {
+      "title": "Rearrange series",
+      "purpose": "Drag exercises within or across series; labels recompute by size.",
+      "steps": [],
+      "version": "d50d81e7"
+    },
+    "day-replace": {
+      "title": "Replace exercise",
+      "purpose": "Swap an exercise for a suggestion or any catalogue match; sets kept.",
+      "steps": [],
+      "version": "43e25f11"
     },
     "dev": {
       "title": "Dev showcase",
@@ -165,6 +213,12 @@
       "purpose": "One on-demand session in full: groups, sets, start now or schedule it.",
       "steps": [],
       "version": "5d9ad416"
+    },
+    "on-demand-filters": {
+      "title": "On demand filters",
+      "purpose": "Filter on-demand sessions by intensity, target area, duration and equipment.",
+      "steps": [],
+      "version": "8bb4bca6"
     },
     "onboarding": {
       "title": "Welcome",
@@ -1226,6 +1280,118 @@
         }
       ]
     },
+    "day": {
+      "steps": [
+        {
+          "id": "day.menu",
+          "label": "Day menu",
+          "help": "Rearrange this day's exercise series.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.metaLine",
+          "label": "Day totals",
+          "help": "Planned sets and exercises after your edits.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.todayChip",
+          "label": "Today chip",
+          "help": "This is the current day in your followed program.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.favorite",
+          "label": "Favourite",
+          "help": "Star this day to find it faster.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.schedule",
+          "label": "Schedule",
+          "help": "Pick a date to plan this day on your calendar.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.history",
+          "label": "History",
+          "help": "See every logged workout of this day.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.markOff",
+          "label": "Mark off",
+          "help": "Complete this day without training; the cursor advances.",
+          "order": 70,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.equipmentRow",
+          "label": "Equipment",
+          "help": "The gear this day needs; tap to list it.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "day.startWorkout",
+          "label": "Start workout",
+          "help": "Create today's session from this day and start logging.",
+          "order": 80,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
     "dayActionRow": {
       "steps": [
         {
@@ -1306,6 +1472,162 @@
         }
       ]
     },
+    "dayNotes": {
+      "steps": [
+        {
+          "id": "dayNotes.textarea",
+          "label": "Note field",
+          "help": "Your coaching note; one line shows while logging.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayNotes.save",
+          "label": "Save",
+          "help": "Save this note; it appears while logging the day.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dayRearrange": {
+      "steps": [
+        {
+          "id": "dayRearrange.cancel",
+          "label": "Cancel",
+          "help": "Discard the draft order and go back.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayRearrange.handle",
+          "label": "Drag handle",
+          "help": "Drag to reorder within a series or drop onto another series.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayRearrange.save",
+          "label": "Save",
+          "help": "Save the new series order as your day override.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayRearrange.hint",
+          "label": "How it works",
+          "help": "Drop onto another series to change its group; empty series disappear.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": true,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
+    "dayReplace": {
+      "steps": [
+        {
+          "id": "dayReplace.search",
+          "label": "Search",
+          "help": "Find a replacement by name.",
+          "order": 10,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayReplace.filterMuscle",
+          "label": "Muscle filter",
+          "help": "Narrow results by muscle group.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayReplace.filterEquipment",
+          "label": "Equipment filter",
+          "help": "Narrow results by equipment.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayReplace.clearFilters",
+          "label": "Clear filters",
+          "help": "Remove the muscle and equipment filters.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayReplace.row",
+          "label": "Exercise row",
+          "help": "Pick this exercise as the replacement.",
+          "order": 50,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "dayReplace.apply",
+          "label": "Apply",
+          "help": "Swap the exercise; the prescribed sets are kept.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        }
+      ]
+    },
     "dictionary": {
       "steps": [
         {
@@ -1377,10 +1699,22 @@
     "exerciseDetail": {
       "steps": [
         {
-          "id": "exerciseDetail.tile",
-          "label": "Notes tile",
-          "help": "Tap to expand the full setup or target notes.",
+          "id": "exerciseDetail.setupRow",
+          "label": "Setup row",
+          "help": "How to set up for this exercise; tap to expand.",
           "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseDetail.positionRow",
+          "label": "Position row",
+          "help": "Body position cues for this exercise; tap to expand.",
+          "order": 110,
           "when": [
             "always"
           ],
@@ -1393,6 +1727,30 @@
           "label": "Trainer tip",
           "help": "Tap to expand the full coaching tip.",
           "order": 110,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseDetail.targetRow",
+          "label": "Target row",
+          "help": "What this exercise targets; tap to expand.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "exerciseDetail.equipmentRow",
+          "label": "Equipment row",
+          "help": "The gear this exercise needs; tap to list it.",
+          "order": 130,
           "when": [
             "always"
           ],
@@ -1788,6 +2146,18 @@
           "id": "groupCard.menu",
           "label": "Options",
           "help": "Detail, history, graph, records, notes, replace or remove.",
+          "order": 120,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "groupCard.note",
+          "label": "Note",
+          "help": "Your coaching note for this exercise; tap to expand.",
           "order": 120,
           "when": [
             "always"
@@ -3385,10 +3755,10 @@
     "programDetail": {
       "steps": [
         {
-          "id": "programDetail.menu",
-          "label": "Program menu",
-          "help": "Edit in Builder, schedule, skip, jump, unfollow, copy or delete.",
-          "order": 50,
+          "id": "programDetail.tabOverview",
+          "label": "Overview tab",
+          "help": "Highlights, equipment and the program's about text.",
+          "order": 10,
           "when": [
             "always"
           ],
@@ -3397,10 +3767,46 @@
           "scope": "component"
         },
         {
-          "id": "programDetail.following",
-          "label": "Following day",
-          "help": "Where you are in this program — day number and day name.",
-          "order": 60,
+          "id": "programDetail.tabProgram",
+          "label": "Program tab",
+          "help": "Preview and reorder the days of each phase.",
+          "order": 20,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.phaseChip",
+          "label": "Phase chip",
+          "help": "Jump between the phases of this program.",
+          "order": 30,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.equipment",
+          "label": "Equipment",
+          "help": "Expand the equipment list for this program.",
+          "order": 40,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.menu",
+          "label": "Program menu",
+          "help": "Edit in Builder, schedule, skip, jump, unfollow, copy or delete.",
+          "order": 50,
           "when": [
             "always"
           ],
@@ -3421,9 +3827,21 @@
           "scope": "component"
         },
         {
+          "id": "programDetail.resetOrder",
+          "label": "Reset Order",
+          "help": "Restore the template day order for this phase.",
+          "order": 60,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
           "id": "programDetail.dayRow",
           "label": "Day row",
-          "help": "Open to see this day's exercise groups.",
+          "help": "Open the day to see its exercise groups.",
           "order": 70,
           "when": [
             "always"
@@ -3433,34 +3851,10 @@
           "scope": "component"
         },
         {
-          "id": "programDetail.dayToggle",
-          "label": "Day chevron",
-          "help": "Expand or collapse this day's exercises.",
+          "id": "programDetail.dayDrag",
+          "label": "Day drag",
+          "help": "Long-press and drag to reorder days in this phase.",
           "order": 80,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programDetail.doneChip",
-          "label": "Done chip",
-          "help": "This day is already completed.",
-          "order": 90,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programDetail.todayChip",
-          "label": "Today chip",
-          "help": "The current day in your followed program.",
-          "order": 100,
           "when": [
             "always"
           ],
@@ -3472,43 +3866,31 @@
           "id": "programDetail.jumpRow",
           "label": "Day row",
           "help": "Move the program cursor to this day.",
+          "order": 90,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.start",
+          "label": "Start program",
+          "help": "Follow this program from the selected phase and build your schedule.",
+          "order": 100,
+          "when": [
+            "always"
+          ],
+          "hint": false,
+          "placement": "auto",
+          "scope": "component"
+        },
+        {
+          "id": "programDetail.continue",
+          "label": "Continue",
+          "help": "Start today's session and jump to the logger.",
           "order": 110,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programDetail.follow",
-          "label": "Follow",
-          "help": "Make this program drive your daily workouts.",
-          "order": 120,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programDetail.startDay",
-          "label": "Start day",
-          "help": "Create today's session from the current day and start logging.",
-          "order": 130,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programDetail.dayMenu",
-          "label": "Day menu",
-          "help": "Schedule, favourite, mark off or check this day's history.",
-          "order": 140,
           "when": [
             "always"
           ],
@@ -3520,7 +3902,7 @@
           "id": "programDetail.trainAnyway",
           "label": "Train anyway",
           "help": "Pick a ready session to train on a rest day.",
-          "order": 140,
+          "order": 120,
           "when": [
             "always"
           ],
@@ -3532,7 +3914,7 @@
           "id": "programDetail.openBuilder",
           "label": "Open Builder",
           "help": "Open this program in the Builder to add days.",
-          "order": 150,
+          "order": 130,
           "when": [
             "empty"
           ],
@@ -3729,9 +4111,9 @@
     "programs": {
       "steps": [
         {
-          "id": "programs.calendar",
-          "label": "Calendar",
-          "help": "Open the training calendar.",
+          "id": "programs.create",
+          "label": "Create",
+          "help": "Open the Builder to create a program or session.",
           "order": 10,
           "when": [
             "always"
@@ -3741,10 +4123,10 @@
           "scope": "component"
         },
         {
-          "id": "programs.filterAll",
-          "label": "All filter",
-          "help": "Clear difficulty and favourite filters.",
-          "order": 60,
+          "id": "programs.difficulty",
+          "label": "Difficulty",
+          "help": "Switch every program between beginner, intermediate and advanced.",
+          "order": 20,
           "when": [
             "always"
           ],
@@ -3753,72 +4135,12 @@
           "scope": "component"
         },
         {
-          "id": "programs.filterFavourites",
-          "label": "Favourites filter",
-          "help": "Show only the programs you starred.",
-          "order": 70,
+          "id": "programs.card",
+          "label": "Program card",
+          "help": "Open the program to preview its phases and days.",
+          "order": 30,
           "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.row",
-          "label": "Program row",
-          "help": "Open the program to see its days and exercise groups.",
-          "order": 80,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.following",
-          "label": "Following",
-          "help": "The program driving your plan, and the day you're on.",
-          "order": 90,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.follow",
-          "label": "Follow",
-          "help": "Make this routine drive your daily workouts.",
-          "order": 100,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.favourite",
-          "label": "Favourite",
-          "help": "Star the program to find it faster.",
-          "order": 120,
-          "when": [
-            "always"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.rowMenu",
-          "label": "Row menu",
-          "help": "Copy this program, edit it in the Builder, or delete it.",
-          "order": 130,
-          "when": [
-            "always"
+            "populated"
           ],
           "hint": false,
           "placement": "auto",
@@ -3831,18 +4153,6 @@
           "order": 160,
           "when": [
             "empty"
-          ],
-          "hint": false,
-          "placement": "auto",
-          "scope": "component"
-        },
-        {
-          "id": "programs.clearFilters",
-          "label": "Clear filters",
-          "help": "Reset the filters when nothing matches.",
-          "order": 170,
-          "when": [
-            "always"
           ],
           "hint": false,
           "placement": "auto",

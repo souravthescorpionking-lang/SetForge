@@ -1,7 +1,7 @@
 // Shared DTO types — the contract between API routes and the client.
 // All dates are ISO strings over the wire. Workout `date` is UTC-midnight ISO.
 
-export type UserDTO = { id: string; email: string; name: string | null };
+export type UserDTO = { id: string; email: string; name: string | null; difficulty: string };
 
 export type SettingsDTO = {
   theme: string;
@@ -117,6 +117,9 @@ export type ExerciseDTO = {
   setupNotes?: string | null;
   targetNotes?: string | null;
   catalogKey?: string | null;
+  // ---- Part 9 §1/§5.3 ----
+  position?: string | null;
+  altGroup?: string | null;
   // ---- Part 8 ----
   showRpe: boolean;
   showTempo: boolean;
@@ -262,6 +265,8 @@ export type PredefinedSetDTO = {
   // ---- Part 8 §6.4: weight prescription ----
   weightKind?: "FIXED" | "COPY_LAST" | "PERCENT_1RM" | null;
   pct?: number | null;
+  // ---- Part 9 §1 ----
+  isAmrap?: boolean;
 };
 
 export type RoutineExerciseDTO = {
@@ -274,6 +279,9 @@ export type RoutineExerciseDTO = {
   sets: PredefinedSetDTO[];
   // ---- Part 8 §6.2: warm-up scheme ----
   warmupScheme?: "NONE" | "STANDARD" | "LIGHT" | "CUSTOM" | null;
+  // ---- Part 9 §1 ----
+  tip?: string | null;
+  restNone?: boolean;
 };
 
 export type RoutineDayDTO = {
@@ -287,9 +295,72 @@ export type RoutineDayDTO = {
   primaryMuscles?: string[];
   estMinutes?: number | null;
   isFavorite?: boolean;
+  // ---- Part 9 §1 ----
+  equipment?: string[];
 };
 
 export type RoutinePhaseDTO = { name: string; dayIds: string[] };
+
+// ---------- Part 9 §5: Day Overview (override-merged) ----------
+
+/** One SeriesExercise of a day with the user's DayOverride merged in:
+ *  `exercise` carries the REPLACEMENT's data when replaced (sets stay from the
+ *  original template row); `note` is DayOverride.notes[reId]. */
+export type DayExerciseDTO = RoutineExerciseDTO & {
+  /** Per-exercise coaching note (DayOverride.notes[reId]). */
+  note?: string | null;
+  /** Template exercise id when a replacement is applied (else null). */
+  replacedExerciseId?: string | null;
+};
+
+/** One series (group) of the effective day: code/label recomputed by size. */
+export type DaySeriesDTO = {
+  key: string;
+  /** Group letter ("A"). */
+  code: string;
+  /** "" | "Superset" | "Triset" | "Giant set". */
+  label: string;
+  size: number;
+  exercises: DayExerciseDTO[];
+};
+
+/** GET /api/days/:id — the §5 Day Overview payload. */
+export type DayDetailDTO = {
+  id: string;
+  routineId: string;
+  name: string;
+  dayType: string; // WORKOUT | REST
+  sortOrder: number;
+  primaryMuscles: string[];
+  equipment: string[];
+  estMinutes: number | null;
+  isFavorite: boolean;
+  setsCount: number;
+  exercisesCount: number;
+  routine: { id: string; name: string; kind: string; tagline: string | null; estMinutes: number | null };
+  phase: { id: string; name: string; idx: number } | null;
+  isCurrentProgramDay: boolean;
+  /** Effective series (override-merged), in order. */
+  series: DaySeriesDTO[];
+  /** Flat effective exercise list (override-merged), in order. */
+  exercises: DayExerciseDTO[];
+  /** The user's raw override payload (client-side merge base for §5.1/5.2/5.4). */
+  override: {
+    seriesOrder?: string[][] | null;
+    replacements?: Record<string, string> | null;
+    notes?: Record<string, string> | null;
+  } | null;
+};
+
+/** GET /api/exercises/:id/suggestions — §5.2 replace candidates. */
+export type ExerciseSuggestionDTO = {
+  id: string;
+  name: string;
+  primaryMuscles: string[];
+  equipment: string[];
+  altGroup: string | null;
+  thumbnailUrl: string | null;
+};
 
 export type RoutineDTO = {
   id: string;
@@ -487,7 +558,11 @@ export type ActiveRoutineDTO = {
   completedDayIds?: string[]; // Part 6: persistent "Day completed" markers
 };
 
-/** One row in the programs list with follow/usage metadata. */
+/** One row in the programs list with follow/usage metadata.
+ *  Part 9 §3: the list is the variant-aware CATALOG — every row also carries
+ *  the variant facts at the requested difficulty (default = the user's).
+ *  `dayCount`/`restCount`/`exerciseCount` are variant-scoped for ROUTINE rows
+ *  (routine-scoped when no variant exists at that difficulty / for SESSIONs). */
 export type ProgramSummaryDTO = {
   id: string;
   name: string;
@@ -499,6 +574,62 @@ export type ProgramSummaryDTO = {
   lastUsedAt: string | null; // ISO date of last provenance workout
   isFollowed: boolean;
   cursor?: { dayIndex: number; dayCount: number } | null;
+  // ---- Part 9 §3: catalog fields at the requested difficulty ----
+  tagline: string | null;
+  weeks: number | null;
+  daysDone: number; // completed days (current program only; 0 otherwise)
+  variantExists: boolean; // a variant exists at the requested difficulty
+  phaseCount: number; // variant phase count (0 when the variant is missing)
+  daysPerWeek: number | null;
+};
+
+// ---------- Part 9 §4: variant-aware program detail ----------
+
+export type ProgramDetailDayDTO = {
+  id: string;
+  name: string;
+  dayType: string; // WORKOUT | REST
+  estMinutes: number | null;
+};
+
+export type ProgramDetailPhaseDTO = {
+  id: string; // ProgramPhase id ("{routineId}:implicit" for variant-less programs)
+  idx: number;
+  name: string;
+  overview: string | null;
+  minutesMin: number | null;
+  minutesMax: number | null;
+  hasPhaseOverride: boolean; // a per-user PhaseOverride exists (Reset Order)
+  isImplicit: boolean; // synthesized phase for variant-less custom programs
+  days: ProgramDetailDayDTO[]; // effective order (PhaseOverride applied)
+};
+
+export type ProgramVariantDetailDTO = {
+  id: string;
+  difficulty: string; // BEGINNER | INTERMEDIATE | ADVANCED
+  daysPerWeek: number | null;
+  equipment: string[]; // Equipment enum values
+  phases: ProgramDetailPhaseDTO[];
+};
+
+export type ProgramDetailDTO = {
+  id: string;
+  name: string;
+  notes: string | null;
+  kind: string; // ROUTINE | SESSION
+  tagline: string | null;
+  description: string | null;
+  weeks: number | null;
+  highlights: string[];
+  userDifficulty: string; // difficulty the DTO was resolved at
+  routineDifficulty: string | null;
+  variants: ProgramVariantDetailDTO[]; // every variant (empty for custom programs)
+  variant: ProgramVariantDetailDTO | null; // exact match at userDifficulty
+  fallbackVariant: ProgramVariantDetailDTO | null; // variantForDifficulty resolution
+  isCurrent: boolean;
+  cursorPhaseIdx: number | null; // current program only
+  cursorDayIndex: number | null; // current program only
+  daysDone: number; // current program only; 0 otherwise
 };
 
 export type DashboardTodayDTO = {

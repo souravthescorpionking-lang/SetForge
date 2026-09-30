@@ -78,6 +78,9 @@ export function mapExercise(
     setupNotes: e.setupNotes ?? null,
     targetNotes: e.targetNotes ?? null,
     catalogKey: e.catalogKey ?? null,
+    // ---- Part 9 §1 ----
+    position: e.position ?? null,
+    altGroup: e.altGroup ?? null,
     // ---- Part 8 ----
     showRpe: e.showRpe,
     showTempo: e.showTempo,
@@ -201,6 +204,8 @@ export function mapPredefinedSet(s: PredefinedSet): PredefinedSetDTO {
     // ---- Part 8 §6.4 ----
     weightKind: (s.weightKind ?? (s.weight != null ? "FIXED" : "COPY_LAST")) as "FIXED" | "COPY_LAST" | "PERCENT_1RM",
     pct: s.pct ?? null,
+    // ---- Part 9 §1 ----
+    isAmrap: s.isAmrap ?? false,
   };
 }
 
@@ -215,6 +220,9 @@ export function mapRoutineExercise(re: RoutineExercise & { exercise: ExerciseWit
     sets: re.sets.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(mapPredefinedSet),
     // ---- Part 8 §6.2 ----
     warmupScheme: (re.warmupScheme ?? "NONE") as "NONE" | "STANDARD" | "LIGHT" | "CUSTOM",
+    // ---- Part 9 §1 ----
+    tip: re.tip ?? null,
+    restNone: re.restNone ?? false,
   };
 }
 
@@ -230,6 +238,8 @@ export function mapRoutineDay(d: RoutineDay & { exercises: Array<RoutineExercise
     primaryMuscles: jsonStringArray(d.primaryMuscles),
     estMinutes: d.estMinutes ?? null,
     isFavorite: d.isFavorite ?? false,
+    // ---- Part 9 §1 ----
+    equipment: jsonStringArray(d.equipment),
   };
 }
 

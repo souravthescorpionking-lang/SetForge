@@ -395,6 +395,19 @@ export const difficultyPatchSchema = z.object({ difficulty: z.enum(DIFFICULTIES)
 export const programStartSchema = z.object({
   phaseIdx: z.number().int().min(0).optional(), // defaults to 0 (Phase 1)
 });
+// §3/§4 query params — .catch(undefined) keeps the legacy lenient behaviour
+// (unknown values are ignored, not 400s).
+export const programListQuerySchema = z.object({
+  kind: z.enum(["ROUTINE", "SESSION"]).optional().catch(undefined),
+  difficulty: z.enum(DIFFICULTIES).optional().catch(undefined),
+});
+export const programDetailQuerySchema = z.object({
+  difficulty: z.enum(DIFFICULTIES).optional().catch(undefined),
+});
+// §4 PhaseOverride save (PUT /api/phases/:id/order).
+export const phaseOrderSchema = z.object({
+  dayOrder: z.array(z.string().min(1)).min(1).max(100),
+});
 export const supportTicketSchema = z.object({
   subject: z.string().trim().min(3, "Subject is too short").max(120),
   body: z.string().trim().min(10, "Tell us a bit more").max(4000),
@@ -523,3 +536,21 @@ export const exerciseCatalogPatchSchema = z.object({
 // Auth email confirmation (AUTH_EMAIL_CONFIRM=true)
 export const resendConfirmationSchema = z.object({ email: emailField });
 export const confirmEmailSchema = z.object({ token: z.string().min(16).max(128) });
+
+// ---------- Part 9 §5: DayOverride patch + PhaseOverride order ----------
+
+/**
+ * PUT /api/days/:id/override (§5.1/§5.2/§5.4) — partial updates touch only the
+ * provided keys; an explicit null CLEARS that key. Records are keyed by the
+ * day's SeriesExercise (RoutineExercise) ids.
+ */
+export const dayOverridePatchSchema = z.object({
+  seriesOrder: z.array(z.array(z.string().min(1)).min(1)).min(1).nullish(),
+  replacements: z.record(z.string().min(1), z.string().min(1)).nullish(),
+  notes: z.record(z.string().min(1), z.string().max(2000)).nullish(),
+});
+
+/** PUT /api/phases/:id/order { dayOrder } (§4 Program tab drag). */
+export const phaseOrderPutSchema = z.object({
+  dayOrder: z.array(z.string().min(1)).min(1),
+});

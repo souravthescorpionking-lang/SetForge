@@ -12,13 +12,17 @@ const SPEEDS = [0.5, 0.75, 1, 1.5, 2] as const;
 export interface MediaBlockProps {
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
-  /** px height of the block: 180 (mobile) / 240 (desktop) per spec; 0 when absent. */
+  /** px height of the block: 180 (mobile) / 240 (desktop) per spec; 0 when absent.
+   *  Ignored when aspectVideo is set. */
   height?: number;
   showVideoPanel?: boolean; // setting gate (guided-mode video)
+  /** Part 9 §5.3: render the media 16:9 (aspect-video, full width) instead of a
+   *  fixed pixel height — the Exercise Info presentation. */
+  aspectVideo?: boolean;
   className?: string;
 }
 
-export function MediaBlock({ videoUrl, thumbnailUrl, height = 180, showVideoPanel = true, className }: MediaBlockProps) {
+export function MediaBlock({ videoUrl, thumbnailUrl, height = 180, showVideoPanel = true, aspectVideo = false, className }: MediaBlockProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [speed, setSpeed] = useState<number>(1);
   const [playing, setPlaying] = useState(false);
@@ -26,7 +30,7 @@ export function MediaBlock({ videoUrl, thumbnailUrl, height = 180, showVideoPane
   if (!videoUrl || !showVideoPanel) {
     if (!thumbnailUrl) return null; // 0px — collapsed, no blank box
     return (
-      <div className={`flex-none overflow-hidden rounded-md border bg-muted/30 ${className ?? ""}`} style={{ height }}>
+      <div className={`flex-none overflow-hidden rounded-md border bg-muted/30 ${className ?? ""} ${aspectVideo ? "aspect-video w-full" : ""}`} style={aspectVideo ? undefined : { height }}>
         <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
       </div>
     );
@@ -34,7 +38,7 @@ export function MediaBlock({ videoUrl, thumbnailUrl, height = 180, showVideoPane
 
   return (
     <div className={`flex-none overflow-hidden rounded-md border bg-muted/30 ${className ?? ""}`}>
-      <div className="relative" style={{ height }}>
+      <div className={`relative ${aspectVideo ? "aspect-video w-full" : ""}`} style={aspectVideo ? undefined : { height }}>
         <video
           ref={videoRef}
           src={videoUrl}

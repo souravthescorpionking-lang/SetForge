@@ -75,7 +75,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useApp } from "@/lib/client/store";
-import { ApiError, routinesApi, workoutsApi, type SetInput } from "@/lib/client/api";
+import { ApiError, dayApi, routinesApi, workoutsApi, type SetInput } from "@/lib/client/api";
 import { hapticSuccess, hapticWarning } from "@/lib/client/haptics";
 import { deriveGroups, memberCode } from "@/lib/grouping";
 import { guidedPointerOrder } from "@/lib/group-codes";
@@ -207,6 +207,27 @@ export default function SessionScreen() {
     return { routineName: r.name, dayName: day?.name ?? null };
   }, [workout, routinesQuery.data]);
   const sessionName = source?.dayName ?? source?.routineName ?? "Freestyle session";
+
+  // §5.4: the source day's DayOverride notes render as one line under each
+  // exercise header (GroupCard entry.note). The day query rides the same
+  // cached chain the day overview uses (qk.day).
+  const dayNotesQuery = useQuery({
+    queryKey: qk.day(workout?.sourceDayId ?? ""),
+    queryFn: () => dayApi.get(workout!.sourceDayId!),
+    enabled: workout?.sourceDayId != null,
+    staleTime: 60_000,
+  });
+  const noteByExerciseId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const ex of dayNotesQuery.data?.exercises ?? []) {
+      if (!ex.note) continue;
+      // effective id first, then the template id it replaced (started-before-
+      // replace workouts still carry the template exercise)
+      if (!m.has(ex.exerciseId)) m.set(ex.exerciseId, ex.note);
+      if (ex.replacedExerciseId && !m.has(ex.replacedExerciseId)) m.set(ex.replacedExerciseId, ex.note);
+    }
+    return m;
+  }, [dayNotesQuery.data]);
 
   // ---------- ui state ----------
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -964,6 +985,7 @@ export default function SessionScreen() {
                           sets: cardSetsOf(we),
                           code: memberCode(g.code, i),
                           tip: we.exercise.trainerTip ?? null,
+                          note: noteByExerciseId.get(we.exerciseId) ?? null,
                           collapsed: isCollapsed(we),
                           currentSetIndex: currentSetIndexFor(we.id),
                         }))}

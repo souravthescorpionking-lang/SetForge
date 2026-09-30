@@ -42,6 +42,7 @@ import {
   PencilRuler,
   Plus,
   Replace,
+  StickyNote,
   Timer,
   Trash2,
   Trophy,
@@ -82,6 +83,11 @@ export interface GroupCardEntry {
   code: string;
   /** Trainer tip (💡) — inline-expands to max 3 lines, 150ms. */
   tip?: string | null;
+  /** Per-exercise coaching note (📝 §5.4) — 32px single-line row under the
+   *  name; tap expands the full text (prose, exempt from nowrap). */
+  note?: string | null;
+  /** Part 9 §5: SeriesExercise-level “Rest: none” flag (rest row label). */
+  restNone?: boolean;
   /** log mode: collapsed shows "0/3" right and hides the SetRow list. */
   collapsed?: boolean;
   /** edit mode: drag affordance replacing 💡. */
@@ -110,6 +116,10 @@ export interface GroupCardProps {
   /** ⏱ rest-row expanded (remembered per card for the session — parent state). */
   restExpanded?: boolean;
   onToggleRest?: () => void;
+  /** Part 9 §5: screen-provided … menu (REPLACES the per-mode default; e.g. the
+   *  day overview passes Rearrange/Replace/Exercise info/Notes). Icons and
+   *  actions follow the same GroupMenuItem contract as the built-ins. */
+  menuItems?: GroupMenuItem[];
   className?: string;
 }
 
@@ -158,10 +168,13 @@ function menuForMode(mode: CardMode): GroupMenuItem[] {
 // ---------- reps cell text (§2.2 markers) ----------
 
 function repsCellText(set: CardSet, fields: Array<"weight" | "reps" | "distance" | "timeSec">): string {
+  // Part 9 §5: AMRAP prescribed sets spell out "AMRAP" (tap → Term definition).
   const reps =
-    set.setType === "AMRAP" || set.reps == null
-      ? "∞"
-      : String(set.reps);
+    set.setType === "AMRAP"
+      ? "AMRAP"
+      : set.reps == null
+        ? "∞"
+        : String(set.reps);
   if (!fields.includes("weight")) {
     if (fields.includes("distance") && set.distanceM != null) return `${trimNum(set.distanceM)} m · ${reps}`;
     if (fields.includes("timeSec") && set.timeSec != null) return `${set.timeSec}s · ${reps}`;
@@ -182,6 +195,7 @@ function repsCellText(set: CardSet, fields: Array<"weight" | "reps" | "distance"
 
 const CODE_ROW = "flex h-8 items-center gap-2 px-3";
 const NAME_ROW = "flex h-10 items-center gap-1 px-3";
+const NOTE_ROW = "flex h-8 items-center gap-2 px-3";
 const REPS_ROW = "flex h-10 items-center gap-1 px-3";
 const TEMPO_ROW = "flex h-8 items-center gap-2 px-3";
 const REST_ROW = "flex h-10 items-center gap-2 px-3";
@@ -194,12 +208,14 @@ export function GroupCard({
   visibleColumns,
   restExpanded = false,
   onToggleRest,
+  menuItems,
   className,
 }: GroupCardProps) {
   const [tipOpen, setTipOpen] = useState<string | null>(null);
+  const [noteOpen, setNoteOpen] = useState<string | null>(null);
   const hasActions = onAction != null;
   const barColour = group.colour ?? entries[0]?.exercise.categoryColour ?? "#f97316";
-  const menu = hasActions ? menuForMode(mode) : [];
+  const menu = hasActions ? (menuItems ?? menuForMode(mode)) : [];
   // Legacy Part 3 modes (template/preview/summary/edit-legacy) render through
   // their own SetRow list below — the Part 8 layout branches do not run.
   const isLegacyRows =
@@ -207,8 +223,9 @@ export function GroupCard({
   const layoutMode: "view" | "read" | "edit" | "log" =
     mode === "view" || mode === "read" || mode === "edit" || mode === "log" ? mode : "read";
 
-  // Rest row hidden entirely when no entry carries rest data.
-  const anyRest = entries.some((e) => e.sets.some((s) => s.restPlannedSec != null));
+  // Rest row hidden entirely when no entry carries rest data (§5: restNone
+  // exercises always show their "Rest: none" row).
+  const anyRest = entries.some((e) => e.restNone || e.sets.some((s) => s.restPlannedSec != null));
   const anyTempo = entries.some((e) => e.sets.some((s) => s.tempo != null && s.tempo !== ""));
 
   const dispatch = (action: CardAction, entryIndex: number, exerciseId?: string) => {
@@ -255,6 +272,11 @@ export function GroupCard({
               {/* 40px name row */}
               <div {...tourAttrs({ id: "groupCard.name", label: "Exercise name", help: "Exercise name; long-press options via the menu.", order: 110 })} className={NAME_ROW}>
                 <h3 className="min-w-0 flex-1 truncate text-base font-semibold leading-none">{e.name}</h3>
+                {entry.note != null ? (
+                  <span className="flex flex-none items-center gap-1 text-xs leading-none text-muted-foreground" aria-label="Has a note">
+                    <StickyNote className="h-3.5 w-3.5" aria-hidden />
+                  </span>
+                ) : null}
                 {e.progressionDelta != null && e.progressionDelta !== 0 ? (
                   <span className="flex-none text-xs font-medium leading-none text-primary">
                     {e.progressionDeload ? "↓ deload" : `↑ +${trimNum(e.progressionDelta)} next`}
@@ -294,6 +316,31 @@ export function GroupCard({
                 ) : null}
               </div>
 
+              {/* 📝 note row (§5.4) — 32px single line under the header; tap
+                  expands the full text (prose block, exempt from nowrap). */}
+              {entry.note ? (
+                <>
+                  <button
+                    type="button"
+                    {...tourAttrs({ id: "groupCard.note", label: "Note", help: "Your coaching note for this exercise; tap to expand.", order: 120 })}
+                    aria-expanded={noteOpen === e.id}
+                    aria-label={`Note for ${e.name}`}
+                    onClick={() => setNoteOpen((cur) => (cur === e.id ? null : e.id))}
+                    className={cn(NOTE_ROW, "w-full gap-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground")}
+                  >
+                    <StickyNote className="h-3.5 w-3.5 flex-none text-primary" aria-hidden />
+                    <span className="truncate">{noteOpen === e.id ? "Hide note" : "Note"}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground/70">{entry.note}</span>
+                    <ChevronDown className={cn("h-3.5 w-3.5 flex-none text-muted-foreground/60 transition-transform", noteOpen !== e.id && "-rotate-90")} aria-hidden />
+                  </button>
+                  {noteOpen === e.id ? (
+                    <p className="mx-3 mb-1 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                      {entry.note}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
               {/* 💡 trainer tip toggle (edit mode: drag handle replaces it) */}
               {mode === "edit" && entry.dragHandle != null ? (
                 <div className="flex h-8 items-center px-3">{entry.dragHandle}</div>
@@ -325,7 +372,13 @@ export function GroupCard({
                     <span className="flex-none text-xs font-medium text-muted-foreground">Reps:</span>
                     <span className="flex min-w-0 flex-1 items-center gap-3 overflow-x-auto text-sm font-medium tabular-nums leading-none">
                       {entry.sets.map((s) => (
-                        <span key={s.id} className="flex-none whitespace-nowrap">{repsCellText(s, fields)}</span>
+                        <span key={s.id} className="flex-none whitespace-nowrap">
+                          {s.setType === "AMRAP" ? (
+                            <Term id="AMRAP" className="tabular-nums">{repsCellText(s, fields)}</Term>
+                          ) : (
+                            repsCellText(s, fields)
+                          )}
+                        </span>
                       ))}
                       {entry.sets.length === 0 ? <span className="text-muted-foreground">–</span> : null}
                     </span>
@@ -347,7 +400,9 @@ export function GroupCard({
                       className={cn(REST_ROW, "w-full gap-2 text-left")}
                     >
                       <Timer className="h-4 w-4 flex-none text-muted-foreground" aria-hidden />
-                      {restExpanded ? (
+                      {entry.restNone ? (
+                        <span className="truncate text-sm leading-none text-muted-foreground">Rest: none</span>
+                      ) : restExpanded ? (
                         <span className="truncate text-sm tabular-nums leading-none text-muted-foreground">
                           {entry.sets.length}× · Rest sec: {entry.sets.map((s) => s.restPlannedSec ?? "–").join(" ")}
                         </span>

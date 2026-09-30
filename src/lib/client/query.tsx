@@ -4,7 +4,8 @@
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApp } from "./store";
-import { categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi } from "./api";
+import { authApi, categoriesApi, exercisesApi, workoutsApi, measurementsApi, timerPresetsApi, dashboardApi, programsApi, scheduleApi } from "./api";
+import type { Difficulty } from "@/lib/constants";
 
 export const qk = {
   categories: ["categories"] as const,
@@ -30,8 +31,15 @@ export const qk = {
   timerPresets: ["timer-presets"] as const,
   // ---- Part 5: programs / sessions / schedule / dashboard ----
   dashboard: ["dashboard"] as const,
-  programs: (kind?: string) => ["programs", kind ?? "all"] as const,
+  /** "user" = resolved server-side from the session's difficulty. */
+  programs: (kind?: string, difficulty?: string) => ["programs", kind ?? "all", difficulty ?? "user"] as const,
   schedule: (from: string, to: string) => ["schedule", from, to] as const,
+  // ---- Part 9 §2/§4: session payload (user.difficulty) + program detail ----
+  session: ["session"] as const,
+  programDetail: (id: string, difficulty?: string) => ["program-detail", id, difficulty ?? "user"] as const,
+  // ---- Part 9 §5: day overview (override-merged) + replace suggestions ----
+  day: (dayId: string) => ["day", dayId] as const,
+  exerciseSuggestions: (exerciseId: string) => ["exercise-suggestions", exerciseId] as const,
 };
 
 export function QueryProvider({ children }: { children: ReactNode }) {
@@ -88,12 +96,20 @@ export function useDashboard() {
   return useQuery({ queryKey: qk.dashboard, queryFn: () => dashboardApi.get(), staleTime: 15_000 });
 }
 
-/** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION. */
-export function usePrograms(kind?: "ROUTINE" | "SESSION") {
+/** Programs list with follow/usage metadata. kind filters ROUTINE | SESSION;
+ * difficulty scopes the Part 9 §3 variant info (omit = the user's difficulty). */
+export function usePrograms(kind?: "ROUTINE" | "SESSION", difficulty?: Difficulty) {
   return useQuery({
-    queryKey: qk.programs(kind),
-    queryFn: () => programsApi.list(kind),
+    queryKey: qk.programs(kind, difficulty),
+    queryFn: () => programsApi.list({ ...(kind ? { kind } : {}), ...(difficulty ? { difficulty } : {}) }),
   });
+}
+
+/** Part 9 §2: session payload query — user.difficulty is the source of truth
+ *  for the global difficulty. PATCH /api/user/difficulty invalidates ["session"]
+ *  and every difficulty-derived view re-renders. */
+export function useSession() {
+  return useQuery({ queryKey: qk.session, queryFn: () => authApi.session(), staleTime: 30_000 });
 }
 
 /** Schedule entries + projected ghosts for a [from, to] window. */
@@ -147,6 +163,11 @@ export function useInvalidate() {
       qc.invalidateQueries({ queryKey: ["schedule"] });
       qc.invalidateQueries({ queryKey: qk.dashboard });
     },
+    // ---- Part 9 §2/§4 ----
+    session: () => qc.invalidateQueries({ queryKey: qk.session }),
+    /** Program detail queries (all difficulties; scope to one id when given). */
+    programDetail: (id?: string) =>
+      qc.invalidateQueries({ queryKey: id ? ["program-detail", id] : ["program-detail"] }),
     all: () => qc.invalidateQueries(),
   };
 }

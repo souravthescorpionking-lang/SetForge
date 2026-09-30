@@ -144,7 +144,9 @@ export type CardAction =
   | { type: "graph"; exerciseId: string }
   | { type: "records"; exerciseId: string }
   | { type: "detail"; exerciseId: string }
-  | { type: "edit-sets"; exerciseId: string };
+  | { type: "edit-sets"; exerciseId: string }
+  /** Part 9 §5: day … menu — open the §5.1 rearrange editor for this day. */
+  | { type: "rearrange-series" };
 
 // ---------- toCardSet mapper ----------
 
