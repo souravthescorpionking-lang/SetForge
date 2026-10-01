@@ -1324,3 +1324,25 @@ Stage Summary:
 - Part 10 COMPLETE: §0–§14 all shipped and verified. Commits: 99362d6 (§0-2) · 5795fc7 (§3+§4) · 5b5abb5 (§5-9) · cb112c6 (§10-13) + docs commits.
 - Ship-gate deviations (justified in audit): no docker/Lighthouse/CI-file in sandbox (agent-browser E2E + harness substitute); no Dexie (offline = optimistic mutations + server-state reload persistence); SQLite dev (schema + idempotent migration SQL portable).
 - Known limitations: none blocking. Deferred items from Parts 8/9 unchanged (seed:stress, SyncConflict write-path, OS-notification permission flow).
+
+---
+Task ID: hotfix-login-1
+Agent: lead (Z.ai Code)
+Task: User reported "Not able to login or not able to create account. Shows something went wrong." — diagnose and fix.
+
+Work Log:
+- Reproduced: curl to :3000 returned HTTP 000 (connection refused) — the dev server process was DEAD (killed by the recurring sandbox reaper; the pre-existing scripts/watchdog.sh was dead too). Root cause of the login/signup failure: the whole app was unreachable, so the auth screen's fetch failed and the UI surfaced the generic "Something went wrong" error. Auth code itself was intact.
+- Restarted dev server (`bun run dev` background) → root 200; direct API tests: POST /api/auth/login (demo@setforge.app) → 200 with user+settings+session cookie; POST /api/auth/signup (new user) → 201.
+- agent-browser E2E: UI login (demo) → Workout home screen with program card; Sign out (confirm dialog) → back to auth screen; UI signup (ui-qa-p11@test.dev) → onboarding Step 1 of 6 → Skip → home screen. Both flows verified working.
+- Restored src/app/api/media/upload/route.ts — it was accidentally DELETED by commit ddfe3d6 (junk commit with permission-bit churn + tool-results noise). Route compiles; unauthenticated POST returns 401 UNAUTHORIZED as designed.
+- Removed tool-results/* junk from git tracking; committed fix as 8b6589f.
+- Restarted scripts/watchdog.sh (nohup, PID 2846) — checks every 4s, restarts dev server when dead, waits for /api/health. Verified /api/health → {"db":"ok","migrations":"current"}.
+- Battery: lint 0 errors / 107 warnings (pre-existing baseline); tsc 0 errors in src/ (examples+scripts scaffolding errors are pre-existing and outside the app build); dev.log shows no 5xx during verification.
+- Created QA test accounts in dev DB: qa-p11@test.dev (API) and ui-qa-p11@test.dev (UI). Harmless dev artifacts.
+
+Stage Summary:
+- Login/signup fully working again; root cause was environmental (dead dev server), not an auth bug.
+- Permanent mitigations: watchdog.sh running again + 15-min webDevReview cron job (checks server, restarts if reaped, QA via agent-browser).
+- Restored media/upload route (regression from ddfe3d6); commit 8b6589f.
+- Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) has NOT been started yet — spec prompts exist but no docs/spec/part-11-plan.md, no code. That remains the next major work item.
+- Unresolved risks: sandbox reaper can still kill the watchdog itself (cron job is the backstop); AUTH_SECRET falls back to insecure dev value (dev-only, acceptable).
