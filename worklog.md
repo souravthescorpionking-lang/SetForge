@@ -1410,3 +1410,36 @@ Stage Summary:
 - Operational rule recorded for all future agents: CLOSE agent-browser sessions when idle — accumulated chrome sessions were the hidden memory pressure that tipped the system into OOM kills.
 - Cron safety net is dead (exec limits) — rely on scripts/watchdog.sh; restart it after any redeploy: (setsid nohup bash scripts/watchdog.sh > /dev/null 2>&1 < /dev/null &)
 - Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) still not started — next major work item.
+
+---
+Task ID: hotfix-recovery-4
+Agent: main (Z.ai Code)
+Task: User reported "still not working" after hotfix-auth-2/oom-3 — diagnose and fix.
+
+Work Log:
+- Checked server: alive (200, health ok, boot 16:49 after reaper kill), watchdog v3 running.
+- dev.log critical clue: ZERO auth POSTs since boot — user's browser never reached the server; their tab was parked in a stale state.
+- Browser E2E: demo login AND user account (pradhansourav005@gmail.com / SetForge-2026!) both work perfectly ("Welcome back!", dashboard with their 9 programs). Backend 100% healthy.
+- Found the REAL root gap: user traffic goes through the Caddy preview GATEWAY. When next-server dies, the browser receives HTTP 502/503/504 (Caddy answers) — NOT a fetch TypeError. All previous recovery logic (hotfix-chunk-1, hotfix-auth-2) keyed on TypeError/network errors only → never triggered for gateway users.
+- Secondary gap: PwaBridge registers public/sw.js unconditionally (dev too). Stale SW shell + dead chunk URLs → app JS never loads → React never mounts → ChunkRecovery (a React component!) can never fire → permanently dead tab until manual refresh.
+- Tertiary gap: offline.html relied on the 'online' event, which never fires behind a gateway (browser is always "online"; only the upstream dies).
+
+Fixes (commit fa05e7f):
+- src/lib/client/api.ts: isServerUnreachable() (TypeError OR status>=502 OR SERVER_UNREACHABLE code); request() wraps connection failures as ApiError(0, SERVER_UNREACHABLE, actionable message); 502/503/504 responses → same.
+- src/features/auth/auth-screen.tsx: on unreachable during LOGIN → "Retrying automatically…" + probe /api/health (3s×10) + auto-resubmit when server answers. Signup keeps manual error (409 fallback covers replays). Also fixed missing tourAttrs on the 409 "Sign in instead →" button (lint baseline back to 107).
+- src/app/layout.tsx: inline vanilla pre-React boot script in <head> — captures /_next/ script/link load failures BEFORE React mounts, probes server, reloads once per 30s (shares sf.chunk.reload.at guard key with ChunkRecovery).
+- src/components/shared/chunk-recovery.tsx: visibilitychange probe — on tab return, if HEAD probe fails, run guarded recovery reload.
+- public/sw.js v1.0.3: upstreamDead() treats 502/503/504 as dead-upstream in handleNavigation/handleVolatile/handleAsset/handleApiGet → cache/offline fallback instead of raw Caddy error pages.
+- public/offline.html: HEAD probe loop (3s×60) auto-returns when server answers.
+
+Verification:
+- tsc src: 0 errors; lint: 0 errors / 107 warnings (baseline).
+- E2E via agent-browser: login user account works; simulated first-attempt 502 → auto-retry → logged in; simulated TypeError → auto-retry → logged in; intermediate "Retrying automatically…" + disabled button observed; killed server → reloaded page → SW cache fallback rendered app → server returned via watchdog → all working, no manual action.
+- dev.log: no 5xx after fixes. Hydration console warning = pre-existing Radix popover dev noise (not a regression).
+- Closed agent-browser sessions after testing (OOM operational rule).
+
+Stage Summary:
+- EVERY dead-server failure mode now self-heals: 502 gateway login (auto-retry), connection-refused login (auto-retry), stale-SW-shell page (pre-React boot script), dead-server page load (SW cache fallback + offline probe), tab-left-open (visibility probe).
+- User instruction remains: reload the Preview Panel once if a stale error is showing, then sign in with pradhansourav005@gmail.com / SetForge-2026! (temp password — change it in More → Settings → Password).
+- Unchanged risks: sandbox reaper still kills the server occasionally (watchdog+cron restart in ≤30s); EMAIL_SERVER still unconfigured (reset links are one-time on-screen links).
+- Next: Part 11 (docs/spec/part-11-plan.md first — GroupCard v2 variants, ChipRow, Your Workouts menu parity, Live History empty state), per the v1.1.0 plan.
