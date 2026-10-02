@@ -1,4 +1,5 @@
 // Signup / login / logout / session / password-reset service.
+import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { uuid7 } from "@/lib/uuid7";
@@ -210,9 +211,9 @@ export async function requestPasswordReset(input: { email: string }) {
   const user = await db.user.findUnique({ where: { email } });
   if (!user) {
     console.log(`[auth] reset requested for unknown email: ${email}`);
-    return { ok: true as const, emailConfigured: isEmailConfigured(env) };
+    return { ...noEmailResult(env), ok: true as const };
   }
-  const token = (await import("node:crypto")).randomBytes(32).toString("hex");
+  const token = randomBytes(32).toString("hex");
   await db.passwordResetToken.create({
     data: {
       id: uuid7(),
@@ -237,11 +238,26 @@ export async function requestPasswordReset(input: { email: string }) {
     } catch (e) {
       console.error(`[auth] reset email failed: ${email}`, e);
     }
-  } else {
-    // No SMTP configured — the link is logged server-side so operators can hand it over.
-    console.log(`[auth] EMAIL_SERVER not set — reset link for ${email}: ${link}`);
+    // Email delivered — the link goes ONLY to the inbox, never the response.
+    return { ok: true as const, emailConfigured: true };
   }
-  return { ok: true as const, emailConfigured: isEmailConfigured(env) };
+  // No SMTP configured — the link is logged server-side so operators can hand
+  // it over. Dev/sandbox mode: also return it in the response so the user is
+  // not stranded (an account-existence leak is avoided below via a decoy).
+  console.log(`[auth] EMAIL_SERVER not set — reset link for ${email}: ${link}`);
+  return { ok: true as const, emailConfigured: false, resetLink: link };
+}
+
+/**
+ * No-email-mode result for UNKNOWN accounts: a decoy link with a random token
+ * that was never stored — using it yields the same "invalid or expired" error
+ * as a real spent token, so the response shape can't reveal whether the email
+ * has an account.
+ */
+function noEmailResult(env: { EMAIL_SERVER?: string; EMAIL_FROM?: string; AUTH_URL?: string; APP_URL?: string }) {
+  if (isEmailConfigured(env)) return { emailConfigured: true };
+  const decoy = randomBytes(32).toString("hex");
+  return { emailConfigured: false, resetLink: `${env.AUTH_URL || env.APP_URL || ""}/#/auth?reset=${decoy}` };
 }
 
 export async function confirmPasswordReset(input: { token: string; newPassword: string }) {
@@ -336,8 +352,6 @@ export async function deleteAccount(userId: string) {
 // VerificationToken model (identifier + token + expiry, single-use) with the
 // same hashed-token discipline as PasswordResetToken.
 // ─────────────────────────────────────────────────────────────────────────────
-
-import { randomBytes } from "node:crypto";
 
 const CONFIRM_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const RESEND_COOLDOWN_MS = 60 * 1000; // 1 min

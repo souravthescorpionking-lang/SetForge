@@ -21,7 +21,7 @@ import { Screen, ScrollBody } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { tourAttrs } from "@/lib/tour/attrs";
-import { authApi } from "@/lib/client/api";
+import { authApi, ApiError } from "@/lib/client/api";
 import { useApp } from "@/lib/client/store";
 import { toast } from "sonner";
 import { Flame, Loader2, MailQuestion } from "lucide-react";
@@ -49,20 +49,32 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [accountExists, setAccountExists] = useState(false);
 
-  // Deep-link #/auth?reset=<token> → straight into the confirm view.
+  // Deep-link #/auth?reset=<token> → straight into the confirm view. Also
+  // reacts to hashchange: the reset link can be clicked from the
+  // reset-request view (same mounted screen — no remount).
   useEffect(() => {
-    const token = resetTokenFromHash();
-    if (token) {
-      setResetToken(token);
-      setMode("reset-confirm");
-    }
+    const applyToken = () => {
+      const token = resetTokenFromHash();
+      if (token) {
+        setResetToken(token);
+        setMode("reset-confirm");
+        setError(null);
+        setNotice(null);
+      }
+    };
+    applyToken();
+    window.addEventListener("hashchange", applyToken);
+    return () => window.removeEventListener("hashchange", applyToken);
   }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setNotice(null);
+    setAccountExists(false);
     setBusy(true);
     try {
       if (mode === "login" || mode === "signup") {
@@ -80,15 +92,18 @@ export default function AuthScreen() {
         navigate("/today");
       } else if (mode === "reset-request") {
         const res = await authApi.requestReset({ email });
+        setResetLink(res.resetLink ?? null);
         setNotice(
           res.emailConfigured
             ? "If an account exists for this email, a reset link is on its way (valid for 1 hour)."
-            : "Password reset email is not configured on this server. Contact your administrator to reset your password.",
+            : "Email delivery isn't configured on this server — use the one-time link below (valid for 1 hour).",
         );
       } else if (mode === "reset-confirm") {
         if (!resetToken) throw new Error("Missing reset token — open the link from your email again.");
         if (newPassword !== confirmPassword) throw new Error("Passwords do not match.");
         await authApi.confirmReset({ token: resetToken, newPassword });
+        // Drop the spent token from the URL so a refresh can't replay it.
+        if (resetTokenFromHash()) window.location.hash = "#/auth";
         toast.success("Password updated — sign in with your new password.");
         setMode("login");
         setPassword("");
@@ -97,7 +112,16 @@ export default function AuthScreen() {
         setResetToken(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      // Dev server unreachable (restart window / offline): fetch throws
+      // TypeError — give an actionable message instead of a cryptic one.
+      if (err instanceof TypeError) {
+        setError("Can't reach the server — it may be restarting. Wait a few seconds and try again.");
+      } else if (err instanceof ApiError && err.status === 409 && mode === "signup") {
+        setError("An account with this email already exists — sign in instead.");
+        setAccountExists(true);
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     } finally {
       setBusy(false);
     }
@@ -146,6 +170,8 @@ export default function AuthScreen() {
                   setMode(m);
                   setError(null);
                   setNotice(null);
+                  setAccountExists(false);
+                  setResetLink(null);
                 }}
                 {...tourAttrs(
                   m === "login"
@@ -238,14 +264,37 @@ export default function AuthScreen() {
           )}
 
           {error ? (
-            <p className="flex-none rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-              {error}
-            </p>
+            <div className="flex-none rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              <p>{error}</p>
+              {accountExists ? (
+                <button
+                  type="button"
+                  className="mt-1.5 text-sm font-bold underline underline-offset-2"
+                  onClick={() => {
+                    setMode("login");
+                    setError(null);
+                    setAccountExists(false);
+                    setPassword("");
+                  }}
+                >
+                  Sign in instead →
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {notice ? (
-            <p className="flex-none rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary" role="status">
-              {notice}
-            </p>
+            <div className="flex-none rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-primary" role="status">
+              <p>{notice}</p>
+              {resetLink ? (
+                <a
+                  href={resetLink}
+                  className="mt-1.5 block truncate text-sm font-bold underline underline-offset-2"
+                  title={resetLink}
+                >
+                  Set a new password now →
+                </a>
+              ) : null}
+            </div>
           ) : null}
 
           <Button type="submit" className="h-12 rounded-lg text-base font-bold" disabled={busy} tour={{ id: "auth.submit", label: "Submit", help: "Sign in or create the account and jump to Today.", order: 60 }}>
@@ -268,6 +317,7 @@ export default function AuthScreen() {
                 setMode("reset-request");
                 setError(null);
                 setNotice(null);
+                setResetLink(null);
               }}
             >
               Forgot password?
@@ -283,6 +333,7 @@ export default function AuthScreen() {
                 setMode("login");
                 setError(null);
                 setNotice(null);
+                setResetLink(null);
               }}
             >
               ← Back to sign in

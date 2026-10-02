@@ -102,7 +102,7 @@ export const authApi = {
   logout: () => request<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   session: () => request<SessionDTO | { user: null; settings: null }>("/api/auth/session"),
   requestReset: (data: { email: string }) =>
-    request<{ ok: true; emailConfigured: boolean }>("/api/auth/reset", { method: "POST", body: body(data) }),
+    request<{ ok: true; emailConfigured: boolean; resetLink?: string }>("/api/auth/reset", { method: "POST", body: body(data) }),
   confirmReset: (data: { token: string; newPassword: string }) =>
     request<{ ok: true }>("/api/auth/reset/confirm", { method: "POST", body: body(data) }),
 };
