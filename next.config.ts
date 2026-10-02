@@ -25,6 +25,14 @@ const nextConfig: NextConfig = {
   // them for dev /_next/* requests (HMR + chunk fetching) so Turbopack's
   // cross-origin protection never blocks the preview tab.
   allowedDevOrigins: ["*.space-z.ai"],
+  // Turbopack dev: the initial compile of this large single-page app spikes
+  // RSS to ~2.3GB (measured) — the kernel OOM killer executed next-server
+  // during those spikes when system memory was tight. Keep test browsers
+  // closed when idle; the limit below is an emergency brake for true leaks,
+  // deliberately ABOVE the compile peak so it can never restart-loop.
+  experimental: {
+    turbopackMemoryLimit: 2600,
+  },
   devIndicators: false, // hide the floating dev-tools badge (clean QA screenshots)
   typescript: {
     ignoreBuildErrors: true,
