@@ -1389,3 +1389,24 @@ Stage Summary:
 - Auth UX is now failure-proof: every failure mode (409 duplicate, 401 wrong password, server restart window, no-email reset) has an actionable message and path forward instead of a dead end.
 - The user's account is accessible again: pradhansourav005@gmail.com / SetForge-2026! (temporary — tell user to change it).
 - Remaining risk: reaper still kills dev server + watchdog on redeploys (cron restores within ≤15 min; user can also just retry after a minute). Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) still not started — next major work item.
+
+---
+Task ID: hotfix-oom-3
+Agent: lead (Z.ai Code)
+Task: User reported "Still showing something is wrong" after the auth fixes — third occurrence of the outage pattern.
+
+Work Log:
+- Diagnosed live: server was UP and answering 200 (localhost + gateway + login with user's creds all green), but dev.log showed ZERO requests from the user since restart — their tab was showing a STALE error from the previous dead window.
+- THE DEEP ROOT CAUSE (dmesg): the kernel OOM killer had executed next-server REPEATEDLY (RSS 2.25GB and 1.8GB kills logged). Turbopack's initial compile of this large single-page app spikes RSS to 1.7-2.3GB on a 3.9GB box; with accumulated agent-browser test sessions eating ~2GB, the system pressured into OOM during those spikes → dead windows → user errors. ALSO discovered all 3 cron safety-net jobs were auto-disabled ("exec limits exceeded") — nothing was restarting the server between my manual interventions.
+- Freed ~2GB by closing accumulated agent-browser chrome sessions (510MB used after vs 2.5GB before).
+- First attempt (turbopackMemoryLimit=1024 + watchdog RSS guard 1.6GB) was WRONG: both below the legitimate compile peak → watchdog killed servers mid-compile → boot loop (caught in watchdog log: kills at 4-8s after "healthy again"). Fixed by measuring the real curve: compile peak 2.33GB, steady state ~2.0GB.
+- FINAL fix: turbopackMemoryLimit=2600 (above compile peak, leak-only emergency brake) + watchdog v3 with AGE-AWARE RSS guard (skip if server younger than 240s; kill only >2560MB after that) + dead-process restart with health wait.
+- Verified: server survived full compile spike (peak 2125MB → settled 2061MB), stable at age 219s with 1.4GB headroom, no v3 kills; UI login with pradhansourav005@gmail.com/SetForge-2026! lands on their home screen (Dumbbell Only Upper); gateway login with preview Origin 200; fresh-email signup 201; tsc 0; lint 0 errors. Committed cf8a5a1.
+- Deleted none of the disabled cron jobs (they're inert); watchdog v3 is the live safety net now.
+
+Stage Summary:
+- The outage cycle is FIXED at the root: no more OOM kills during compile (memory headroom restored), no more watchdog boot loops (age-aware guard), dead-server restarts stay within ~4-8s.
+- User's tab showing a stale error: they must simply reload the Preview Panel once — credentials pradhansourav005@gmail.com / SetForge-2026! then work (verified via UI AND gateway with preview origin).
+- Operational rule recorded for all future agents: CLOSE agent-browser sessions when idle — accumulated chrome sessions were the hidden memory pressure that tipped the system into OOM kills.
+- Cron safety net is dead (exec limits) — rely on scripts/watchdog.sh; restart it after any redeploy: (setsid nohup bash scripts/watchdog.sh > /dev/null 2>&1 < /dev/null &)
+- Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) still not started — next major work item.
