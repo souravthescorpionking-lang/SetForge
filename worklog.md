@@ -1346,3 +1346,26 @@ Stage Summary:
 - Restored media/upload route (regression from ddfe3d6); commit 8b6589f.
 - Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) has NOT been started yet — spec prompts exist but no docs/spec/part-11-plan.md, no code. That remains the next major work item.
 - Unresolved risks: sandbox reaper can still kill the watchdog itself (cron job is the backstop); AUTH_SECRET falls back to insecure dev value (dev-only, acceptable).
+
+---
+Task ID: hotfix-chunk-1
+Agent: lead (Z.ai Code)
+Task: User reported runtime ChunkLoadError — "Failed to load chunk /_next/static/chunks/src_features_logs_a4b49d9d._.js" + hmr-client chunk from react-server-dom-turbopack.
+
+Work Log:
+- Diagnosed: the two chunk files DO exist on disk and serve 200 (even with the preview-panel Origin header). The failure was transient — it happened while the dev server was down/mid-restart (reaper killed it; watchdog was ALSO dead at that moment). The user's open tab tried to lazy-load the logs route chunk and the HMR client chunk during that window; both fetches failed, the HMR client died, so the tab could never self-heal → stuck on the error overlay. Immediate user fix = hard reload.
+- Also found: dev.log showed "Cross origin request detected from preview-chat-*.space-z.ai to /_next/*" warning — the preview gateway origin. Next 16 dev currently only warns, but flips to BLOCK once allowedDevOrigins is configured (verified in node_modules/next/dist/server/lib/router-utils/block-cross-site.js).
+- NEW src/components/shared/chunk-recovery.tsx: window-level auto-recovery — capture-phase error listener (message-based ChunkLoadError/Failed-to-fetch-dynamic-import patterns + resource errors on /_next/ scripts/links) + unhandledrejection listener; probes server with HEAD fetch (up to 60s in 3s steps — waits out restarts) then location.reload() exactly once per 30s window (sessionStorage + module guard = loop protection). Hash route survives reload. Mounted in AppRoot next to PwaBridge.
+- ScreenErrorBoundary.componentDidCatch now routes chunk-failure messages into recoverFromChunkFailure() instead of parking the user on the "Something went wrong" boundary (and skips the client-error report for self-healed chunk errors).
+- next.config.ts: allowedDevOrigins: ["*.space-z.ai"] (wildcard subdomain matching verified against Next's matchWildcardDomain). Verified post-restart: chunk fetch with preview Origin → 200; unknown origin → 403 (protection now active and correct).
+- Restarted dev server (config change) + watchdog in a DETACHED session (setsid) so a process-group kill can't take it out with the server.
+- E2E verified with agent-browser: fresh login (demo) → #/logs renders 23 entries (the exact chunk that failed); synthetic ChunkLoadError dispatch → auto-reload fired (navType=reload), hash #/logs preserved, session intact; second error within 30s → loop guard held (page age continuous, no reload); navigation to #/today → workout screen renders.
+- Gates: tsc 0 errors in src/ · lint 0 errors/107 warnings (baseline unchanged) · dev.log zero 5xx · /api/health ok.
+- Committed 669cbf6. (Junk auto-commit 8bd44c2 inspected — only db/custom.db bits + a QA png, nothing deleted.)
+
+Stage Summary:
+- ChunkLoadError root cause was environmental (server-down window + dead HMR client), NOT a code bug. Now permanently self-healing: open tabs auto-recover via guarded reload.
+- Cross-origin preview access future-proofed via allowedDevOrigins (blocks unknown origins, allows *.space-z.ai + localhost).
+- Watchdog now detached-session; 15-min webDevReview cron (job_id 429241) remains the outer backstop.
+- User-facing guidance: if the error ever reappears, a hard reload fixes it instantly — but the app should now do that automatically within seconds of the server coming back.
+- Part 11 (GroupCard v2, ChipRow, Your Workouts menu parity, Live History empty state) still NOT started — remains the next major work item; begin with docs/spec/part-11-plan.md per the spec's P1→P6 protocol.
