@@ -21,6 +21,10 @@ const CSP = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Preview-panel gateway proxies the app from *.space-z.ai origins — allow
+  // them for dev /_next/* requests (HMR + chunk fetching) so Turbopack's
+  // cross-origin protection never blocks the preview tab.
+  allowedDevOrigins: ["*.space-z.ai"],
   devIndicators: false, // hide the floating dev-tools badge (clean QA screenshots)
   typescript: {
     ignoreBuildErrors: true,

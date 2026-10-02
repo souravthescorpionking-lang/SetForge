@@ -12,6 +12,7 @@ import { flushOutbox, isOnline, outboxCount } from "@/lib/client/offline";
 import { armDailyReminder, rearmOnVisible } from "@/lib/client/notifications";
 import { setHapticsEnabled } from "@/lib/client/haptics";
 import { PwaBridge } from "@/components/shared/pwa";
+import { ChunkRecovery } from "@/components/shared/chunk-recovery";
 import { AppShell } from "@/features/shell/app-shell";
 import type { SessionDTO } from "@/lib/types";
 import { toast } from "sonner";
@@ -92,6 +93,7 @@ export function AppRoot({ initialSession }: { initialSession: SessionDTO | null 
     <QueryProvider>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <PwaBridge />
+        <ChunkRecovery />
         <AppInner initialSession={initialSession} />
       </ThemeProvider>
     </QueryProvider>

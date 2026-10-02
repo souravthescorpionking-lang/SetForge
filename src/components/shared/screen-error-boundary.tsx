@@ -9,6 +9,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, Home, RefreshCw } from "lucide-react";
 import { clientErrorsApi } from "@/lib/client/api";
 import { hapticError } from "@/lib/client/haptics";
+import { recoverFromChunkFailure, isChunkFailureMessage } from "@/components/shared/chunk-recovery";
 
 interface Props {
   route: string;
@@ -37,6 +38,12 @@ export class ScreenErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     hapticError();
+    // Chunk load failures (dev-server restart) self-heal via a guarded reload
+    // instead of parking the user on this boundary.
+    if (isChunkFailureMessage(error.message)) {
+      void recoverFromChunkFailure(error.message);
+      return;
+    }
     clientErrorsApi.report({
       message: error.message.slice(0, 1000),
       stack: info.componentStack?.slice(0, 1000),
