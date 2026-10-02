@@ -65,6 +65,18 @@
   </main>
   <script>
     window.addEventListener('online', () => location.replace('/'));
+    // Behind a preview gateway the browser stays "online" even while the app
+    // server is down (the proxy answers 502), so the event above never fires.
+    // Probe the app server directly and come back the moment it answers.
+    (function () {
+      var tries = 0;
+      function probe() {
+        fetch('/api/health', { method: 'HEAD', cache: 'no-store' })
+          .then(function () { location.replace('/'); })
+          .catch(function () { if (++tries < 60) setTimeout(probe, 3000); });
+      }
+      probe();
+    })();
   </script>
 </body>
 </html>

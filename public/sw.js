@@ -8,7 +8,7 @@
  *    the cache key embeds the sf_session cookie value, and logout wipes all caches)
  *  - Mutations / websockets / HMR: never intercepted
  */
-const VERSION = "v1.0.2";
+const VERSION = "v1.0.3";
 const SHELL_CACHE = `sf-shell-${VERSION}`;
 const ASSET_CACHE = `sf-assets-${VERSION}`;
 const API_CACHE = `sf-api-${VERSION}`;
@@ -54,10 +54,19 @@ async function trimCache(name, max) {
   }
 }
 
+/** The preview gateway answers with 502/503/504 while the app server behind
+ *  it is down/restarting — an HTTP response, not a network error. Treat those
+ *  exactly like a connection failure so the user gets the offline shell (with
+ *  its retry affordances) instead of a raw proxy error page. */
+function upstreamDead(res) {
+  return res && (res.status === 502 || res.status === 503 || res.status === 504);
+}
+
 async function handleNavigation(request) {
   const cache = await caches.open(SHELL_CACHE);
   try {
     const fresh = await fetch(request);
+    if (upstreamDead(fresh)) throw new Error("upstream-dead");
     if (fresh && fresh.ok) cache.put("/", fresh.clone());
     return fresh;
   } catch {
@@ -73,6 +82,7 @@ async function handleVolatile(request, cacheName) {
   const cache = await caches.open(cacheName);
   try {
     const fresh = await fetch(request);
+    if (upstreamDead(fresh)) throw new Error("upstream-dead");
     if (fresh && fresh.ok) cache.put(request, fresh.clone());
     return fresh;
   } catch {
@@ -88,6 +98,7 @@ async function handleAsset(request) {
   const cache = await caches.open(ASSET_CACHE);
   try {
     const fresh = await fetch(request);
+    if (upstreamDead(fresh)) throw new Error("upstream-dead");
     if (fresh && fresh.ok) {
       cache.put(request, fresh.clone());
       trimCache(ASSET_CACHE, 300);
@@ -105,6 +116,7 @@ async function handleApiGet(request) {
   const key = apiCacheKey(request);
   try {
     const fresh = await fetch(request);
+    if (upstreamDead(fresh)) throw new Error("upstream-dead");
     if (fresh && fresh.ok && fresh.type === "basic") {
       cache.put(key, fresh.clone());
       trimCache(API_CACHE, API_CACHE_MAX);

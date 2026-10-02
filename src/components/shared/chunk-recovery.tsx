@@ -94,11 +94,23 @@ export function ChunkRecovery() {
         event.reason instanceof Error ? event.reason.message : String(event.reason ?? "");
       if (isChunkFailureMessage(reason)) void recoverFromChunkFailure(reason);
     };
+    // hotfix-recovery-4: a tab left open through a dev-server restart holds
+    // stale chunks — every lazy navigation from then on 404s. When the user
+    // returns to the tab, silently probe; if the page's copy of the app is
+    // already dead to the network, run the guarded reload once it's back.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || recentlyReloaded()) return;
+      void serverReachable().then((up) => {
+        if (!up) void recoverFromChunkFailure("visibility-probe");
+      });
+    };
     window.addEventListener("error", onError, true);
     window.addEventListener("unhandledrejection", onRejection);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("error", onError, true);
       window.removeEventListener("unhandledrejection", onRejection);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
   return null;

@@ -21,7 +21,7 @@ import { Screen, ScrollBody } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { tourAttrs } from "@/lib/tour/attrs";
-import { authApi, ApiError } from "@/lib/client/api";
+import { authApi, ApiError, isServerUnreachable } from "@/lib/client/api";
 import { useApp } from "@/lib/client/store";
 import { toast } from "sonner";
 import { Flame, Loader2, MailQuestion } from "lucide-react";
@@ -51,6 +51,48 @@ export default function AuthScreen() {
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [resetLink, setResetLink] = useState<string | null>(null);
   const [accountExists, setAccountExists] = useState(false);
+  // hotfix-recovery-4: while the dev server is restarting, resubmit the sign-in
+  // automatically once the server answers a probe again (instead of parking on
+  // a dead-end error the user has to notice and re-click).
+  const [retrying, setRetrying] = useState(false);
+
+  // Server-reachability probe used by the auto-retry path. Any HTTP answer
+  // (even 4xx/5xx) means the app server process is back.
+  const probeServer = async (): Promise<boolean> => {
+    try {
+      await fetch("/api/health", { method: "HEAD", cache: "no-store" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Wait for the server to come back (≤ 30s), then auto-resubmit the sign-in.
+  // Login is idempotent, so replaying it after a connection-level failure is
+  // safe; signup keeps the manual error (its 409 fallback covers replays).
+  const autoRetryLogin = async () => {
+    setRetrying(true);
+    for (let i = 0; i < 10; i += 1) {
+      if (await probeServer()) break;
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    const reachable = await probeServer();
+    setRetrying(false);
+    if (!reachable) return false;
+    try {
+      const session = await authApi.login({ email, password });
+      setSession(session);
+      toast.success("Welcome back!");
+      navigate("/today");
+      return true;
+    } catch {
+      return false; // failed again — fall back to the manual error path
+    }
+  };
+
+  useEffect(() => {
+    return () => setRetrying(false);
+  }, []);
 
   // Deep-link #/auth?reset=<token> → straight into the confirm view. Also
   // reacts to hashchange: the reset link can be clicked from the
@@ -112,10 +154,20 @@ export default function AuthScreen() {
         setResetToken(null);
       }
     } catch (err) {
-      // Dev server unreachable (restart window / offline): fetch throws
-      // TypeError — give an actionable message instead of a cryptic one.
-      if (err instanceof TypeError) {
-        setError("Can't reach the server — it may be restarting. Wait a few seconds and try again.");
+      // Dev server unreachable (restart window / offline / gateway 502):
+      // fetch TypeError AND gateway-upstream errors both land here — show an
+      // actionable message and auto-retry the sign-in once the server answers.
+      if (isServerUnreachable(err)) {
+        if (mode === "login") {
+          setError("Can't reach the server — it may be restarting. Retrying automatically…");
+          const recovered = await autoRetryLogin();
+          if (recovered) return;
+          setError(
+            "Can't reach the server — it may be restarting. Wait a few seconds and try again.",
+          );
+        } else {
+          setError("Can't reach the server — it may be restarting. Wait a few seconds and try again.");
+        }
       } else if (err instanceof ApiError && err.status === 409 && mode === "signup") {
         setError("An account with this email already exists — sign in instead.");
         setAccountExists(true);
@@ -270,6 +322,7 @@ export default function AuthScreen() {
                 <button
                   type="button"
                   className="mt-1.5 text-sm font-bold underline underline-offset-2"
+                  {...tourAttrs({ skipTour: true, reason: "Conditional error-state action (409 fallback only)" })}
                   onClick={() => {
                     setMode("login");
                     setError(null);
@@ -297,8 +350,8 @@ export default function AuthScreen() {
             </div>
           ) : null}
 
-          <Button type="submit" className="h-12 rounded-lg text-base font-bold" disabled={busy} tour={{ id: "auth.submit", label: "Submit", help: "Sign in or create the account and jump to Today.", order: 60 }}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+          <Button type="submit" className="h-12 rounded-lg text-base font-bold" disabled={busy || retrying} tour={{ id: "auth.submit", label: "Submit", help: "Sign in or create the account and jump to Today.", order: 60 }}>
+            {busy || retrying ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             {mode === "login"
               ? "Sign in"
               : mode === "signup"

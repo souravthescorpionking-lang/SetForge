@@ -51,13 +51,45 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * True when the error means "the app server (or its gateway) is down /
+ * restarting" — as opposed to a real API rejection. Covers:
+ *  • fetch TypeError — connection refused / dropped (direct-origin death)
+ *  • HTTP 502/503/504 — the preview gateway answers while the dev server
+ *    behind it is dead, so the browser sees an HTTP error, NOT a network
+ *    error. Without this, users behind a gateway get "Bad Gateway"-style
+ *    dead ends that never hint at retrying.
+ */
+export function isServerUnreachable(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof ApiError) {
+    return err.status >= 502 || err.code === "SERVER_UNREACHABLE";
+  }
+  return false;
+}
+
+const UNREACHABLE_MESSAGE =
+  "Can't reach the server — it may be restarting. This usually fixes itself in under a minute.";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    credentials: "same-origin",
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      credentials: "same-origin",
+    });
+  } catch (err) {
+    // Connection-level failure (server process dead, direct origin).
+    if (err instanceof TypeError) throw new ApiError(0, "SERVER_UNREACHABLE", UNREACHABLE_MESSAGE);
+    throw err;
+  }
   if (!res.ok) {
+    // Gateway-upstream-dead: the proxy answered (502/503/504) because the
+    // dev server behind it is down/restarting. Surface it as retryable.
+    if (res.status >= 502) {
+      throw new ApiError(res.status, "SERVER_UNREACHABLE", UNREACHABLE_MESSAGE);
+    }
     let code = "INTERNAL";
     let message = res.statusText || "Request failed";
     let details: unknown;
