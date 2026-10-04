@@ -157,12 +157,15 @@ async function runBootstrap(): Promise<BootResult> {
 
   // 3b) Part 6: exercise catalog (§3) — load SystemCatalog + one-time user backfill.
   //     Never fatal: a missing catalog degrades Library features only.
-  try {
-    const result = await loadSystemCatalog();
-    if (result.entries > 0) await backfillUserExercises();
-    await backfillExistingProfiles();
-  } catch (e) {
-    console.warn("[bootstrap] catalog load skipped:", e instanceof Error ? e.message : String(e));
+  //     Skip on Vercel to keep serverless cold starts under 100ms.
+  if (!process.env.VERCEL) {
+    try {
+      const result = await loadSystemCatalog();
+      if (result.entries > 0) await backfillUserExercises();
+      await backfillExistingProfiles();
+    } catch (e) {
+      console.warn("[bootstrap] catalog load skipped:", e instanceof Error ? e.message : String(e));
+    }
   }
 
   // 3c) Part 9 §9: purge accounts soft-deleted more than 30 days ago.

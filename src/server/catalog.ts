@@ -128,6 +128,11 @@ export async function loadSystemCatalog(): Promise<CatalogLoadResult> {
     return { entries: 0, source: "skipped" };
   }
 
+  const existingCount = await db.systemCatalog.count().catch(() => 0);
+  if (existingCount >= list.length) {
+    return { entries: existingCount, source: "builtin" };
+  }
+
   let count = 0;
   for (const item of list) {
     const entry = catalogEntrySchema.safeParse(item);

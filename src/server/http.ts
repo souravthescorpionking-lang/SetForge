@@ -42,7 +42,8 @@ export function errorResponse(e: unknown): NextResponse {
     );
   }
   console.error("[api] unhandled error:", e);
-  return NextResponse.json(errorBody("INTERNAL", "Something went wrong"), { status: 500 });
+  const msg = e instanceof Error ? e.message : "Something went wrong";
+  return NextResponse.json(errorBody("INTERNAL", msg), { status: 500 });
 }
 
 /** Wraps a route handler: JSON envelope, error mapping, Zod → 400. */
