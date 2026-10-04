@@ -48,7 +48,7 @@ async function connectWithRetry(retries: number, backoffMs: number): Promise<str
  * during multi-replica boots; SQLite is single-writer by design.
  */
 async function autoMigrate(env: ReturnType<typeof getEnv>): Promise<void> {
-  if (!env.DB_AUTO_MIGRATE) return;
+  if (!env.DB_AUTO_MIGRATE || process.env.VERCEL) return;
   if (env.NODE_ENV !== "production") {
     console.log("[bootstrap] DB_AUTO_MIGRATE skipped in dev (use `bun run db:migrate` / `db:push`)");
     return;
@@ -99,16 +99,18 @@ async function runBootstrap(): Promise<BootResult> {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     console.error("[bootstrap] auto-migrate failed:", err);
-    if (env.NODE_ENV === "production") process.exit(1);
+    if (env.NODE_ENV === "production" && !process.env.VERCEL) process.exit(1);
   }
 
   // 1) connect with retries
   try {
-    await connectWithRetry(env.DATABASE_CONNECT_RETRIES, env.DATABASE_CONNECT_BACKOFF_MS);
+    const maxRetries = process.env.VERCEL ? 3 : env.DATABASE_CONNECT_RETRIES;
+    const backoff = process.env.VERCEL ? 500 : env.DATABASE_CONNECT_BACKOFF_MS;
+    await connectWithRetry(maxRetries, backoff);
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     console.error("[bootstrap] DB connection failed:", err);
-    if (env.NODE_ENV === "production") process.exit(1);
+    if (env.NODE_ENV === "production" && !process.env.VERCEL) process.exit(1);
     return { db: "fail", migrations: "unknown", version: "", latencyMs: Date.now() - started, bootedAt: Date.now(), error: err };
   }
 
@@ -148,7 +150,7 @@ async function runBootstrap(): Promise<BootResult> {
       console.log("[bootstrap] system reference data verified");
     } catch (e) {
       console.error("[bootstrap] seeding failed:", e);
-      if (env.NODE_ENV === "production") process.exit(1);
+      if (env.NODE_ENV === "production" && !process.env.VERCEL) process.exit(1);
       return { db: "fail", migrations, version, latencyMs: Date.now() - started, bootedAt: Date.now(), error: String(e) };
     }
   }
@@ -178,7 +180,7 @@ async function runBootstrap(): Promise<BootResult> {
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     console.error("[bootstrap] smoke verification failed — database not migrated?", err);
-    if (env.NODE_ENV === "production") process.exit(1);
+    if (env.NODE_ENV === "production" && !process.env.VERCEL) process.exit(1);
     return { db: "fail", migrations: "pending", version, latencyMs: Date.now() - started, bootedAt: Date.now(), error: err };
   }
 
