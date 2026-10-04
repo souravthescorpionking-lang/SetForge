@@ -26,6 +26,10 @@ export async function signup(input: { email: string; password: string; name?: st
   if (existing) throw conflict("An account with this email already exists");
 
   const userId = uuid7();
+  const seed = await buildPerUserSeed(userId, input.timezone);
+
+  // Phase 1: Small fast transaction — user + core reference data.
+  // Must complete within Neon's 5-second interactive transaction timeout.
   const result = await db.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: {
@@ -35,140 +39,149 @@ export async function signup(input: { email: string; password: string; name?: st
         passwordHash: await hashPassword(input.password),
       },
     });
-    const seed = await buildPerUserSeed(userId, input.timezone);
     await tx.userSettings.create({ data: seed.settings });
     await tx.category.createMany({ data: seed.categories });
     await tx.exercise.createMany({ data: seed.exercises });
     await tx.plate.createMany({ data: seed.plates });
     await tx.measurement.createMany({ data: seed.measurements });
-    // Part 5: seeded program/session templates (+ Part 6 §3 metadata, Part 9 §1 variants)
-    for (const r of seed.programs) {
-      await tx.routine.create({
-        data: {
-          id: r.id,
-          userId,
-          name: r.name,
-          notes: r.notes ?? null,
-          kind: r.kind,
-          sortOrder: r.sortOrder,
-          difficulty: r.difficulty ?? undefined,
-          daysPerWeek: r.daysPerWeek ?? undefined,
-          estMinutes: r.estMinutes ?? undefined,
-          highlights: r.highlights ? JSON.stringify(r.highlights) : undefined,
-          // Part 9 §1 template fields
-          tagline: r.tagline ?? undefined,
-          description: r.description ?? undefined,
-          weeks: r.weeks ?? undefined,
-          // Part 9 §7 on-demand metadata
-          intensity: r.intensity ?? undefined,
-          equipmentLevel: r.equipmentLevel ?? undefined,
-          categories: r.categories ? JSON.stringify(r.categories) : undefined,
-          isFeatured: r.isFeatured ?? undefined,
-          durationBand: r.durationBand ?? undefined,
-        },
-      });
-      const dayIds: string[] = [];
-      // SESSION templates: flat days (on-demand workouts are never followed).
-      for (const d of r.days) {
-        dayIds.push(d.id);
-        await tx.routineDay.create({
-          data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: dayIds.length - 1 },
-        });
-        for (const re of d.exercises) {
-          await tx.routineExercise.create({
-            data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
-          });
-          if (re.sets.length > 0) {
-            await tx.predefinedSet.createMany({
-              data: re.sets.map((ps, i) => ({
-                id: ps.id,
-                routineExerciseId: re.id,
-                weight: ps.weight ?? null,
-                reps: ps.reps ?? null,
-                distance: ps.distance ?? null,
-                timeSec: ps.timeSec ?? null,
-                setType: ps.setType ?? null,
-                rpe: ps.rpe ?? null,
-                tempo: ps.tempo ?? null,
-                restPlannedSec: ps.restPlannedSec ?? null,
-                sortOrder: i,
-              })),
-            });
-          }
-        }
-      }
-      if (r.days.length > 0) {
-        await tx.routine.update({
-          where: { id: r.id },
-          data: { phases: JSON.stringify([{ name: "Main", dayIds }]) },
-        });
-      }
-      // Part 9 §1: ROUTINE templates get the full variant → phase → day tree.
-      // Day sortOrder is a running index within the variant so cursor indexing
-      // (variant days ordered by sortOrder) stays stable.
-      for (const v of r.variants) {
-        await tx.programVariant.create({
-          data: {
-            id: v.id,
-            routineId: r.id,
-            difficulty: v.difficulty,
-            daysPerWeek: v.daysPerWeek,
-            equipment: v.equipment ? JSON.stringify(v.equipment) : undefined,
-          },
-        });
-        let running = 0;
-        for (const ph of v.phases) {
-          await tx.programPhase.create({
-            data: {
-              id: ph.id,
-              variantId: v.id,
-              idx: ph.idx,
-              name: ph.name,
-              overview: ph.overview ?? undefined,
-              minutesMin: ph.minutesMin ?? undefined,
-              minutesMax: ph.minutesMax ?? undefined,
-            },
-          });
-          for (const d of ph.days) {
-            await tx.routineDay.create({
-              data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: running, phaseId: ph.id },
-            });
-            running += 1;
-            for (const re of d.exercises) {
-              await tx.routineExercise.create({
-                data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
-              });
-              if (re.sets.length > 0) {
-                await tx.predefinedSet.createMany({
-                  data: re.sets.map((ps, i) => ({
-                    id: ps.id,
-                    routineExerciseId: re.id,
-                    weight: ps.weight ?? null,
-                    reps: ps.reps ?? null,
-                    distance: ps.distance ?? null,
-                    timeSec: ps.timeSec ?? null,
-                    setType: ps.setType ?? null,
-                    rpe: ps.rpe ?? null,
-                    tempo: ps.tempo ?? null,
-                    restPlannedSec: ps.restPlannedSec ?? null,
-                    sortOrder: i,
-                  })),
-                });
-              }
-            }
-          }
-        }
-      }
-    }
-
     return user;
   });
+
+  // Phase 2: Seed program/session templates OUTSIDE the transaction.
+  // Uses individual queries — no transaction timeout risk on serverless Postgres.
+  // If this fails the user still has a working account; programs are non-critical.
+  try {
+    await seedProgramsForUser(userId, seed.programs);
+  } catch (e) {
+    console.warn(`[auth] program seeding failed for ${email} (non-fatal):`, e instanceof Error ? e.message : String(e));
+  }
+
   console.log(`[auth] signup: ${email}`);
   // Part 6 (§4.16): issue the confirmation token when email confirmation is on.
   if (getEnv().AUTH_EMAIL_CONFIRM) {
     await sendEmailConfirmationToken(email);
   }
   return result;
+}
+
+/** Seed program/session templates for a new user. Runs outside the signup
+ *  transaction to avoid Neon's 5s interactive transaction timeout. Each
+ *  program is inserted as its own small transaction. */
+async function seedProgramsForUser(userId: string, programs: Awaited<ReturnType<typeof buildPerUserSeed>>["programs"]) {
+  for (const r of programs) {
+    await db.routine.create({
+      data: {
+        id: r.id,
+        userId,
+        name: r.name,
+        notes: r.notes ?? null,
+        kind: r.kind,
+        sortOrder: r.sortOrder,
+        difficulty: r.difficulty ?? undefined,
+        daysPerWeek: r.daysPerWeek ?? undefined,
+        estMinutes: r.estMinutes ?? undefined,
+        highlights: r.highlights ? JSON.stringify(r.highlights) : undefined,
+        tagline: r.tagline ?? undefined,
+        description: r.description ?? undefined,
+        weeks: r.weeks ?? undefined,
+        intensity: r.intensity ?? undefined,
+        equipmentLevel: r.equipmentLevel ?? undefined,
+        categories: r.categories ? JSON.stringify(r.categories) : undefined,
+        isFeatured: r.isFeatured ?? undefined,
+        durationBand: r.durationBand ?? undefined,
+      },
+    });
+    const dayIds: string[] = [];
+    // SESSION templates: flat days.
+    for (const d of r.days) {
+      dayIds.push(d.id);
+      await db.routineDay.create({
+        data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: dayIds.length - 1 },
+      });
+      for (const re of d.exercises) {
+        await db.routineExercise.create({
+          data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
+        });
+        if (re.sets.length > 0) {
+          await db.predefinedSet.createMany({
+            data: re.sets.map((ps, i) => ({
+              id: ps.id,
+              routineExerciseId: re.id,
+              weight: ps.weight ?? null,
+              reps: ps.reps ?? null,
+              distance: ps.distance ?? null,
+              timeSec: ps.timeSec ?? null,
+              setType: ps.setType ?? null,
+              rpe: ps.rpe ?? null,
+              tempo: ps.tempo ?? null,
+              restPlannedSec: ps.restPlannedSec ?? null,
+              sortOrder: i,
+            })),
+          });
+        }
+      }
+    }
+    if (r.days.length > 0) {
+      await db.routine.update({
+        where: { id: r.id },
+        data: { phases: JSON.stringify([{ name: "Main", dayIds }]) },
+      });
+    }
+    // Part 9 §1: ROUTINE templates get the full variant → phase → day tree.
+    for (const v of r.variants) {
+      await db.programVariant.create({
+        data: {
+          id: v.id,
+          routineId: r.id,
+          difficulty: v.difficulty,
+          daysPerWeek: v.daysPerWeek,
+          equipment: v.equipment ? JSON.stringify(v.equipment) : undefined,
+        },
+      });
+      let running = 0;
+      for (const ph of v.phases) {
+        await db.programPhase.create({
+          data: {
+            id: ph.id,
+            variantId: v.id,
+            idx: ph.idx,
+            name: ph.name,
+            overview: ph.overview ?? undefined,
+            minutesMin: ph.minutesMin ?? undefined,
+            minutesMax: ph.minutesMax ?? undefined,
+          },
+        });
+        for (const d of ph.days) {
+          await db.routineDay.create({
+            data: { id: d.id, userId, routineId: r.id, name: d.name, dayType: d.dayType, sortOrder: running, phaseId: ph.id },
+          });
+          running += 1;
+          for (const re of d.exercises) {
+            await db.routineExercise.create({
+              data: { id: re.id, userId, dayId: d.id, exerciseId: re.exerciseId, sortOrder: re.sortOrder },
+            });
+            if (re.sets.length > 0) {
+              await db.predefinedSet.createMany({
+                data: re.sets.map((ps, i) => ({
+                  id: ps.id,
+                  routineExerciseId: re.id,
+                  weight: ps.weight ?? null,
+                  reps: ps.reps ?? null,
+                  distance: ps.distance ?? null,
+                  timeSec: ps.timeSec ?? null,
+                  setType: ps.setType ?? null,
+                  rpe: ps.rpe ?? null,
+                  tempo: ps.tempo ?? null,
+                  restPlannedSec: ps.restPlannedSec ?? null,
+                  sortOrder: i,
+                })),
+              });
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 export async function login(input: { email: string; password: string }) {
